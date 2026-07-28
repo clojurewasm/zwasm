@@ -3,6 +3,64 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-526"
+    layer: "docs"
+    status: "note"
+    front: D-onboarding
+    description: |-
+      External-contributor reproducibility audit (2026-07-28, prompted by
+      ClojureWasm Discussion #11). A stranger's `git clone` builds, tests, and
+      gets full 3-OS CI gating with ZERO host-specific setup; everything that
+      "breaks" is maintainer-only tooling that is env-overridable, gracefully
+      SKIP/WARN-ing, or explicitly optional. The real liability is DOC STALENESS.
+      Gaps:
+      (1) [prereq, undocumented] `zig build test-all` needs `wasm-tools` at build
+          time (builds spectest.wasm) but README/CONTRIBUTING imply "just Zig";
+          only `zig build test` is truly toolchain-free. Add wasm-tools (+ optional
+          wasmtime) to README install notes with the `.github/versions.lock` pins
+          (wasm-tools 1.251.0, wasmtime 45.0.0).
+      (2) [staleness] `.claude/CLAUDE.md` points reference clones at a non-existent
+          `ClojureWasmFromScratch/` + `~/zwasm/private/…`; the real downstream
+          consumer is `~/Documents/MyProducts/ClojureWasm/` (correct in
+          `.dev/reference_clones.md`). Reconcile.
+      (3) [staleness] retired working-dir `~/Documents/MyProducts/zwasm_from_scratch/`
+          still cited in `.dev/ROADMAP.md`, `continue/GATE.md`, `STOP_BUCKETS.md`
+          though README/CLAUDE say it was unified into `zwasm/`. Sweep.
+      (4) [staleness] `continue/SKILL.md` BODY (Steps 6-8 self-re-arm,
+          ScheduleWakeup, "loop never voluntarily exits", "fully AUTONOMOUS
+          campaigns") reads as a live campaign under a "RETIRED" banner. Add
+          per-section MAINTENANCE markers or archive the sub-docs (audit_scaffolding
+          skill owns this class).
+      (5) [staleness] `scripts/check_three_host_diff.sh` hardcodes drifted pass
+          totals (e.g. 212 passed, 44/55) vs current 56-fixture reality (handover).
+          Re-anchor or derive.
+      (6) [onboarding] forced-Japanese chat (settings.json outputStyle +
+          output_styles/japanese.md) has no outsider-facing "how to disable" note
+          (code/commits/docs are all English — only chat is affected).
+      (7) [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
+          in copy-paste commands even though the scripts accept WASM_SPEC_REPO /
+          WASM_TESTSUITE_REPO / WASMTIME_REPO / WASM_PROPOSAL_ROOT overrides —
+          align the runbook to the env vars, and note the reference clones are
+          absent even locally (spec re-vendor is maintainer-only; the baked corpora
+          under test/spec/ ship in the clone).
+      (8) [cleanup] `scripts/win64_debug/attach_dump.sh` +
+          `.claude/skills/debug_jit_auto/RECIPES.md` hardcode literal
+          `Documents/MyProducts/zwasm` / `/c/Users/shota/…` with no override.
+      WORKS (fair): Zig 0.16.0 pinned coherently (flake.nix / versions.lock /
+      README); `zig build test` toolchain-free, `test-all` needs only wasm-tools;
+      committed spec corpus + realworld fixtures run with NO external clone; git
+      hooks are `git rev-parse`-relative + auto-activated by the flake shellHook;
+      `.github/workflows/ci.yml` runs the SAME `ci_gate.sh` on mac/linux/windows
+      runners with no maintainer hardware (a fork PR gets full 3-OS gating — the
+      strongest reproducibility story); Homebrew tap + prebuilt releases for end
+      users; the SSH 3-host farm is WARN-and-continue (never hard-fails) and
+      downgraded to optional pre-PR pre-flight (CI's ci-required is authoritative).
+    first_raised: "2026-07-28"
+    last_reviewed: "2026-07-28"
+    refs: |-
+      ClojureWasm Discussion #11 (dev-process Q from ieugen); companion ClojureWasm
+      debt D-565 (same audit, other repo). audit_scaffolding skill owns the
+      staleness class.
   - id: "D-523"
     layer: "test"
     status: "note"

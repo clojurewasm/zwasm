@@ -96,6 +96,12 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
 - **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
 - D-305 long-tail (niche CM shapes; `component_graph.zig` 1895/2000 split first);
   D-464 async adversarial; D-462 feature-separation (user-gated). blocked-by rows = parked.
+- **D-526** — external-contributor reproducibility / doc-staleness sweep
+  (fresh-clone onboarding audit, ClojureWasm Discussion #11). Build/test + the
+  3-OS GitHub CI gate reproduce cleanly with zero host setup; gaps are undocumented
+  `wasm-tools` prereq for `test-all` + doc rot (`zwasm_from_scratch` refs, stale
+  `continue/SKILL.md` body under its RETIRED banner, drifted `check_three_host_diff`
+  totals) + no Japanese-chat opt-out note. Companion: ClojureWasm D-565.
 
 ## State (release = USER-ONLY, ADR-0156)
 
