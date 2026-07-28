@@ -46,9 +46,11 @@ paths. Pre-redesign investigation: `~/zwasm/private/v2-investigation/`.
 
 Public project. **English by default** for code, comments, identifiers,
 commit messages, README, ROADMAP, ADRs, `.dev/`, `.claude/`, all config.
-**Japanese** for chat replies only. Enforced by
-[`.claude/output_styles/japanese.md`](output_styles/japanese.md)
-+ SessionStart hook.
+**Japanese** for chat replies only — set by the `Japanese` output style
+([`.claude/output_styles/japanese.md`](output_styles/japanese.md), via
+`outputStyle` in `settings.json`). That single setting is sufficient; the
+SessionStart hook injects no language directive. To work in another
+language, override `outputStyle` per-machine in `settings.local.json`.
 
 **Bilingual exception**: meta-prose pointers ("詳細は <ref> を参照。")
 and culturally-loaded one-word labels (例: 気付いたら即追加, 裏取り)

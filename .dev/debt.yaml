@@ -34,9 +34,10 @@ entries:
       (5) [staleness] `scripts/check_three_host_diff.sh` hardcodes drifted pass
           totals (e.g. 212 passed, 44/55) vs current 56-fixture reality (handover).
           Re-anchor or derive.
-      (6) [onboarding] forced-Japanese chat (settings.json outputStyle +
-          output_styles/japanese.md) has no outsider-facing "how to disable" note
-          (code/commits/docs are all English — only chat is affected).
+      (6) [onboarding] forced-Japanese chat FIXED 2026-07-29 — the CLAUDE.md
+          language policy now documents overriding `outputStyle` in
+          settings.local.json (the SessionStart hook injects no language directive;
+          code/commits/docs are English anyway).
       (7) [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
           in copy-paste commands even though the scripts accept WASM_SPEC_REPO /
           WASM_TESTSUITE_REPO / WASMTIME_REPO / WASM_PROPOSAL_ROOT overrides —
