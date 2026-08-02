@@ -94,6 +94,7 @@ pub fn build(b: *std.Build) void {
     // `enable_gc=false` is the additional source-level strip for
     // module-construction code paths.
     const enable_gc = b.option(bool, "gc", "Enable WasmGC heap+collector compile-in (default: false; per ADR-0115 §3)") orelse false;
+    const bundle_compiler_rt = b.option(bool, "compiler-rt", "Bundle Zig compiler-rt into the static library (default: false)") orelse false;
 
     // ADR-0193 — the Component Model + WASI-P2 host is gated by the WASI
     // tier, NOT a separate `-Dcomponent` flag (removed — it duplicated the
@@ -1110,6 +1111,7 @@ pub fn build(b: *std.Build) void {
         .linkage = .static,
         .root_module = core,
     });
+    c_api_lib.bundle_compiler_rt = bundle_compiler_rt;
 
     const c_host_mod = createSanitizedModule(b, sanitize_opts, .{
         .target = target,
