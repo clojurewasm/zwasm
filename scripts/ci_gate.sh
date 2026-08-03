@@ -8,8 +8,9 @@
 #   Core (every OS):  zig fmt --check + zig build test-all
 #   Extended (ZWASM_CI_EXTENDED=1; Unix legs): lint + build-option DCE +
 #     ReleaseSafe JIT smoke (D-245) + AOT cross-compile portability +
-#     zone_check + spill_aware_check (host-independent source checks,
-#     promoted to CI 2026-07-03 as real merge gates)
+#     external system-linker consumer (test_extlink.sh) + zone_check +
+#     spill_aware_check (host-independent source checks, promoted to CI
+#     2026-07-03 as real merge gates)
 #
 # Usage:
 #   bash scripts/ci_gate.sh                    # core gate on this host
@@ -54,6 +55,13 @@ if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
 
     echo "[ci_gate] extended: AOT cross-compile portability (§12.3)"
     bash scripts/check_aot_cross_compile.sh
+
+    # Wired 2026-08-03 (issue #153): the external non-zig link line was
+    # documented but never gated, so a false "zig bundles compiler-rt into the
+    # .a" claim reached a downstream consumer as a link failure. Unix legs only
+    # (the script assumes a POSIX `cc` + `ar`).
+    echo "[ci_gate] extended: external system-linker consumer (test_extlink.sh, D-312)"
+    bash scripts/test_extlink.sh
 
     # Host-independent source checks (promoted to CI 2026-07-03 per the
     # scaffolding-decisions batch). They walk src/ only, so the Unix extended

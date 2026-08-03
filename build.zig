@@ -94,7 +94,11 @@ pub fn build(b: *std.Build) void {
     // `enable_gc=false` is the additional source-level strip for
     // module-construction code paths.
     const enable_gc = b.option(bool, "gc", "Enable WasmGC heap+collector compile-in (default: false; per ADR-0115 §3)") orelse false;
-    const bundle_compiler_rt = b.option(bool, "compiler-rt", "Bundle Zig compiler-rt into the static library (default: false)") orelse false;
+    // Zig does NOT bundle compiler-rt into a static library by default (the
+    // implicit default only covers exe + dynamic lib), so a NON-zig linker
+    // consuming libzwasm.a is left with undefined `__zig_probe_stack`
+    // (x86_64) and the `__divti3`-class builtins. Opt-in, same spelling as v1.
+    const bundle_compiler_rt = b.option(bool, "compiler-rt", "Bundle Zig compiler-rt into libzwasm.a (default: false; set true for external non-zig linkers)") orelse false;
 
     // ADR-0193 — the Component Model + WASI-P2 host is gated by the WASI
     // tier, NOT a separate `-Dcomponent` flag (removed — it duplicated the
@@ -1137,11 +1141,12 @@ pub fn build(b: *std.Build) void {
 
     // `zig build static-lib` — install libzwasm.a + the public C headers into
     // zig-out/ for non-Zig consumers (Rust/C). External (non-zig) linkers must
-    // add `-lm` (zwasm references libm: trunc/truncf/…; verified on Linux gcc)
+    // build with `-Dcompiler-rt=true` (see the option above) and add `-lm`
+    // (zwasm references libm: trunc/truncf/…; verified on Linux gcc)
     // and, on Linux, `-Wl,-z,noexecstack` (zig-emitted objects currently lack a
     // `.note.GNU-stack` section — Zig upstream limitation, D-312; harmless
     // deprecation warning otherwise). Respects -Dgc / -Dcomponent / -Dtarget.
-    const static_lib_step = b.step("static-lib", "Install libzwasm.a + public headers (C/Rust consumers; link with -lm [+ -Wl,-z,noexecstack on Linux])");
+    const static_lib_step = b.step("static-lib", "Install libzwasm.a + public headers (C/Rust consumers; build with -Dcompiler-rt=true, link with -lm [+ -Wl,-z,noexecstack on Linux])");
     const install_static_lib = b.addInstallArtifact(c_api_lib, .{});
     static_lib_step.dependOn(&install_static_lib.step);
     inline for (.{ "wasm.h", "wasi.h", "zwasm.h" }) |h| {

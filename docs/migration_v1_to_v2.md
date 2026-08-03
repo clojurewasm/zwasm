@@ -120,7 +120,7 @@ zwasm_store_set_wasi(store, cfg);   // takes ownership of cfg
 **Building / linking from C or Rust:**
 
 ```sh
-zig build static-lib     # → zig-out/lib/libzwasm.a + zig-out/include/{wasm,wasi,zwasm}.h
+zig build static-lib -Dcompiler-rt=true   # → zig-out/lib/libzwasm.a + zig-out/include/{wasm,wasi,zwasm}.h
 
 cc -Izig-out/include app.c zig-out/lib/libzwasm.a -lm                      # macOS
 cc -Izig-out/include app.c zig-out/lib/libzwasm.a -lm -Wl,-z,noexecstack   # Linux
@@ -128,8 +128,14 @@ cc -Izig-out/include app.c zig-out/lib/libzwasm.a -lm -Wl,-z,noexecstack   # Lin
 
 `-lm` is required (zwasm references `trunc`/`truncf`/…). On Linux,
 `-Wl,-z,noexecstack` silences a benign linker warning (the link succeeds without
-it). No `compiler-rt` shim is needed — Zig bundles it into the archive (v1 needed
-`-Dcompiler-rt`).
+it).
+
+`-Dcompiler-rt=true` (same spelling as v1) bundles Zig's compiler-rt into the
+archive. Zig does **not** do this for a static library by default, so without the
+flag an external linker fails on `__zig_probe_stack` (x86_64) and can be left
+short of the `__divti3`-class builtins on other targets. Omit the flag only when
+the consumer links through Zig itself (`b.linkLibrary`), which supplies its own
+compiler-rt.
 
 ### 2.3 Zig API users
 
@@ -309,5 +315,5 @@ To build and run:
 zig build                       # compile (needs Zig 0.16.0)
 zig build run -- run f.wasm     # run a module through the CLI
 zig build test-all              # all enabled test layers
-zig build static-lib            # libzwasm.a + headers for C/Rust consumers
+zig build static-lib -Dcompiler-rt=true   # libzwasm.a + headers for C/Rust consumers
 ```

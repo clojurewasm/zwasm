@@ -3,14 +3,20 @@
 # linker (cc/gcc/clang), the path external C/Rust consumers actually use.
 #
 # `zig build test-c-api` links the lib via zig's own driver, which auto-pulls
-# libm + bundled compiler-rt and never surfaces the system-linker gaps a real
+# libm + its own compiler-rt and never surfaces the system-linker gaps a real
 # downstream hits. This test uses the documented external link line:
 #
+#     zig build static-lib -Dcompiler-rt=true
 #     cc -Iinclude hello.c libzwasm.a -lm [-Wl,-z,noexecstack on Linux]
 #
 # Catches regressions like a new undefined symbol beyond libm, or a PIC/reloc
 # break. The `.note.GNU-stack` exec-stack warning on Linux is expected and
 # benign (Zig upstream limitation, D-312) — mitigated by `-z noexecstack`.
+#
+# `-Dcompiler-rt=true` is load-bearing, not decoration: Zig's implicit
+# bundle_compiler_rt default only covers exe + dynamic lib, so without the flag
+# the archive leaves `__zig_probe_stack` (x86_64) and the `__divti3`-class
+# builtins undefined and a real downstream fails to link (issue #153).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,8 +24,15 @@ CC="${CC:-cc}"
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
-echo "[test_extlink] zig build static-lib"
-zig build static-lib
+echo "[test_extlink] zig build static-lib -Dcompiler-rt=true"
+zig build static-lib -Dcompiler-rt=true
+
+echo "[test_extlink] archive carries compiler-rt"
+if ! ar t zig-out/lib/libzwasm.a | grep -q '^compiler_rt\.o$'; then
+    echo "[test_extlink] FAIL: compiler_rt.o missing from libzwasm.a"
+    ar t zig-out/lib/libzwasm.a
+    exit 1
+fi
 
 LDFLAGS=(-lm)
 if [ "$(uname -s)" = "Linux" ]; then LDFLAGS+=(-Wl,-z,noexecstack); fi

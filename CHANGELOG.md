@@ -10,7 +10,25 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 ## [Unreleased]
 
-_No changes yet._
+### Added
+
+- **`-Dcompiler-rt=true` for `zig build static-lib`** — bundles Zig's
+  compiler-rt into `libzwasm.a` so an external non-Zig linker (rustc,
+  gcc, clang) can resolve `__zig_probe_stack` (x86_64) and the
+  `__divti3`-class builtins. Same spelling as the v1 option. Default
+  stays off, and the default archive is byte-identical to before.
+  Thanks to [@jtakakura](https://github.com/jtakakura) for the report
+  and the fix (#153, #154).
+
+### Fixed
+
+- **Docs corrected**: `docs/migration_v1_to_v2.md` claimed no
+  `compiler-rt` flag was needed because "Zig bundles it into the
+  archive". That is false — Zig's implicit default covers executables
+  and dynamic libraries only, never a static library. The external
+  link line now builds with `-Dcompiler-rt=true`, and
+  `scripts/test_extlink.sh` asserts `compiler_rt.o` is in the archive
+  and runs on the CI extended leg so the claim can no longer rot.
 
 ## [2.3.0] - 2026-07-17
 

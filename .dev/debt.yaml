@@ -869,10 +869,16 @@ entries:
       FINAL link; a static `.a` is just an object archive. DISCHARGE: when Zig
       emits `.note.GNU-stack` for its objects (watch ziglang/zig), drop the
       documented consumer flag. Companion fact (not a defect): external linkers
-      also need `-lm` (zwasm references trunc/truncf/…); documented. No compiler-rt
-      gap (zig bundles it into the .a — Q4 verified, better than v1 #23).
+      also need `-lm` (zwasm references trunc/truncf/…); documented. CORRECTION
+      (2026-08-03, issue #153 / PR #154): the earlier "no compiler-rt gap (zig
+      bundles it into the .a)" claim here was FALSE and shipped the same lie into
+      docs/migration_v1_to_v2.md — Zig's implicit bundle_compiler_rt default only
+      covers exe + dynamic lib, so the default `.a` left `__zig_probe_stack`
+      (x86_64) and the `__divti3`-class builtins undefined for external linkers.
+      Fixed by the opt-in `-Dcompiler-rt=true` build option (v1-parity spelling);
+      covered by scripts/test_extlink.sh.
     first_raised: "2026-06-08"
-    last_reviewed: "2026-06-08"
+    last_reviewed: "2026-08-03"
     refs: |-
       build.zig (static-lib step); docs/migration_v1_to_v2.md (C-API external link line); scripts/test_extlink.sh
     front: B-hardening
