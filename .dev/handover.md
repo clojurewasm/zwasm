@@ -13,39 +13,29 @@ a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign; no cron self-re-arm.
 
-## Binary-size campaign — CLOSED 2026-07-16 (ADR-0204 Implemented, v2.2.1)
+## External-consumer compiler-rt gap — CLOSED 2026-08-03 (#153/#154 + follow-up)
 
-Trigger = dogfooding mailbox `from_cljw_05` (cljw measures zwasm at 44% of
-its shipped code). Kickoff #144 (measured attribution re-prioritized the
-cljw asks) · stage 1 #145 (D-522: shared noinline fpBridge1/2 bodies —
-jit_host_bridge 1,311→232 KB, **CLI −21%** ReleaseSafe, −8% ReleaseFast;
-DA-critique 20/20) · close #146 (refutation record + v2.2.1). Key outcomes:
-- **D-522 stage 1 SHIPPED**; stage 2 (slot-axis, ~200 KB) re-scored →
-  demand-driven note in debt.yaml.
-- **D-521 DISCHARGED — size premise refuted by measurement**: fn-ptr-table
-  stage A left `emit.compile` at 707 KB, +28.8 KB binary → reverted. The
-  giant symbol is once-called-handler AGGREGATION, not duplication. Lesson
-  `2026-07-16-outlining-once-called-handlers-size-neutral.md` (predictive
-  question = "how many call sites share this code?", not symbol size).
-- ReleaseFast `base` had DOUBLED unnoticed since 2026-06-12 (1.97→3.88 MB;
-  series cadence = phase-boundary only); now 3.56 MB. cljw replies
-  `to_cljw_05/06.md` in the mailbox (x86_64 emitter already exists +
-  4.0 MB budget-line revisit suggestion).
+Contributor `jtakakura` hit undefined `__zig_probe_stack` linking `libzwasm.a`
+from zwasm-rust-sdk. Root: Zig's implicit `bundle_compiler_rt` default covers
+exe + dynamic lib ONLY, so a static `.a` never carries it — while docs and the
+D-312 row both claimed the opposite. Fix = opt-in `-Dcompiler-rt=true` (#154,
+merged with contributor authorship). Follow-up corrected docs + D-312, made
+`test_extlink.sh` assert `compiler_rt.o` in the archive, and wired that script
+into `ci_gate.sh` extended (it had never been gated). Lesson
+`2026-08-03-ungated-negative-doc-claim-rotted-into-a-lie.md`.
 
-## AOT-full-fidelity campaign — CLOSED 2026-07-09 (ADR-0203 Implemented)
+## Closed campaigns (residual debt only — details in the cited ADR/CHANGELOG)
 
-PRs #136-#142: format v0.5 full-fidelity, run-path swap (mini-runtime
-DELETED), elision serialization, `--cache` (D-508). `zig build
-test-aot-diff` 63/63 incl. cache lanes. Residual = D-515(2) + D-514
-(debt.yaml). Details: ADR-0203 + CHANGELOG 2.2.0.
-
-## WASI-0.3.0-official sweep — 2026-07-17 (branch develop/wasm30-wasi03-inventory-sweep)
-
-**WASI 0.3.0 released 2026-06-11** (spec at `~/Documents/OSS/WASI/`, clones
-pulled). Docs truth-sweep (README 0.3 row, --help/canon.zig/3.0-runner lies,
-`-Dgc` is INERT → D-525) + `system-clock`/`get-resolution` host support
-(instant{s64,u32}, DA check #12). Fixtures import 0.2.6 → D-523; async
-wait-until/wait-for → D-524. Full diff = proposal_watch 2026-07-17 entry.
+- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1, PRs #144-#146). D-522
+  stage 1 shipped (CLI −21% ReleaseSafe); stage 2 demand-driven. **D-521
+  DISCHARGED — premise refuted by measurement** (lesson
+  `2026-07-16-outlining-once-called-handlers-size-neutral.md`).
+- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, PRs #136-#142).
+  `test-aot-diff` 63/63. Residual = D-515(2) + D-514.
+- **WASI-0.3.0-official sweep** — 2026-07-17. Docs truth-sweep (`-Dgc` is INERT
+  → D-525) + `system-clock`/`get-resolution` host support. Fixtures still
+  import 0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff =
+  proposal_watch 2026-07-17 entry.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 

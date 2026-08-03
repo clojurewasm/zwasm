@@ -874,7 +874,9 @@ entries:
       bundles it into the .a)" claim here was FALSE and shipped the same lie into
       docs/migration_v1_to_v2.md — Zig's implicit bundle_compiler_rt default only
       covers exe + dynamic lib, so the default `.a` left `__zig_probe_stack`
-      (x86_64) and the `__divti3`-class builtins undefined for external linkers.
+      (measured: x86_64-macos only; absent on x86_64-linux/windows-gnu, and no
+      non-Zig runtime provides it) and the `__divti3`-class builtins (covered in
+      practice by the consumer's clang_rt/libgcc/compiler_builtins) undefined.
       Fixed by the opt-in `-Dcompiler-rt=true` build option (v1-parity spelling);
       covered by scripts/test_extlink.sh.
     first_raised: "2026-06-08"

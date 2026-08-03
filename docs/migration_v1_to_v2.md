@@ -131,11 +131,13 @@ cc -Izig-out/include app.c zig-out/lib/libzwasm.a -lm -Wl,-z,noexecstack   # Lin
 it).
 
 `-Dcompiler-rt=true` (same spelling as v1) bundles Zig's compiler-rt into the
-archive. Zig does **not** do this for a static library by default, so without the
-flag an external linker fails on `__zig_probe_stack` (x86_64) and can be left
-short of the `__divti3`-class builtins on other targets. Omit the flag only when
-the consumer links through Zig itself (`b.linkLibrary`), which supplies its own
-compiler-rt.
+archive. Zig does **not** do this for a static library by default — the implicit
+default covers executables and dynamic libraries only. Without the flag the
+archive leaves `__zig_probe_stack` undefined on `x86_64-macos`, where no non-Zig
+runtime provides it, and the `__divti3`-class builtins undefined everywhere
+(those usually resolve against the consumer's own clang_rt / libgcc /
+`compiler_builtins`). Omit the flag only when the consumer links through Zig
+itself (`b.linkLibrary`), which supplies its own compiler-rt.
 
 ### 2.3 Zig API users
 

@@ -97,7 +97,10 @@ pub fn build(b: *std.Build) void {
     // Zig does NOT bundle compiler-rt into a static library by default (the
     // implicit default only covers exe + dynamic lib), so a NON-zig linker
     // consuming libzwasm.a is left with undefined `__zig_probe_stack`
-    // (x86_64) and the `__divti3`-class builtins. Opt-in, same spelling as v1.
+    // (x86_64-macos) and the `__divti3`-class builtins. The latter are usually
+    // covered by the consumer's own runtime (clang_rt / libgcc / Rust's
+    // compiler_builtins); `__zig_probe_stack` has no non-Zig provider, so it
+    // is a hard link failure (#153). Opt-in, same spelling as v1.
     const bundle_compiler_rt = b.option(bool, "compiler-rt", "Bundle Zig compiler-rt into libzwasm.a (default: false; set true for external non-zig linkers)") orelse false;
 
     // ADR-0193 — the Component Model + WASI-P2 host is gated by the WASI

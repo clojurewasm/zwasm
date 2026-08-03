@@ -15,8 +15,9 @@
 #
 # `-Dcompiler-rt=true` is load-bearing, not decoration: Zig's implicit
 # bundle_compiler_rt default only covers exe + dynamic lib, so without the flag
-# the archive leaves `__zig_probe_stack` (x86_64) and the `__divti3`-class
-# builtins undefined and a real downstream fails to link (issue #153).
+# the archive leaves `__zig_probe_stack` (x86_64-macos — no non-Zig provider
+# exists, hence the hard failure in issue #153) and the `__divti3`-class
+# builtins undefined.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
