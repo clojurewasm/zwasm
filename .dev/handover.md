@@ -5,10 +5,12 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.3.0 is the release line** (tag cut 2026-07-17, USER-GRANTED in-session
-per ADR-0156 — WASI-0.3.0-official sweep + system-clock + Homebrew tap
-`brew install clojurewasm/tap/zwasm`; v2.2.1 = 2026-07-16 binary-size line,
-v2.2.0 = 2026-07-09 AOT line). v1 frozen at `v1.11.1`. Dev model: cut
+**v2.4.0 is the release line** (tag cut 2026-08-03, USER-GRANTED in-session
+per ADR-0156 — external-consumer release: `-Dcompiler-rt` for non-Zig static
+linking (#154) + sub-3.0 GC-cohort DCE fix (#150, v1_0 `.text` −11.6%);
+cljw re-pinned to it. v2.3.0 = 2026-07-17 WASI-0.3.0 sweep + Homebrew tap
+`brew install clojurewasm/tap/zwasm`; v2.2.1 = binary-size line, v2.2.0 =
+AOT line). v1 frozen at `v1.11.1`. Dev model: cut
 a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign; no cron self-re-arm.

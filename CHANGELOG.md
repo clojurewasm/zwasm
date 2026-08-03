@@ -10,6 +10,14 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 ## [Unreleased]
 
+_No changes yet._
+
+## [2.4.0] - 2026-08-03
+
+External-consumer release: static-library linking from non-Zig
+toolchains now works without a workaround, and sub-3.0 builds shed the
+GC code that had been leaking into them.
+
 ### Added
 
 - **`-Dcompiler-rt=true` for `zig build static-lib`** — bundles Zig's
@@ -29,6 +37,15 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
   link line now builds with `-Dcompiler-rt=true`, and
   `scripts/test_extlink.sh` asserts `compiler_rt.o` is in the archive
   and runs on the CI extended leg so the claim can no longer rot.
+
+- **Sub-3.0 builds no longer carry the WasmGC code path.** The
+  GC/subtyping JIT helpers are held as `JitRuntime` function-pointer
+  fields whose default is the real helper (ADR-0203 D1), and a field
+  default takes the address unconditionally — so the whole GC cohort
+  stayed live even in a `-Dwasm=1.0` build. Each helper body is now
+  comptime-guarded, letting DCE reclaim it: `-Dwasm=1.0 -Dwasi=p1`
+  `.text` drops 2,957,749 → 2,614,800 bytes (−11.6%). Wasm 3.0 builds
+  are unaffected (#150).
 
 ## [2.3.0] - 2026-07-17
 
