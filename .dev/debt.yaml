@@ -3,6 +3,42 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-533"
+    layer: "code"
+    status: "resolved"
+    front: D-wasi
+    description: |-
+      **A capture buffer had no bound, and no other budget supplied one.** An
+      embedder that captures guest stdout/stderr (`runWasmCapturedFull`, the
+      WASI-P2/P3 test harnesses) handed zwasm an `ArrayList` that `fd_write`
+      appended to without limit. Fuel bounds INSTRUCTIONS, and bytes-per-
+      instruction is entirely the guest's choice, so fuel does not bound this.
+
+      MEASURED from the consumer side (ClojureWasm `wasm/run`, its D-349): a
+      25-line WASI guest looping on a 64-byte `fd_write` buffered exactly
+      64,000,000 bytes for 1,000,000 fuel — 64 bytes per unit of fuel. Under
+      zwasm's own default of 1e9 fuel that is ~64 GB of host memory before the
+      fuel trap fires. A 1e8-fuel run (~6.4 GB) had to be killed at 120 s.
+
+      FIX: `Host.max_capture_bytes` (`src/wasi/host.zig`) — null = unbounded,
+      which is what every existing caller had and still gets. Honoured at the
+      single append site in `writeSlice` (`src/wasi/fd.zig`): the prefix that
+      fits is KEPT and the errno is `.nospc`, the one a real fd gives when the
+      device is full, rather than a silent accept. `Host.capture_truncated`
+      lets the embedder report it; zwasm does not decide what truncation means
+      to the caller. Threaded through `cli.run.Limits.max_output_bytes` so a
+      captured run caps the same way it caps fuel and memory. The cap is PER
+      BUFFER, so capping both stdout and stderr bounds an embedder at 2x.
+      Regression: `fdWrite: max_capture_bytes bounds a capture buffer and
+      reports nospc` in `src/wasi/fd.zig` — covers the exact-fit, partial-fit,
+      no-room, and null-cap-is-unbounded cases.
+    refs: |-
+      src/wasi/host.zig (`max_capture_bytes` / `capture_truncated`);
+      src/wasi/fd.zig (`writeSlice` append site + the regression test);
+      src/cli/run.zig (`Limits.max_output_bytes`); ClojureWasm D-349 (the
+      consumer-side row this was measured from).
+    first_raised: "2026-08-04"
+    last_reviewed: "2026-08-04"
   - id: "D-527"
     layer: "code"
     status: "resolved"

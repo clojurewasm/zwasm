@@ -131,6 +131,24 @@ pub const Host = struct {
     /// will free / `toOwnedSlice` them with, so the buffer's grow-allocator and
     /// the caller's free-allocator agree (no cross-allocator invalid-free).
     capture_alloc: ?Allocator = null,
+    /// Cap on how many bytes each capture buffer may accumulate. `null` =
+    /// unbounded, which is what every caller got before this existed and what
+    /// they still get by default.
+    ///
+    /// Capture buffers hold GUEST-CHOSEN volumes of data in HOST memory, and no
+    /// other budget bounds them: fuel bounds instructions, and bytes-per-
+    /// instruction is entirely the guest's choice. Measured from cljw
+    /// (`wasm/run`, its D-349): a guest looping on a 64-byte `fd_write` buffered
+    /// 64,000,000 bytes for 1,000,000 fuel — 64 bytes per unit — so under
+    /// zwasm's own 1e9 default fuel the host would buffer ~64 GB before the fuel
+    /// trap fired.
+    ///
+    /// The cap is PER BUFFER, so an embedder capping both stdout and stderr
+    /// bounds itself at 2x this number.
+    max_capture_bytes: ?u64 = null,
+    /// Set once a capture buffer hit `max_capture_bytes`. The embedder reports
+    /// it; zwasm does not decide what a truncated capture means to the caller.
+    capture_truncated: bool = false,
     /// Optional source of bytes for `fd_read` over fd 0 (stdin).
     /// Tests set both; `stdin_pos` is mutated as the guest reads.
     stdin_bytes: ?[]const u8 = null,

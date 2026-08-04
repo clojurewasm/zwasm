@@ -163,7 +163,31 @@ pub fn writeSlice(host: *Host, fd: p1.Fd, bytes: []const u8) p1.Errno {
     else
         null;
 
-    if (buffer) |b| b.appendSlice(host.capture_alloc orelse host.alloc, bytes) catch return .nomem;
+    if (buffer) |b| {
+        // A capped capture reports `.nospc` rather than silently accepting the
+        // write: the guest asked to write N bytes and fewer were kept, and
+        // "no space left on device" is the errno a real fd would give. Report
+        // it AFTER keeping what fits, so the caller sees a prefix rather than
+        // losing the tail of the last useful line.
+        var to_write = bytes;
+        var capped = false;
+        if (host.max_capture_bytes) |cap| {
+            if (b.items.len >= cap) {
+                host.capture_truncated = true;
+                return .nospc;
+            }
+            const room = cap - b.items.len;
+            if (bytes.len > room) {
+                to_write = bytes[0..@intCast(room)];
+                capped = true;
+            }
+        }
+        b.appendSlice(host.capture_alloc orelse host.alloc, to_write) catch return .nomem;
+        if (capped) {
+            host.capture_truncated = true;
+            return .nospc;
+        }
+    }
     if (file_opt) |f| {
         // Positional write at the slot's logical cursor + advance (mirrors
         // fdReadFile; std.Io.File is positional-only).
@@ -1744,4 +1768,50 @@ test "pathUnlinkFile: non-preopen dirfd is notdir; bad fd is badf; .. escape is 
     // a `..` traversal is rejected before any fd work.
     @memcpy(mem[0..3], "../");
     try testing.expectEqual(p1.Errno.notcapable, pathUnlinkFile(&h, &mem, 1, 0, 3));
+}
+
+test "fdWrite: max_capture_bytes bounds a capture buffer and reports nospc" {
+    // D-349, found from cljw. Nothing else bounds a capture buffer: fuel bounds
+    // instructions, and bytes-per-instruction is the guest's choice. Measured
+    // from the consumer side, a 64-byte-per-iteration guest buffered 64 MB per
+    // 1e6 fuel — so ~64 GB under zwasm's own default fuel.
+    var h = try Host.init(testing.allocator);
+    defer h.deinit();
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    h.stdout_buffer = &capture;
+    h.max_capture_bytes = 5;
+
+    var mem: [32]u8 = @splat(0);
+    @memcpy(mem[8..12], "abcd");
+    std.mem.writeInt(u32, mem[0..4], 8, .little); // ciovec.buf
+    std.mem.writeInt(u32, mem[4..8], 4, .little); // ciovec.len = 4
+
+    // First write fits entirely.
+    try testing.expectEqual(p1.Errno.success, fdWrite(&h, &mem, 1, 0, 1, 16));
+    try testing.expectEqualStrings("abcd", capture.items);
+    try testing.expect(!h.capture_truncated);
+
+    // Second write has room for one byte: the prefix is KEPT (a caller is
+    // better served by a truncated tail than by losing the whole write) and the
+    // errno is nospc, the one a real fd gives when the device is full.
+    try testing.expectEqual(p1.Errno.nospc, fdWrite(&h, &mem, 1, 0, 1, 16));
+    try testing.expectEqualStrings("abcda", capture.items);
+    try testing.expect(h.capture_truncated);
+
+    // Third write has no room at all — still nospc, and nothing grows.
+    try testing.expectEqual(p1.Errno.nospc, fdWrite(&h, &mem, 1, 0, 1, 16));
+    try testing.expectEqual(@as(usize, 5), capture.items.len);
+
+    // A null cap is the default and is unbounded — the behaviour every existing
+    // caller had before this axis existed.
+    var h2 = try Host.init(testing.allocator);
+    defer h2.deinit();
+    var cap2: std.ArrayList(u8) = .empty;
+    defer cap2.deinit(testing.allocator);
+    h2.stdout_buffer = &cap2;
+    var i: usize = 0;
+    while (i < 10) : (i += 1) try testing.expectEqual(p1.Errno.success, fdWrite(&h2, &mem, 1, 0, 1, 16));
+    try testing.expectEqual(@as(usize, 40), cap2.items.len);
+    try testing.expect(!h2.capture_truncated);
 }

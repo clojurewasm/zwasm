@@ -38,6 +38,12 @@ pub const Limits = struct {
     /// (`--max-table-elements`); completes the JIT sandbox triad.
     max_table_elements: ?u64 = null,
     timeout_ms: ?u64 = null,
+    /// D-349 (found from cljw) — cap on each capture buffer. `null` = unbounded.
+    /// The other axes bound the guest's COMPUTE; this one bounds the host memory
+    /// the guest can make the runner hold, which nothing else does: fuel bounds
+    /// instructions and bytes-per-instruction is the guest's choice. Only
+    /// meaningful on a captured run; ignored when output goes to real stdio.
+    max_output_bytes: ?u64 = null,
     /// D-496 — engine for the C-API captured-run path. `.auto` (default) =
     /// JIT-preferring with interp fallback (the `.auto`→JIT flip); `.interp`
     /// forces interp (CLI `--engine interp`). `--engine jit` uses the dedicated
@@ -45,7 +51,7 @@ pub const Limits = struct {
     engine: @import("../api/instance.zig").EngineKind = .auto,
 
     pub fn any(self: Limits) bool {
-        return self.fuel != null or self.max_memory_bytes != null or self.max_table_elements != null or self.timeout_ms != null;
+        return self.fuel != null or self.max_memory_bytes != null or self.max_table_elements != null or self.timeout_ms != null or self.max_output_bytes != null;
     }
 };
 
@@ -131,6 +137,7 @@ pub fn runWasmJitCaptured(
     defer host.deinit();
     host.io = io;
     if (stdout_capture) |b| host.stdout_buffer = b;
+    host.max_capture_bytes = limits.max_output_bytes;
     // ADR-0179 #3a-4 — `--timeout` arms a timer on the io event loop that
     // raises the interrupt flag the JIT polls (prologue + back-edges).
     // ConcurrencyUnavailable surfaces loudly (a silent no-timeout run would
