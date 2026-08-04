@@ -71,12 +71,14 @@ pub fn validate(info: *const TypeInfo) Error!void {
         try checkExternName(ex.name, .@"export");
         // Export sortidx bounds for the tracked index spaces (corpus
         // "module/instance index out of bounds" top-level classes).
+        // For the three sorts an export EXTENDS, the bound is the space size at
+        // this export's definition point, not the final size — otherwise the
+        // entry the export itself adds satisfies the export's own sortidx and
+        // `(export "a" (instance 0))` with no instances validates (D-527).
         switch (ex.sort) {
             .core => |cs| if (cs == .module and ex.index >= info.core_module_count) return Error.InvalidSort,
             .component => if (ex.index >= info.component_count) return Error.InvalidSort,
-            .instance => if (ex.index >= info.instance_origins.items.len) return Error.InvalidSort,
-            .func => if (ex.index >= info.component_funcs.items.len) return Error.InvalidSort,
-            .type => if (ex.index >= info.type_space_len) return Error.InvalidSort,
+            .instance, .func, .type => if (ex.index >= ex.sort_space_len_at_def) return Error.InvalidSort,
             .value => {}, // value index space not tracked — deferred
         }
     }

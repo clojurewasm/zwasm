@@ -263,6 +263,21 @@ pub const Export = struct {
     sort: Sort,
     index: u32,
     desc: ?ExternDesc,
+    /// The size of this export's own sort index space at this export's
+    /// DEFINITION point — i.e. before the entry this export itself adds.
+    ///
+    /// A sortidx may only name something defined earlier, so this — not the
+    /// final space size — is the bound `validate.zig` must check. The
+    /// distinction only became observable once exports started appending to
+    /// their spaces (D-527): before that, `(export "a" (instance 0))` with no
+    /// instances was out of bounds against a space of size 0, and afterwards
+    /// the export's own entry made index 0 look valid. Same for a func or type
+    /// export naming itself.
+    ///
+    /// Zero for the sorts whose spaces exports do not extend (`core`,
+    /// `component`, `value`); `validate.zig` checks those against their own
+    /// counters as before.
+    sort_space_len_at_def: u32 = 0,
 };
 
 /// The decoded type index space + import/export lists. All owned allocations
@@ -1689,14 +1704,27 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 }
             },
             .instance => for (component_instances.items[cinst_before..]) |_| try instance_origins.append(a, .local),
-            .@"export" => for (exports.items[exports_before..], exports_before..) |ex, ex_abs| {
+            .@"export" => for (exports.items[exports_before..], exports_before..) |*ex, ex_abs| {
                 // An export ADDS to its sort's index space (D-527). Appending in
                 // definition order keeps every later sortidx in bounds; omitting
                 // the func case shifted all of them after the first export.
+                //
+                // Record the space size BEFORE the append: that is the bound the
+                // export's own sortidx must satisfy. Reading the final size
+                // instead lets an export satisfy itself.
                 switch (ex.sort) {
-                    .type => try type_space.append(a, .{ .named = .{ .@"export" = @intCast(ex_abs) } }),
-                    .func => try component_funcs.append(a, .{ .re_export = @intCast(ex_abs) }),
-                    .instance => try instance_origins.append(a, .local),
+                    .type => {
+                        ex.sort_space_len_at_def = @intCast(type_space.items.len);
+                        try type_space.append(a, .{ .named = .{ .@"export" = @intCast(ex_abs) } });
+                    },
+                    .func => {
+                        ex.sort_space_len_at_def = @intCast(component_funcs.items.len);
+                        try component_funcs.append(a, .{ .re_export = @intCast(ex_abs) });
+                    },
+                    .instance => {
+                        ex.sort_space_len_at_def = @intCast(instance_origins.items.len);
+                        try instance_origins.append(a, .local);
+                    },
                     else => {},
                 }
             },
