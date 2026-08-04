@@ -105,9 +105,18 @@ PATTERN='std\.c\.[A-Za-z_]+|@extern\(\.\{[[:space:]]*\.library_name[[:space:]]*=
 # grep src/ + test/ + build.zig. Exclude comments-only lines (`//`)
 # and gitignored build artifacts (`.zig-cache/`, `zig-out/`) which
 # contain libc/header text that's not project source.
+# `--include='*.zig'` matters: without it this greps the BINARY .wasm fixtures
+# under test/, grep emits `Binary file X matches` (no file:line:body shape), the
+# comment filter cannot parse those, and each one counts as an "unclassified
+# libc site". That made the gate report 60 unclassified sites while listing
+# none, and it FAILED on a clean tree — including at the released v2.4.0 tag —
+# so `gate_commit` blocked every source commit. The header above has always said
+# `src/**/*.zig` + `test/**/*.zig`; the implementation just never said it.
 RAW=$(grep -rnE "$PATTERN" \
+  --include='*.zig' \
   --exclude-dir=.zig-cache --exclude-dir=zig-out \
-  src/ test/ build.zig 2>/dev/null || true)
+  src/ test/ 2>/dev/null || true
+grep -nE "$PATTERN" build.zig 2>/dev/null | sed 's|^|build.zig:|' || true)
 
 # Filter comment-only lines (loose; the file:line:body shape always splits at first 2 colons)
 SITES=()
