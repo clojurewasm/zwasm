@@ -32,6 +32,18 @@ entries:
       Regression: `fdWrite: max_capture_bytes bounds a capture buffer and
       reports nospc` in `src/wasi/fd.zig` — covers the exact-fit, partial-fit,
       no-room, and null-cap-is-unbounded cases.
+
+      FOLLOW-UP (same day, #159): the first wiring reached only
+      `runWasmJitCaptured`'s host. The C-API captured path builds its OWN host
+      through `zwasm_wasi_config_new`, so it did not inherit the cap — and that
+      is the path ClojureWasm's `wasm/run` actually takes, so the axis existed
+      and did nothing for the consumer that motivated it. Caught by measuring
+      rather than by reading: the capped run still buffered exactly the 64 MB
+      the cap was supposed to prevent. Both sites now set it, with a behavioural
+      regression (`runWasmCapturedFull: max_output_bytes caps the C-API capture
+      path too`) driving a guest that ignores the errno.
+      The general shape, worth naming: a second surface landing beside a
+      hardened one does not inherit the hardening.
     refs: |-
       src/wasi/host.zig (`max_capture_bytes` / `capture_truncated`);
       src/wasi/fd.zig (`writeSlice` append site + the regression test);

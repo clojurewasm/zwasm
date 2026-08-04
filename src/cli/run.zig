@@ -492,6 +492,13 @@ pub fn runWasmCapturedFull(
     // Grow the caller-owned capture buffers with the caller's allocator so the
     // grow-allocator and the caller's free/toOwnedSlice allocator agree.
     cfg.capture_alloc = alloc;
+    // The C-API path builds its own Host through `zwasm_wasi_config_new`, so it
+    // does NOT inherit the cap `runWasmJitCaptured` sets on its host — a second
+    // capture surface beside a hardened one does not inherit the hardening
+    // unless it is wired too. Measured: cljw's `wasm/run` passes through here,
+    // and the first version of the cap left it uncapped at exactly the 64 MB
+    // per 1e6 fuel the axis exists to bound.
+    cfg.max_capture_bytes = limits.max_output_bytes;
     if (argv.len > 0) cfg.setArgs(argv) catch {
         diagnostic.setDiag(.instantiate, .config_alloc_failed, .unknown, "wasi argv allocation failed", .{});
         wasm_c_api.zwasm_wasi_config_delete(cfg);
@@ -1400,4 +1407,84 @@ test "runWasmJit: no-_start module runs the first func export, jit==interp (D-28
     const interp_code = try runWasm(testing.allocator, testing.io, &no_start_init_wasm, &.{});
     try testing.expectEqual(@as(u8, 0), jit_code); // was Error.ExportNotFound (exit 1) pre-fix
     try testing.expectEqual(interp_code, jit_code); // intra-zwasm agreement
+}
+
+// A WASI command that writes a 64-byte line to stdout forever, IGNORING the
+// errno. Source + rebuild recipe: `test/wasi/spam_stdout.wat`
+// (`wasm-tools parse test/wasi/spam_stdout.wat -o -`). Inline as bytes to match
+// `prestat_jit` above — a run.zig test embeds its guest rather than reading a
+// file, so the test needs no fixture path.
+const spam_stdout = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x0c, 0x02, 0x60, 0x04, 0x7f, 0x7f, 0x7f,
+    0x7f, 0x01, 0x7f, 0x60, 0x00, 0x00, 0x02, 0x23, 0x01, 0x16, 0x77, 0x61, 0x73, 0x69, 0x5f, 0x73,
+    0x6e, 0x61, 0x70, 0x73, 0x68, 0x6f, 0x74, 0x5f, 0x70, 0x72, 0x65, 0x76, 0x69, 0x65, 0x77, 0x31,
+    0x08, 0x66, 0x64, 0x5f, 0x77, 0x72, 0x69, 0x74, 0x65, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01, 0x05,
+    0x03, 0x01, 0x00, 0x01, 0x07, 0x13, 0x02, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+    0x06, 0x5f, 0x73, 0x74, 0x61, 0x72, 0x74, 0x00, 0x01, 0x0a, 0x24, 0x01, 0x22, 0x00, 0x41, 0x00,
+    0x41, 0x08, 0x36, 0x02, 0x00, 0x41, 0x04, 0x41, 0xc0, 0x00, 0x36, 0x02, 0x00, 0x03, 0x40, 0x41,
+    0x01, 0x41, 0x00, 0x41, 0x01, 0x41, 0xc8, 0x01, 0x10, 0x00, 0x1a, 0x0c, 0x00, 0x0b, 0x0b, 0x0b,
+    0x46, 0x01, 0x00, 0x41, 0x08, 0x0b, 0x40, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x00, 0x1e, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x01, 0x0b,
+    0x01, 0x00, 0x08, 0x66, 0x64, 0x5f, 0x77, 0x72, 0x69, 0x74, 0x65, 0x03, 0x0a, 0x01, 0x01, 0x01,
+    0x00, 0x05, 0x61, 0x67, 0x61, 0x69, 0x6e,
+};
+
+test "runWasmCapturedFull: max_output_bytes caps the C-API capture path too" {
+    // The cap was first wired only onto `runWasmJitCaptured`'s host. The C-API
+    // path builds its OWN host through `zwasm_wasi_config_new`, so it did not
+    // inherit it, and ClojureWasm's `wasm/run` — which goes through here —
+    // stayed uncapped at exactly the volume the axis exists to bound. A second
+    // capture surface beside a hardened one does not inherit the hardening.
+    //
+    // The guest writes 64 bytes per iteration forever and IGNORES the errno, so
+    // this holds against a guest that does not cooperate. Fuel is what ends the
+    // run; the cap is what bounds the memory while it lasts.
+    const spam = &spam_stdout;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(testing.allocator);
+    var errbuf: std.ArrayList(u8) = .empty;
+    defer errbuf.deinit(testing.allocator);
+
+    _ = try runWasmCapturedFull(
+        testing.allocator,
+        testing.io,
+        spam,
+        &.{},
+        &capture,
+        &errbuf,
+        null,
+        null,
+        &.{},
+        &.{},
+        &.{},
+        null,
+        .{ .fuel = 200_000, .max_output_bytes = 4096 },
+    );
+    try testing.expectEqual(@as(usize, 4096), capture.items.len);
+
+    // Uncapped, the same fuel buffers orders of magnitude more — the assertion
+    // that makes the capped number mean something.
+    var uncapped: std.ArrayList(u8) = .empty;
+    defer uncapped.deinit(testing.allocator);
+    var errbuf2: std.ArrayList(u8) = .empty;
+    defer errbuf2.deinit(testing.allocator);
+    _ = try runWasmCapturedFull(
+        testing.allocator,
+        testing.io,
+        spam,
+        &.{},
+        &uncapped,
+        &errbuf2,
+        null,
+        null,
+        &.{},
+        &.{},
+        &.{},
+        null,
+        .{ .fuel = 200_000 },
+    );
+    try testing.expect(uncapped.items.len > 100_000);
 }
