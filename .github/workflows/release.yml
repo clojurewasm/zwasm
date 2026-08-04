@@ -93,7 +93,14 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         shell: bash
         run: |
-          gh release create "$TAG_NAME" \
-            --title "$TAG_NAME" \
-            --generate-notes \
-            dist/*.tar.gz dist/*.zip dist/SHA256SUMS
+          # Idempotent: the release may already exist because a maintainer cut
+          # it by hand right after pushing the tag (ADR-0156 makes releasing a
+          # deliberate human act, so that ordering is normal, not a mistake).
+          # An unconditional `create` fails with "a release with the same tag
+          # name already exists" and takes the ARTIFACT UPLOAD down with it —
+          # the tag then has hand-written notes and no binaries, which is worse
+          # than either half alone. Happened on v2.4.1.
+          gh release view "$TAG_NAME" >/dev/null 2>&1 \
+            || gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+          gh release upload "$TAG_NAME" \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS --clobber
