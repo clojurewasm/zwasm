@@ -11,6 +11,7 @@ const cwasi = @import("component_wasi_p2.zig");
 const canon = @import("../feature/component/canon.zig");
 const ctypes = @import("../feature/component/types.zig");
 const decode = @import("../feature/component/decode.zig");
+const cvalidate = @import("../feature/component/validate.zig");
 const diagnostic = @import("../diagnostic/diagnostic.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
@@ -1777,4 +1778,40 @@ test "ADR-0183 F3/F4: wit-bindgen rich types round-trip TYPED — record{list<u3
     defer err_out.deinit(testing.allocator);
     try testing.expect(!err_out.result.is_ok);
     try testing.expectEqualStrings("boom: fail", err_out.result.payload.?.string);
+}
+
+test "D-527: a component with two exports validates (the func index space counts exports)" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/two_export.wasm", testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+
+    var comp = try decode.decode(testing.allocator, bytes);
+    defer comp.deinit(testing.allocator);
+
+    var info = try ctypes.decodeTypeInfo(testing.allocator, &comp);
+    defer info.deinit();
+
+    // The regression: validation returned InvalidSort for ANY component with
+    // two or more exports, because a component-level func `export` adds an
+    // entry to the func index space and `component_funcs` did not count it —
+    // so from the second export onward each lift's sortidx read out of bounds.
+    try cvalidate.validate(&info);
+
+    // Two func exports, and the space now interleaves lift / export / lift /
+    // export, so it holds four entries rather than two.
+    var func_exports: usize = 0;
+    for (info.exports.items) |ex| {
+        if (std.meta.activeTag(ex.sort) == .func) func_exports += 1;
+    }
+    try testing.expectEqual(@as(usize, 2), func_exports);
+    try testing.expectEqual(@as(usize, 4), info.component_funcs.items.len);
+
+    // Every func export's sortidx is in bounds and resolves to a real lift —
+    // the property the bound check was trying to express.
+    for (info.exports.items) |ex| {
+        if (std.meta.activeTag(ex.sort) != .func) continue;
+        try testing.expect(ex.index < info.component_funcs.items.len);
+    }
 }

@@ -405,6 +405,13 @@ pub const ComponentFuncDef = union(enum) {
     alias: AliasTarget,
     /// A `canon lift` (index into `canons`).
     lift: u32,
+    /// A component-level `export` of a func (index into `exports`). Per
+    /// `Binary.md`, exporting a func ADDS an entry to the component func index
+    /// space — it does not merely name an existing one — so the space
+    /// interleaves lift, export, lift, export, … in definition order. Omitting
+    /// these shifted every index after the first export and made any component
+    /// with two or more exports fail validation with `InvalidSort` (D-527).
+    re_export: u32,
 };
 
 /// Where a component-instance index originates: an `import` (whose name is the
@@ -745,6 +752,16 @@ pub const TypeInfo = struct {
         if (fi < self.component_funcs.items.len) {
             switch (self.component_funcs.items[fi]) {
                 .lift => |ci| return self.canons.items[ci].lift,
+                // A re-export resolves to whatever it re-exports. The target is
+                // always defined EARLIER in the space (an export cannot forward-
+                // reference), so this terminates; the depth bound is belt-and-
+                // braces against a malformed input that claims otherwise.
+                .re_export => |ei| {
+                    if (ei >= self.exports.items.len) return null;
+                    const target = self.exports.items[ei].index;
+                    if (target >= fi) return null;
+                    return self.liftForFuncIndex(target);
+                },
                 .import, .alias => return null,
             }
         }
@@ -1673,7 +1690,15 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
             },
             .instance => for (component_instances.items[cinst_before..]) |_| try instance_origins.append(a, .local),
             .@"export" => for (exports.items[exports_before..], exports_before..) |ex, ex_abs| {
-                if (std.meta.activeTag(ex.sort) == .type) try type_space.append(a, .{ .named = .{ .@"export" = @intCast(ex_abs) } });
+                // An export ADDS to its sort's index space (D-527). Appending in
+                // definition order keeps every later sortidx in bounds; omitting
+                // the func case shifted all of them after the first export.
+                switch (ex.sort) {
+                    .type => try type_space.append(a, .{ .named = .{ .@"export" = @intCast(ex_abs) } }),
+                    .func => try component_funcs.append(a, .{ .re_export = @intCast(ex_abs) }),
+                    .instance => try instance_origins.append(a, .local),
+                    else => {},
+                }
             },
             else => {},
         }

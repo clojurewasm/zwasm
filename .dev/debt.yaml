@@ -5,7 +5,7 @@
 entries:
   - id: "D-527"
     layer: "code"
-    status: "now"
+    status: "resolved"
     front: D-component
     description: |-
       **Any component with two or more exports fails validation with
@@ -56,6 +56,21 @@ entries:
       `(:require ["x.wasm" :as x])` is sold as "a component becomes a
       namespace", and today it can only load components with a single function.
       Filed from the cljw side as D-567.
+
+      FIXED (branch `develop/component-export-index-space`): `ComponentFuncDef`
+      gains a `re_export` variant and the `.@"export"` section arm appends it
+      for `.func` exports (and `.local` to `instance_origins` for `.instance`
+      exports, which had the same omission). Because appends happen in
+      definition order, the space now interleaves lift / export / lift / export
+      and every later sortidx lands in bounds. `liftForFuncIndex` resolves a
+      re-export to the func it re-exports; the target is always defined earlier,
+      and a `target >= fi` guard makes that structural rather than assumed.
+      Verified: the two-export and the 16-export typed fixtures both go from
+      `InvalidSort` to `ArgArityMismatch` (i.e. they load; only the CLI's arg
+      passing is wrong), matching the single-export control. Regression test
+      `D-527:` in `api/component_tests.zig` over `test/component/two_export.wasm`
+      — removing the one-line append makes it fail with the original
+      `InvalidSort`.
     first_raised: "2026-08-04"
     last_reviewed: "2026-08-04"
     refs: |-
