@@ -282,7 +282,6 @@ pub export fn wasm_extern_copy(e: ?*const handles.Extern) callconv(.c) ?*handles
     const c = alloc.create(handles.Extern) catch return null;
     c.* = src.*;
     c.borrowed = false;
-    c.extern_view = null;
     c.ref_view = null;
     c.host_info = null;
     c.host_info_finalizer = null;

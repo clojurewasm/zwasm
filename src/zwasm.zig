@@ -107,6 +107,10 @@ comptime {
     _ = @import("api/zwasm_ext.zig");
     _ = @import("api/module_introspect.zig");
     _ = @import("api/extern_new.zig");
+    _ = @import("api/ref_base.zig");
+    _ = @import("api/config.zig");
+    _ = @import("api/host_info.zig");
+    _ = @import("api/module_serialize.zig");
     _ = @import("api/cross_module.zig");
 }
 

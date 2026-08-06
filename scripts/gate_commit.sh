@@ -174,6 +174,14 @@ else
     # existing `.dev/decisions/skip_<id>.md` ADR, and every skip-ADR
     # has ≥ 1 manifest consumer (no orphans). Plus the original
     # fixture-path existence checks for cited `.wasm` files.
+    # Issue #161: an src/api file with `pub export fn` absent from the
+    # zwasm.zig comptime force-analyse block ships a libzwasm.a missing
+    # every symbol the file exports (and never compiles or runs its tests).
+    # Pure grep — cross-platform, no build. The built-archive side of the
+    # invariant lives in test_extlink.sh (CI extended).
+    echo "[gate_commit] check_api_export_analysis --gate ..."
+    bash scripts/check_api_export_analysis.sh --gate > /dev/null
+
     echo "[gate_commit] check_skip_adrs --gate ..."
     bash scripts/check_skip_adrs.sh --gate > /dev/null
     # ADR-0122 (2026-05-27) — test-time SkipZigTest categorization:

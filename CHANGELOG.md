@@ -10,7 +10,25 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 ## [Unreleased]
 
-_No changes yet._
+### Fixed
+
+- **81 declared C-API symbols were missing from `libzwasm.a`** (#161). Zig only
+  emits `export fn` symbols from files the analysis pass visits, and four
+  `src/api/` files (`ref_base.zig`, `config.zig`, `host_info.zig`,
+  `module_serialize.zig`) were absent from the `src/zwasm.zig` comptime
+  force-analyse block — their lazy `pub const` re-exports through `api/wasm.zig`
+  never trigger analysis. Every `wasm_X_copy` / `wasm_X_same` / `wasm_X_as_ref` /
+  `wasm_ref_as_X` / `wasm_X_{get,set}_host_info` / `wasm_config_*` /
+  `wasm_module_serialize`-family call declared in `include/wasm.h` failed at
+  link time. `ref_base.zig` additionally did not compile (`wasm_extern_copy`
+  nulled a field `Extern` does not have) — unnoticed precisely because the file
+  was never analysed; its 6 tests (plus 5 more from the other three files) now
+  run under `zig build test`. Three guards close the class: commit-time
+  `scripts/check_api_export_analysis.sh` (every `pub export fn` file listed in
+  the comptime block), plus two archive assertions in `scripts/test_extlink.sh`
+  (every `src/api/` `pub export fn`, and every installed-header declaration,
+  present in `libzwasm.a`). Verified end-to-end from C, Rust, and Go (cgo)
+  consumers over the system linker.
 
 ## [2.4.1] - 2026-08-04
 
