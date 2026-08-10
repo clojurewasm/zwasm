@@ -12,6 +12,24 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
 ### Fixed
 
+- **"the interpreter is the default engine" was still claimed in five places**
+  (#163, reported by @jtakakura). The default has been `auto` (prefers the JIT,
+  interpreter fallback) since the D-496 ch6 flip; v2.4.1 corrected `zwasm
+  --help` but not `docs/benchmarks.md` (engine table + methodology),
+  `.github/ISSUE_TEMPLATE/bug_report.yml` (the Execution-mode dropdown, which
+  had no way to say "I did not pass `--engine`"), `.dev/ROADMAP.md` §10.2, or
+  `docs/handoff_cw_v2_zig_api.md`. The same sweep retired two adjacent stale
+  claims found alongside them: ROADMAP §10.2 still said the JIT was
+  compute-only and rejected `--dir` (D-244 closed that), and the cljw handoff
+  still listed JIT fuel / memory-cap / table-cap as a gap (they ship on both
+  engines; only the D-314(a) epoch-counter upgrade remains). Published
+  benchmark numbers are unaffected — `scripts/run_bench.sh --engines=` passes
+  `--engine` explicitly for every row. `scripts/check_engine_default_claims.sh`
+  now gates the claim: it anchors on the CLI usage text and sweeps tracked
+  files for the stale phrasings, and it runs in `gate_commit.sh` **and** in a
+  new always-on CI `doc-truth` job — doc-only PRs skip the 3-host matrix, which
+  is how a prose claim rotted past three releases in the first place.
+
 - **81 declared C-API symbols were missing from `libzwasm.a`** (#161). Zig only
   emits `export fn` symbols from files the analysis pass visits, and four
   `src/api/` files (`ref_base.zig`, `config.zig`, `host_info.zig`,

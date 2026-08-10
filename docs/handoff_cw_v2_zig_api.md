@@ -7,12 +7,13 @@
 > [`migration_v1_to_v2.md`](migration_v1_to_v2.md); the prior cljw handoff is
 > [`handoff_cw_v1.md`](handoff_cw_v1.md).
 >
-> **Status (2026-06-14)**: v2 is feature-complete + 3-host green (Mac aarch64 /
-> Linux x86_64 / Windows x86_64). Default engine is the **interpreter** (the
-> hardened default); `--engine jit` is the CLI surface. No tag is cut (tagging
-> is a manual, user-only act — ADR-0156). Signatures below are accurate as of
-> HEAD; the facade is interp-backed (J.2→J.3 transition; no embedder-visible
-> surface change is planned from that).
+> **Status (2026-08-10)**: v2 is feature-complete + 3-host green (Mac aarch64 /
+> Linux x86_64 / Windows x86_64); the release line is `v2.4.1`. The default
+> engine is **`.auto`** — it prefers the JIT and falls back to the interpreter
+> on an arch with no backend (flipped in D-496 ch6, ADR-0200); `--engine
+> interp` / `--engine jit` force one on the CLI. Signatures below are accurate
+> as of HEAD; which engine backs the facade is not an embedder-visible
+> distinction.
 
 ## 1. Mental model
 
@@ -162,7 +163,7 @@ inst.memory() ?Memory          // Memory{ size, read(T,off), write(off,v), grow(
 inst.global(name) ?Global      // Global{ get() Value, set(Value) error{Immutable}!void }  (D-272)
 inst.table(name) ?Table        // Table{ size, get, set, grow }                            (D-272)
 
-// Sandboxing (ADR-0179) — interp/default engine in v0.1 (JIT path is D-314, post-v0.1):
+// Sandboxing (ADR-0179) — live on BOTH engines (the D-314 JIT path shipped; see §11):
 inst.setFuel(?u64)                  // #3b instruction budget; traps error.OutOfFuel at 0
 inst.fuelRemaining() ?u64
 inst.setMemoryPagesLimit(?u64)      // #3c memory.grow cap; over-cap = spec −1, not a trap
@@ -240,7 +241,7 @@ ownership).
 | Gap                                            | Ticket | Note                                                       |
 |------------------------------------------------|--------|------------------------------------------------------------|
 | Zig `WasiConfig` stdio (stdin/out/err) capture | —     | preopens shipped (D-177 closed); stdio capture stays C-API |
-| JIT fuel / memory-cap / table-cap              | D-314  | interp/default engine has them in v0.1; JIT path post-v0.1 |
+| Epoch-counter deadlines (over the binary flag) | D-314(a) | fuel / memory-cap / table-cap / interrupt ship on BOTH engines |
 | Standalone host-constructed `Global`/`Memory`  | D-178  | v0.2; only import-aliasing in v0.1                         |
 | Callable funcref handle                        | D-269  | tracked                                                    |
 

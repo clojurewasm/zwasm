@@ -44,7 +44,8 @@ body:
     attributes:
       label: Execution mode
       options:
-        - Interpreter (default)
+        - Default (no --engine, i.e. auto)
+        - Interpreter (--engine interp)
         - JIT (--engine jit)
         - AOT (.cwasm)
         - Not sure / N/A

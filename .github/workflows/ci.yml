@@ -16,6 +16,9 @@
 # mergeable without burning three runners. Keep the branch ruleset's required
 # check pointed at `ci-required`, NOT the individual `gate (...)` legs.
 #
+# The cheap `doc-truth` job runs for EVERY PR, doc-only included — checks whose
+# subject is prose must not be skipped by the doc-only short-circuit.
+#
 # The Windows leg is advisory (continue-on-error): the authoritative Windows
 # verification is a native Windows x86_64 host, and the hosted
 # `windows-2022` runner has shown seed-dependent Debug flakiness (D-245).
@@ -82,6 +85,20 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"; echo "doc-only -> skip 3-host gate"
           fi
+
+  # Doc-truth checks that MUST also run for doc-only PRs — the `gate` matrix
+  # below is skipped for those, which is precisely how the "interp is the
+  # default engine" claim survived three releases (#163). Cheap, no toolchain.
+  doc-truth:
+    name: doc-truth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Engine-default claims
+        shell: bash
+        run: bash scripts/check_engine_default_claims.sh --gate
 
   gate:
     name: gate (${{ matrix.name }})
@@ -224,7 +241,7 @@ jobs:
   # so `needs.gate.result` is 'success' whenever Mac + Linux pass.
   ci-required:
     name: ci-required
-    needs: [changes, gate]
+    needs: [changes, doc-truth, gate]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -233,10 +250,19 @@ jobs:
         env:
           CODE: ${{ needs.changes.outputs.code }}
           CHANGES_RESULT: ${{ needs.changes.result }}
+          # Bracket form is required: `needs.doc-truth.result` parses the `-`
+          # as a subtraction operator, not as part of the job id.
+          DOC_TRUTH_RESULT: ${{ needs['doc-truth'].result }}
           GATE_RESULT: ${{ needs.gate.result }}
         shell: bash
         run: |
           set -euo pipefail
+          # doc-truth runs unconditionally (doc-only PRs skip `gate`, and docs
+          # are exactly what it guards), so it is a hard requirement here.
+          if [ "$DOC_TRUTH_RESULT" != "success" ]; then
+            echo "::error::doc-truth did not pass (result=$DOC_TRUTH_RESULT)"
+            exit 1
+          fi
           # D-520 (2026-07-09, seen live on PR #139): when `changes` itself
           # FAILS (runner-acquisition flake), its `code` output is EMPTY —
           # which used to fall into the doc-only PASS branch below with the

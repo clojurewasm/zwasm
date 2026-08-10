@@ -40,7 +40,7 @@ on long-running compute is the priority.
 - **Harness**: [`hyperfine`](https://github.com/sharkdp/hyperfine), wall-clock of
   `<runtime> run <module>` (full process: spawn + instantiate + execute WASI
   `_start`). Peak RSS via `/usr/bin/time -l`.
-- **zwasm engines**: `interp` (default, tree-walking), `jit` (single-pass
+- **zwasm engines**: `interp` (tree-walking), `jit` (single-pass
   arm64/x86_64 codegen), `aot` (`zwasm compile` → `.cwasm`, then run the
   artifact). AOT timings exclude the one-off compile; AOT compile latency is a
   separate [cold-start metric](../bench/results/aot_coldstart.md).
@@ -113,11 +113,17 @@ buffers).
 
 ## Engine selection (zwasm)
 
-| engine             | how                                                         | best for                                                            |
-|--------------------|-------------------------------------------------------------|---------------------------------------------------------------------|
-| `interp` (default) | `zwasm run <m>`                                             | smallest footprint, instant start, full WASI; slow on heavy compute |
-| `jit`              | `zwasm run --engine jit <m>`                                | ~10–40× faster than interp on compute; adds SIMD execution        |
-| `aot`              | `zwasm compile <m> -o <m>.cwasm` then `zwasm run <m>.cwasm` | same steady-state as jit, but lowest cold-start + leanest RSS       |
+| engine           | how                                                         | best for                                                             |
+|------------------|-------------------------------------------------------------|----------------------------------------------------------------------|
+| `auto` (default) | `zwasm run <m>`                                             | just run it — prefers the JIT, falls back to the interpreter        |
+| `interp`         | `zwasm run --engine interp <m>`                             | smallest footprint, no codegen buffers; slow on heavy compute        |
+| `jit`            | `zwasm run --engine jit <m>`                                | ~10–40× faster than interp on compute; adds SIMD execution         |
+| `aot`            | `zwasm compile <m> -o <m>.cwasm` then `zwasm run <m>.cwasm` | same steady-state as jit, but lowest cold-start + leanest RSS        |
+
+Both `interp` and `jit` do the full WASI command set. The tables above never
+rely on the default: `scripts/run_bench.sh --engines=interp,jit,aot` passes
+`--engine interp` / `--engine jit` explicitly, so every row is labelled with
+the engine it actually ran on.
 
 ## Reproducing
 
