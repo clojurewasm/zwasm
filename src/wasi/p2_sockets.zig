@@ -24,8 +24,11 @@
 //! bind-level failures (address-in-use, ...) surface at `finish-listen`
 //! instead of `finish-bind`, and `local-address` of a `bound`-but-not-
 //! listening socket reports the REQUESTED port (an ephemeral `:0` stays 0
-//! until listen resolves it). A connected client's local-address is
-//! `not-supported` (no getsockname in the pinned stdlib).
+//! until listen resolves it). A connected socket's endpoints are tracked
+//! in explicit `local_addr`/`remote_addr` fields because the stdlib's
+//! `Stream.socket.address` means DIFFERENT things per creation path
+//! (connect: the getsockname/AFD-BIND-resolved LOCAL endpoint; accept:
+//! the accept(2) PEER sockaddr).
 //!
 //! Zone 2 (`src/wasi/`). `std.Io.net` + `std.posix.poll` only — no new
 //! libc surface (`libc_boundary`).
@@ -101,6 +104,24 @@ pub const POLL_OUT: i16 = switch (builtin.os.tag) {
 /// `wasi:sockets/tcp` documented state machine.
 pub const TcpState = enum { unbound, bind_started, bound, connect_started, connected, listen_started, listening, closed };
 
+/// The sockets WIT `bind` implementors note: SO_REUSEADDR is implicitly on
+/// (bind must not be affected by a TIME_WAIT peer on the same port) —
+/// except windows, where the default behavior already covers TIME_WAIT
+/// reuse and SO_REUSEADDR instead permits binding over a live listener.
+const listen_reuse_address = builtin.os.tag != .windows;
+
+/// The pinned stdlib's `reuse_address` couples SO_REUSEPORT on POSIX,
+/// which would let a second bind on an actively LISTENING port succeed —
+/// breaking the spec's address-in-use contract — so it is cleared again
+/// right after the listen (SO_REUSEADDR alone gives exactly the WIT
+/// semantics: TIME_WAIT rebind ok, live-listener bind rejected).
+fn clearReusePort(handle: net.Socket.Handle) !void {
+    if (builtin.os.tag == .windows) return;
+    if (!@hasDecl(posix.SO, "REUSEPORT")) return;
+    const off = std.mem.toBytes(@as(c_int, 0));
+    try posix.setsockopt(handle, posix.SOL.SOCKET, posix.SO.REUSEPORT, &off);
+}
+
 /// One live TCP socket: spec state + the `std.Io.net` objects backing it.
 /// The OS socket is created lazily by connect/listen (`std.Io.net` has no
 /// bare-socket constructor; wasmtime is lazy the same way). The component
@@ -113,6 +134,13 @@ pub const TcpSocket = struct {
     bound_addr: ?net.IpAddress = null,
     /// Set once the connect succeeded (start-connect path).
     stream: ?net.Stream = null,
+    /// OS-resolved local endpoint of a connected socket (connect path:
+    /// the stdlib-resolved bind address; accept path: the listener's
+    /// resolved endpoint).
+    local_addr: ?net.IpAddress = null,
+    /// Peer endpoint of a connected socket (connect path: the connect
+    /// target; accept path: the accept(2) peer sockaddr).
+    remote_addr: ?net.IpAddress = null,
     /// Set once the listen succeeded (start-listen path).
     server: ?net.Server = null,
     /// Establishment failure cached by start-connect, surfaced by
@@ -170,11 +198,16 @@ pub const TcpSocket = struct {
         if (self.state != .bound) return error.InvalidState;
         const addr = self.bound_addr.?; // .bound implies a stored address
         self.state = .listen_started;
-        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp };
+        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp, .reuse_address = listen_reuse_address };
         if (self.backlog) |b| opts.kernel_backlog = b;
         self.server = addr.listen(io, opts) catch |err| {
             self.listen_err = err;
             return;
+        };
+        clearReusePort(self.server.?.socket.handle) catch |err| {
+            self.server.?.deinit(io);
+            self.server = null;
+            self.listen_err = err;
         };
     }
 
@@ -196,9 +229,15 @@ pub const TcpSocket = struct {
     pub fn bindNow(self: *TcpSocket, io: std.Io) !void {
         if (self.state != .bound) return error.InvalidState;
         const addr = self.bound_addr.?;
-        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp };
+        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp, .reuse_address = listen_reuse_address };
         if (self.backlog) |b| opts.kernel_backlog = b;
         self.server = addr.listen(io, opts) catch |err| {
+            self.state = .closed;
+            return err;
+        };
+        clearReusePort(self.server.?.socket.handle) catch |err| {
+            self.server.?.deinit(io);
+            self.server = null;
             self.state = .closed;
             return err;
         };
@@ -243,26 +282,30 @@ pub const TcpSocket = struct {
         const srv = &self.server.?;
         if (!try pollOnce(srv.socket.handle, POLL_IN)) return error.WouldBlock;
         const stream = try srv.accept(io);
-        return .{ .family = self.family, .state = .connected, .stream = stream };
+        return .{
+            .family = self.family,
+            .state = .connected,
+            .stream = stream,
+            .local_addr = srv.socket.address,
+            .remote_addr = stream.socket.address,
+        };
     }
 
-    /// `tcp.remote-address`. The peer address of a connected socket: an
-    /// accepted connection carries the peer sockaddr from the OS accept;
-    /// a client carries the address it connected to.
+    /// `tcp.remote-address` — the peer endpoint of a connected socket.
     pub fn remoteAddress(self: *TcpSocket) !net.IpAddress {
-        const stream = self.connectedStream() orelse return error.InvalidState;
-        return stream.socket.address;
+        if (self.state != .connected) return error.InvalidState;
+        return self.remote_addr.?;
     }
 
     /// `tcp.local-address`. Listening sockets report the RESOLVED address
     /// (ephemeral `:0` becomes the real port); `bound` reports the stored
-    /// request; connected clients are not-supported (no getsockname in the
-    /// pinned stdlib — module docstring).
+    /// request; connected sockets the OS-resolved endpoint (module
+    /// docstring on the per-path `Stream.socket.address` semantics).
     pub fn localAddress(self: *TcpSocket) !net.IpAddress {
         return switch (self.state) {
             .listening => self.server.?.socket.address,
             .bound => self.bound_addr.?,
-            .connected => error.OptionUnsupported,
+            .connected => self.local_addr.?,
             .unbound, .bind_started, .connect_started, .listen_started, .closed => error.InvalidState,
         };
     }
@@ -280,6 +323,8 @@ pub const TcpSocket = struct {
             self.connect_err = err;
             return;
         };
+        self.local_addr = self.stream.?.socket.address;
+        self.remote_addr = addr;
     }
 
     /// `tcp.finish-connect` — the cached start-connect result.
@@ -648,6 +693,92 @@ test "tcp listener lifecycle: bind → listen → accept → echo (ADR-0180 Phas
     try testing.expectEqualStrings("pong", cli_buf[0..echoed]);
 }
 
+test "tcp connected endpoints: local-address is OS-resolved, remote-address is the peer" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = TcpSocket.create(.ipv4);
+    defer listener.deinit(io);
+    try listener.startBind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    try listener.finishBind();
+    try listener.startListen(io);
+    try listener.finishListen();
+    const srv_port = (try listener.localAddress()).getPort();
+
+    var client = TcpSocket.create(.ipv4);
+    defer client.deinit(io);
+    try client.startConnect(io, .{ .ip4 = net.Ip4Address.loopback(srv_port) });
+    try client.finishConnect();
+
+    // Client local endpoint: the OS-resolved ephemeral port (the pinned
+    // stdlib resolves it on every connect path: getsockname on POSIX, the
+    // AFD BIND output on windows).
+    const cli_local = try client.localAddress();
+    try testing.expect(cli_local.getPort() != 0);
+    try testing.expect(cli_local.getPort() != srv_port);
+    // Client remote endpoint: the listener's address.
+    try testing.expectEqual(srv_port, (try client.remoteAddress()).getPort());
+
+    var attempts: u32 = 0;
+    while (!(try listener.ready(POLL_IN)) and attempts < 500) : (attempts += 1) {
+        try io.sleep(.{ .nanoseconds = 2 * std.time.ns_per_ms }, .awake);
+    }
+    var accepted = try listener.accept(io);
+    defer accepted.deinit(io);
+    // Accepted remote endpoint: the client's OS-resolved local endpoint.
+    try testing.expectEqual(cli_local.getPort(), (try accepted.remoteAddress()).getPort());
+    // Accepted local endpoint: the listener's endpoint.
+    try testing.expectEqual(srv_port, (try accepted.localAddress()).getPort());
+}
+
+test "tcp bind honors the spec's SO_REUSEADDR contract: TIME_WAIT rebind ok, active-listen bind rejected" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Establish a connection whose server side actively closes, leaving the
+    // listener port's (P, client-port) pair in TIME_WAIT.
+    var listener = TcpSocket.create(.ipv4);
+    try listener.startBind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    try listener.finishBind();
+    try listener.bindNow(io);
+    try listener.listenNow(io);
+    const port = (try listener.localAddress()).getPort();
+
+    // While the listener is live: a second bind to the same port must be
+    // address-in-use (the REUSEADDR contract must NOT leak SO_REUSEPORT,
+    // which would let this bind succeed).
+    var squatter = TcpSocket.create(.ipv4);
+    defer squatter.deinit(io);
+    try squatter.startBind(io, .{ .ip4 = net.Ip4Address.loopback(port) });
+    try squatter.finishBind();
+    try testing.expectError(error.AddressInUse, squatter.bindNow(io));
+
+    var client = TcpSocket.create(.ipv4);
+    try client.startConnect(io, .{ .ip4 = net.Ip4Address.loopback(port) });
+    try client.finishConnect();
+    var attempts: u32 = 0;
+    while (!(try listener.ready(POLL_IN)) and attempts < 500) : (attempts += 1) {
+        try io.sleep(.{ .nanoseconds = 2 * std.time.ns_per_ms }, .awake);
+    }
+    var accepted = try listener.accept(io);
+    // Server side closes FIRST (the active closer holds TIME_WAIT on P).
+    accepted.deinit(io);
+    client.deinit(io);
+    listener.deinit(io);
+
+    // Immediate rebind of P must succeed per the sockets WIT implementors
+    // note (implicit SO_REUSEADDR: bind is not affected by TIME_WAIT).
+    var rebind = TcpSocket.create(.ipv4);
+    defer rebind.deinit(io);
+    try rebind.startBind(io, .{ .ip4 = net.Ip4Address.loopback(port) });
+    try rebind.finishBind();
+    try rebind.bindNow(io);
+    try rebind.listenNow(io);
+    try testing.expectEqual(port, (try rebind.localAddress()).getPort());
+}
+
 test "tcp listener state machine: invalid transitions are rejected" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
@@ -669,12 +800,12 @@ test "tcp listener state machine: invalid transitions are rejected" {
     try sock.finishListen();
     // live listener: backlog update is truthful not-supported.
     try testing.expectError(error.OptionUnsupported, sock.setListenBacklog(4));
-    // connected-client local-address: not-supported (no getsockname).
+    // connected-client local-address: the OS-resolved ephemeral endpoint.
     var client = TcpSocket.create(.ipv4);
     defer client.deinit(io);
     try client.startConnect(io, .{ .ip4 = net.Ip4Address.loopback((try sock.localAddress()).getPort()) });
     try client.finishConnect();
-    try testing.expectError(error.OptionUnsupported, client.localAddress());
+    try testing.expect((try client.localAddress()).getPort() != 0);
 }
 
 test "errorToCode: spec ordinals pinned" {
