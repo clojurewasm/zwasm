@@ -22,6 +22,15 @@ rust + wit-bindgen 0.58 output) against a host whose own fixture corpus was
 5. **`run → err` exit code** — both runners ignored the `result` discriminant
    (exit 0 instead of 1).
 
+Phase B (filesystem) added two more of the same class:
+
+6. **`waitable.join` arg order** — bound as (set, waitable); the spec's core
+   ABI is `(waitable, set)` with set 0 = leave-set and move semantics. EIGHT
+   hand-written fixtures baked the reversed order and certified it green.
+7. **end-pointer invalidation** — `StreamFutureTable.get`'s pointer was held
+   across a `newFuturePair` (table growth realloc) — a latent UAF the borrow
+   discipline of the hand-rolled fixtures never triggered.
+
 Why the local corpus missed all five: hand-written fixtures encode the
 AUTHOR'S understanding of the ABI — they co-evolve with the host and cannot
 catch a shared misreading. Real-toolchain binaries encode wit-bindgen's

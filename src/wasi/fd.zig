@@ -421,8 +421,10 @@ pub fn fdAdvise(host: *Host, fd: p1.Fd, offset: u64, len: u64, advice: u8) p1.Er
     const slot = host.translateFd(fd) orelse return .badf;
     return switch (slot.kind) {
         .stdin, .stdout, .stderr => .spipe,
-        .closed => .badf,
-        .file, .dir => .success,
+        // Advisory information applies to file data; a directory has none
+        // (official filesystem-advise.wasm asserts bad-descriptor).
+        .closed, .dir => .badf,
+        .file => .success,
     };
 }
 
@@ -528,6 +530,29 @@ pub fn pwriteSlice(host: *Host, fd: p1.Fd, bytes: []const u8, offset: u64) p1.Er
     const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
     if (bytes.len == 0) return .success;
     _ = file.writePositional(io, &[_][]const u8{bytes}, offset) catch return .io;
+    return .success;
+}
+
+/// Positional read into one contiguous byte range (mirror of `pwriteSlice`;
+/// the WASI-0.3 file via-stream source reads through this). `n_out` receives
+/// the byte count (0 = EOF).
+pub fn preadSlice(host: *Host, fd: p1.Fd, dest: []u8, offset: u64, n_out: *usize) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    switch (slot.kind) {
+        .file => {},
+        .stdin, .stdout, .stderr => return .spipe,
+        .dir => return .isdir,
+        .closed => return .badf,
+    }
+    const handle = slot.host_handle orelse return .badf;
+    const io = host.io orelse return .nosys;
+    const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
+    if (dest.len == 0) {
+        n_out.* = 0;
+        return .success;
+    }
+    var bufs = [_][]u8{dest};
+    n_out.* = file.readPositional(io, &bufs, offset) catch return .io;
     return .success;
 }
 
@@ -881,14 +906,19 @@ pub fn pathOpen(
             .truncate = (oflags & p1.OFLAGS_TRUNC) != 0,
             .exclusive = (oflags & p1.OFLAGS_EXCL) != 0,
         }) catch |err| return mapOpenError(err)
-    else
-        dir.openFile(io, path, .{ .mode = if (wants_write) .read_write else .read_only }) catch |err| {
+    else blk: {
+        const f = dir.openFile(io, path, .{ .mode = if (wants_write) .read_write else .read_only }) catch |err| {
             // POSIX-style guests (Go's os.Open before ReadDir) open a
             // directory read-only WITHOUT OFLAGS_DIRECTORY; mirror the
             // kernel by falling back to a directory open.
             if (err == error.IsDir) return openDirSlot(host, io, dir, path, fs_rights_base, fs_rights_inheriting, fdflags, mem, opened_fd_ptr);
             return mapOpenError(err);
         };
+        // O_TRUNC without O_CREAT (a bare truncate-open; the 0.3 `truncate`
+        // open-flag arrives standalone).
+        if ((oflags & p1.OFLAGS_TRUNC) != 0) f.setLength(io, 0) catch |err| return mapSetLengthError(err);
+        break :blk f;
+    };
 
     // Reserve the new fd_table slot.
     host.fd_table.append(host.alloc, .{

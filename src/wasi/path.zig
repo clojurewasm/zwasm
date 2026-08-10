@@ -76,6 +76,9 @@ const Resolved = struct { dir: std.Io.Dir, sub: []const u8 };
 /// Returns the errno on failure (`.success` when `out` is populated).
 fn resolve(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr: u32, path_len: u32, out: *Resolved) p1.Errno {
     const path = sliceMemConst(mem, path_ptr, path_len) orelse return .fault;
+    // POSIX: the empty path resolves to nothing (ENOENT). Guarded here because
+    // std.Io panics on the resulting EINVAL in debug builds ("programmer bug").
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
     const slot = host.translateFd(dirfd) orelse return .badf;
     if (slot.kind != .dir) return .notdir;
@@ -127,6 +130,9 @@ pub fn pathRemoveDirectory(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr:
     const e = resolve(host, mem, dirfd, path_ptr, path_len, &r);
     if (e != .success) return e;
     const io = host.io orelse return .nosys;
+    // rmdir(".") is EINVAL per POSIX; guarded because std.Io panics on the
+    // unexpected EINVAL in debug builds.
+    if (std.mem.eql(u8, r.sub, ".") or std.mem.eql(u8, r.sub, "./")) return .inval;
     r.dir.deleteDir(io, r.sub) catch |err| return mapDirErr(err);
     return .success;
 }
@@ -146,6 +152,10 @@ pub fn pathRename(host: *Host, mem: []const u8, old_dirfd: p1.Fd, old_ptr: u32, 
     const e2 = resolve(host, mem, new_dirfd, new_ptr, new_len, &rn);
     if (e2 != .success) return e2;
     const io = host.io orelse return .nosys;
+    // rename involving "." is EINVAL/EBUSY per POSIX; guarded because std.Io
+    // panics on the unexpected EINVAL in debug builds.
+    if (std.mem.eql(u8, ro.sub, ".") or std.mem.eql(u8, ro.sub, "./") or
+        std.mem.eql(u8, rn.sub, ".") or std.mem.eql(u8, rn.sub, "./")) return .inval;
     ro.dir.rename(ro.sub, rn.dir, rn.sub, io) catch |err| return mapDirErr(err);
     return .success;
 }
@@ -268,6 +278,10 @@ pub fn pathFilestatSetTimes(host: *Host, mem: []const u8, dirfd: p1.Fd, lookupfl
     const io = host.io orelse return .nosys;
     const atime = setTimestampOf(fst_flags, p1.FSTFLAGS_ATIM_NOW, p1.FSTFLAGS_ATIM, atim);
     const mtime = setTimestampOf(fst_flags, p1.FSTFLAGS_MTIM_NOW, p1.FSTFLAGS_MTIM, mtim);
+    // Pre-probe existence: Threaded's setTimestamps op treats ENOENT as an
+    // UNEXPECTED errno (posix.unexpectedErrno → error.Unexpected → `.io`),
+    // losing the `noent` the guest is owed for a missing path.
+    r.dir.access(io, r.sub, .{}) catch |err| return mapDirErr(err);
     if (comptime builtin.os.tag == .windows) {
         // Zig 0.16 std has NO `dirSetTimestamps` on Windows (`@panic("TODO")`)
         // — it would crash the runtime. Open the file and use the

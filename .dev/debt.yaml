@@ -245,10 +245,12 @@ entries:
       (1) CLOSED at phase A — timer subtask waitable in the shared handle
       table + `driveScheduler` sleep-until-deadline seam; official
       monotonic-clock + multi-clock-wait green. `exit-with-code` (newly
-      measured gap) also shipped at A. (3) generation-aware dispatch moved to
-      the START of phase B (ADR-0205 D4 amendment: no colliding same-name row
-      exists until filesystem-0.3 lands). (2) re-scoped OUT of the future
-      bucket into phases B (filesystem), C (sockets), D (http).
+      measured gap) also shipped at A. (3) CLOSED at phase B — generation-
+      aware dispatch (`WasiGen` from the import's `@version` → per-row
+      `Gens` mask). (2) filesystem half CLOSED at phase B — full 0.3
+      descriptor surface (async-eager metadata family + via-stream data
+      plane + read-directory stream), official filesystem corpus 14/14.
+      REMAINING = sockets (phase C) + http (phase D).
     first_raised: "2026-07-17"
     last_reviewed: "2026-08-10"
     refs: |-

@@ -366,6 +366,20 @@ pub const Canon = union(enum) {
 /// 0x7e i64) + the storage slot index.
 pub const ContextSlot = struct { is_i64: bool, slot: u32 };
 
+/// The WASI interface-version generation an import's `@x.y.z` suffix maps to
+/// (ADR-0205 D1). Shapes are frozen within a generation (0.2.x) or additive
+/// (0.3.x); they diverge BETWEEN generations for same-named funcs.
+pub const WasiGen = enum { p2, p3, any };
+
+/// `@version` suffix → generation. Guards against a "0.2x"-style prefix
+/// false-match: the minor must terminate at end or '.'.
+pub fn parseWasiGen(v: []const u8) WasiGen {
+    inline for (.{ .{ "0.2", WasiGen.p2 }, .{ "0.3", WasiGen.p3 } }) |m| {
+        if (std.mem.startsWith(u8, v, m[0]) and (v.len == m[0].len or v[m[0].len] == '.')) return m[1];
+    }
+    return .any;
+}
+
 /// `core:instantiatearg ::= name 0x12 instanceidx` — a `with` argument
 /// supplying an imported instance to a core instantiation.
 pub const CoreInstantiateArg = struct {
@@ -648,8 +662,12 @@ pub const TypeInfo = struct {
         };
     }
 
-    /// An imported WASI interface + func name a lowered component func came from.
-    pub const ImportRef = struct { interface: []const u8, func: []const u8 };
+    /// An imported WASI interface + func name a lowered component func came
+    /// from, plus the interface-version GENERATION (ADR-0205 D1): 0.2.x and
+    /// 0.3.x share many interface/func names with DIFFERENT shapes (filesystem
+    /// `stat`, sockets), so the adapter dispatches per generation. `.any` =
+    /// unversioned import (matches every row).
+    pub const ImportRef = struct { interface: []const u8, func: []const u8, gen: WasiGen = .any };
 
     /// Resolve a component **func** index (a `canon lower`'s `func` operand) back
     /// to the imported interface + func name it aliases — so the host classifies
@@ -672,8 +690,10 @@ pub const TypeInfo = struct {
             .import => |name| name,
             .local => return null,
         };
-        const interface = if (std.mem.findScalar(u8, full, '@')) |at| full[0..at] else full;
-        return .{ .interface = interface, .func = ce.name };
+        const at = std.mem.findScalar(u8, full, '@');
+        const interface = if (at) |i| full[0..i] else full;
+        const gen: WasiGen = if (at) |i| parseWasiGen(full[i + 1 ..]) else .any;
+        return .{ .interface = interface, .func = ce.name, .gen = gen };
     }
 
     /// A component `func` export resolved to the core exports the host must

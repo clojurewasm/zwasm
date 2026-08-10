@@ -540,6 +540,23 @@ pub const WaitableSetTable = struct {
         return &self.slots.items[i].?;
     }
 
+    /// `Waitable.join(None)` / the move half of `waitable.join`: remove
+    /// `handle` from EVERY set (a waitable belongs to at most one).
+    pub fn unjoin(self: *WaitableSetTable, handle: u32) void {
+        for (self.slots.items) |*slot| {
+            if (slot.* == null) continue;
+            const ws = &slot.*.?;
+            var i: usize = 0;
+            while (i < ws.elems.items.len) {
+                if (ws.elems.items[i] == handle) {
+                    _ = ws.elems.swapRemove(i);
+                    continue;
+                }
+                i += 1;
+            }
+        }
+    }
+
     /// `Table.remove` — drop the set (tearing down its member list), tombstone
     /// the slot + push the hole to the free list.
     pub fn remove(self: *WaitableSetTable, i: u32) Error!void {

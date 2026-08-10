@@ -21,6 +21,12 @@ TESTS=(
   # phase A — cli / clocks / random / run
   cli-env cli-exit cli-stdio cli-stdio-roundtrip cli-stdout-flush cli-terminal
   monotonic-clock multi-clock-wait random wall-clock run-with-err
+  # phase B — filesystem (root preopen tree = fs-tests.dir below)
+  filesystem-advise filesystem-dotdot filesystem-flags-and-type
+  filesystem-hard-links filesystem-io filesystem-is-same-object
+  filesystem-metadata-hash filesystem-mkdir-rmdir filesystem-open-errors
+  filesystem-read-directory filesystem-rename filesystem-set-size
+  filesystem-stat filesystem-unlink-errors
 )
 
 command -v wasm-tools >/dev/null || { echo "wasm-tools required" >&2; exit 1; }
@@ -41,6 +47,13 @@ for t in "${TESTS[@]}"; do
   if git -C "$CLONE" cat-file -e "$PIN_SHA:tests/rust/wasm32-wasip3/src/bin/$t.json" 2>/dev/null; then
     git -C "$CLONE" show "$PIN_SHA:tests/rust/wasm32-wasip3/src/bin/$t.json" > "$DEST/$t.json"
   fi
+done
+
+# The filesystem tests' preopen tree (manifest "root": "fs-tests.dir"); the
+# harness copies it to a temp dir per run (tests mutate the tree).
+mkdir -p "$DEST/fs-tests.dir"
+for f in $(git -C "$CLONE" ls-tree -r --name-only "$PIN_SHA" tests/rust/wasm32-wasip3/src/bin/fs-tests.dir/); do
+  git -C "$CLONE" show "$PIN_SHA:$f" > "$DEST/fs-tests.dir/$(basename "$f")"
 done
 
 echo "vendored ${#TESTS[@]} tests at pin $PIN_SHA into $DEST"

@@ -58,6 +58,7 @@ const build_options = @import("build_options");
 /// A guest `stream.read` parked at a host source (ADR-0191 E2c): the destination
 /// buffer the delivered bytes are copied into when the source becomes ready.
 pub const PendingRead = struct { ptr: u32, cap: u32, elem_size: u32 = 1 };
+pub const PendingWrite = struct { ptr: u32, count: u32, elem_size: u32 = 1 };
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -126,15 +127,34 @@ pub const WasiP2Ctx = struct {
     /// "source not ready yet"); default off = E3's deliver-immediately.
     pending_reads: std.AutoHashMapUnmanaged(u32, PendingRead) = .empty,
     defer_host_source_reads: bool = false,
-    /// WASI 0.3 (ADR-0190): the readable end of a `future<result<_,error-code>>`
-    /// that `write-via-stream`/`read-via-stream` returned. A host stream peer
-    /// always succeeds, so the result future is "ok and ready" — a guest
-    /// `future.read` on it COMPLETES with the `ok` discriminant (0) without a
-    /// rendezvous.
-    host_result_futures: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// WASI 0.3 (ADR-0190/ADR-0205): the readable end of a
+    /// `future<result<_,error-code>>` that a `*-via-stream` func returned,
+    /// mapped to its outcome — null = ok (the peer succeeded / is still
+    /// clean), else the 0.3 `error-code` ordinal a failed file stream
+    /// recorded. A guest `future.read` COMPLETES immediately either way.
+    host_result_futures: std.AutoHashMapUnmanaged(u32, ?u8) = .empty,
     /// `insecure-seed`'s cached 128-bit value — a moral value import: every
     /// call must observe the same seed (official random.wasm asserts it).
     insecure_seed: ?[2]u64 = null,
+    /// WASI-0.3 filesystem via-stream roles (ADR-0205 phase B): a stream whose
+    /// peer is a host FILE at a tracked byte position — `read-via-stream`
+    /// (guest reads → host preads + advances) and `write/append-via-stream`
+    /// (guest writes → host pwrites + advances). Keyed by the stream's SHARED
+    /// id (like `host_sinks`); scrubbed on last-end drop.
+    host_file_streams: std.AutoHashMapUnmanaged(u32, FileStreamRole) = .empty,
+    /// WASI-0.3 `read-directory` stream roles: shared id → index into
+    /// `dir_streams` (the same P1 readdir cursor the 0.2 entry-stream uses).
+    host_dir_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    /// A guest `stream.write` that BLOCKED (no peer yet): the source span it
+    /// offered, keyed by the writable end handle — a host role registered
+    /// AFTERWARDS (`write-via-stream(data, ...)` arrives while `write_all` is
+    /// already parked under `futures::join!`) drains it at registration.
+    pending_writes: std.AutoHashMapUnmanaged(u32, PendingWrite) = .empty,
+    /// WASI-0.3 `open-at`'s REQUESTED `descriptor-flags` per descriptor
+    /// handle — `get-flags` reflects the request (official
+    /// filesystem-flags-and-type.wasm: an empty-flags open reads back READ
+    /// alone), not the host's actual open mode.
+    descriptor_open_flags: std.AutoHashMapUnmanaged(u32, u8) = .empty,
     /// CM-async `canon context.{get,set}` task-local storage (ADR-0205 phase A;
     /// spec `ContextLocalStorage`). One pair per TASK — valid while every
     /// runner keeps ≤ 1 live task per ctx (the single-component runner seeds
@@ -176,6 +196,10 @@ pub const WasiP2Ctx = struct {
     /// P1 fd + the P1 readdir cookie to resume after.
     pub const DirStream = struct { fd: wasi_p1.Fd, cookie: u64 };
 
+    /// A WASI-0.3 file via-stream peer: the P1 fd + the tracked byte position
+    /// the next pread/pwrite uses (advanced per completed copy).
+    pub const FileStreamRole = struct { fd: wasi_p1.Fd, pos: u64, result_future: u32 = 0 };
+
     pub fn init(alloc: Allocator, host: *wasi_host.Host) !WasiP2Ctx {
         return .{
             .alloc = alloc,
@@ -205,6 +229,10 @@ pub const WasiP2Ctx = struct {
         self.ab_ctxs.deinit(self.alloc);
         for (self.cb_ctxs.items) |p| self.alloc.destroy(p);
         self.cb_ctxs.deinit(self.alloc);
+        self.host_file_streams.deinit(self.alloc);
+        self.host_dir_streams.deinit(self.alloc);
+        self.descriptor_open_flags.deinit(self.alloc);
+        self.pending_writes.deinit(self.alloc);
         self.host_sinks.deinit(self.alloc);
         self.host_sources.deinit(self.alloc);
         self.pending_reads.deinit(self.alloc);
@@ -1593,6 +1621,14 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_dir_entry_stream_read => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2DirEntryStreamReadEntry),
         .fs_dir_entry_stream_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2ResourceDrop),
         .io_resource_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2ResourceDrop),
+        // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
+        .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
+        .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
+        .fs3_append_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!u32, fs3AppendViaStream),
+        .fs3_read_directory => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, fs3ReadDirectory),
+        // The fs3 async-func surface arrives ASYNC-lowered (defineAsyncLoweredOp);
+        // a sync lower of it is unreached by the conformance corpus — fail loudly.
+        .fs3_stat, .fs3_stat_at, .fs3_get_type, .fs3_get_flags, .fs3_set_times, .fs3_set_times_at, .fs3_set_size, .fs3_advise, .fs3_sync, .fs3_sync_data, .fs3_open_at, .fs3_create_directory_at, .fs3_remove_directory_at, .fs3_unlink_file_at, .fs3_readlink_at, .fs3_rename_at, .fs3_symlink_at, .fs3_link_at, .fs3_is_same_object, .fs3_metadata_hash, .fs3_metadata_hash_at => return error.UnsupportedWasiImport,
         .fs_stub_via_stream_offset => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u64, u32) WasiP2Error!void, p2FsStubViaStreamOffset),
         .fs_stub_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2FsStubViaStream),
         .fs_stub_get_flags => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2FsStubGetFlags),
@@ -1743,7 +1779,7 @@ fn synthDef(arena: Allocator, info: *const ctypes.TypeInfo, built: []const ?Buil
         .func => switch (info.coreFunc(ex.index) orelse return null) {
             .lower => |l| {
                 const ref = info.resolveComponentImport(l.func) orelse return null;
-                const op = adapter.classifyImport(ref.interface, ref.func) orelse return error.UnsupportedWasiImport;
+                const op = adapter.classifyImport(ref.interface, ref.func, ref.gen) orelse return error.UnsupportedWasiImport;
                 if (l.opts.is_async) return .{ .host_op_async = op };
                 return .{ .host_op = op };
             },
@@ -1867,7 +1903,7 @@ fn p2WriteViaStream(caller: *Caller, stream_handle: u32, fd: wasi_p1.Fd) WasiP2E
     const end = try ctx.streams.get(stream_handle);
     try ctx.host_sinks.put(ctx.alloc, end.shared, fd);
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
-    try ctx.host_result_futures.put(ctx.alloc, fut.readable, {}); // host always succeeds → ok future
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null); // ok unless a stream failure records an error
     return fut.readable;
 }
 
@@ -1891,7 +1927,7 @@ fn p2StdinReadViaStream(caller: *Caller, retptr: u32) WasiP2Error!void {
     const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
     try ctx.host_sources.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, 0); // fd 0 = stdin
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
-    try ctx.host_result_futures.put(ctx.alloc, fut.readable, {}); // host always succeeds → ok future
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null); // ok unless a stream failure records an error
     const mem = try ctx.memory();
     try mem.write(retptr, pair.readable);
     try mem.write(retptr + 4, fut.readable);
@@ -1903,12 +1939,16 @@ fn p2WaitableSetNew(caller: *Caller) WasiP2Error!u32 {
     return ctx.sets.add(async_mod.WaitableSet.init(ctx.alloc));
 }
 
-/// `canon waitable.join` (ADR-0190 E2b): add a waitable handle to a set.
-fn p2WaitableJoin(caller: *Caller, set_handle: u32, waitable: u32) WasiP2Error!void {
-    return p2WaitableJoinInner(caller, set_handle, waitable) catch |e| mapAsyncFault(e);
+/// `canon waitable.join` (ADR-0190 E2b; `CanonicalABI.md canon_waitable_join`):
+/// core args are `(waitable, set)` — set 0 = LEAVE the current set; a join
+/// always moves (a waitable belongs to at most one set).
+fn p2WaitableJoin(caller: *Caller, waitable: u32, set_handle: u32) WasiP2Error!void {
+    return p2WaitableJoinInner(caller, waitable, set_handle) catch |e| mapAsyncFault(e);
 }
-fn p2WaitableJoinInner(caller: *Caller, set_handle: u32, waitable: u32) WasiP2Error!void {
+fn p2WaitableJoinInner(caller: *Caller, waitable: u32, set_handle: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
+    ctx.sets.unjoin(waitable);
+    if (set_handle == 0) return;
     const set = try ctx.sets.get(set_handle); // bad set handle = guest fault → trap
     try set.join(waitable);
 }
@@ -2111,13 +2151,61 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     // by write/read-via-stream. A host stream peer always succeeds → a guest
     // `future.read` COMPLETES with the `ok` discriminant (0, 1 byte) — no
     // rendezvous, no general typed marshalling.
-    if (abc.ctx.host_result_futures.contains(handle)) {
+    if (abc.ctx.host_result_futures.get(handle)) |outcome| {
         const mem = try abc.ctx.memory();
-        const buf = mem.sliceAt(ptr, 1) catch return WasiP2Error.OutOfBounds;
-        buf[0] = 0; // result<_, error-code> ok
+        if (outcome) |code| {
+            // result<_, error-code> err: disc@0, error-code variant @4
+            // (disc u8 @4, `other`'s option<string> @8 → none).
+            const buf = mem.sliceAt(ptr, 9) catch return WasiP2Error.OutOfBounds;
+            buf[0] = 1;
+            buf[4] = code;
+            buf[8] = 0;
+        } else {
+            const buf = mem.sliceAt(ptr, 1) catch return WasiP2Error.OutOfBounds;
+            buf[0] = 0; // ok
+        }
         // Future events never pack a count (CanonicalABI `future_event`:
         // "the number of elements copied ... always zero").
         return (async_mod.ReturnCode{ .completed = 0 }).encode();
+    }
+    // WASI-0.3 FILE via-stream peer (ADR-0205 phase B): positional
+    // pread/pwrite at the role's tracked position, advanced per copy.
+    if (abc.ctx.host_file_streams.getPtr(end.shared)) |role| {
+        const mem = try abc.ctx.memory();
+        // A position past i64 range would be an UNEXPECTED EINVAL inside
+        // std.Io (debug panic); surface it as a failed stream + an
+        // err(invalid) result future instead (official filesystem-io.wasm
+        // preads at u64::MAX and expects error-code::invalid).
+        const pos_invalid = role.pos > std.math.maxInt(i64);
+        if (end.side == .writable) {
+            const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
+            const errno: wasi_p1.Errno = if (pos_invalid) .inval else wasi_fd.pwriteSlice(abc.ctx.host, role.fd, bytes, role.pos);
+            if (errno != .success) return fs3FailFileStream(abc.ctx, end, role, errno);
+            role.pos += bytes.len;
+            return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
+        }
+        const buf = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
+        var n: usize = 0;
+        const errno: wasi_p1.Errno = if (pos_invalid) .inval else wasi_fd.preadSlice(abc.ctx.host, role.fd, buf, role.pos, &n);
+        if (errno != .success) return fs3FailFileStream(abc.ctx, end, role, errno);
+        if (n == 0) {
+            // EOF: the writer (host) side drops, so the guest observes a
+            // CLOSED stream instead of retrying a 0-byte completion forever.
+            switch ((try abc.ctx.shared.get(end.shared)).*) {
+                .stream => |*sh_s| sh_s.dropped = true,
+                .future, .subtask => return WasiP2Error.InvalidHandle,
+            }
+            end.state = .done;
+            return (async_mod.ReturnCode{ .dropped = 0 }).encode();
+        }
+        role.pos += n;
+        return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
+    }
+    // WASI-0.3 `read-directory` stream (ADR-0205 phase B): marshal
+    // `directory-entry` records from the registered P1 readdir cursor.
+    if (abc.ctx.host_dir_streams.get(end.shared)) |state_index| {
+        if (end.side != .readable) return WasiP2Error.InvalidHandle;
+        return fs3DirStreamRead(abc.ctx, state_index, end, ptr, count);
     }
     // Host stream peer (Unit E, ADR-0190): the host is the always-ready reader,
     // so a guest write COMPLETES immediately — marshal the `count` u8s from guest
@@ -2159,7 +2247,14 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         .subtask => unreachable, // SharedTable never stores .subtask (subtask ends stay unlinked)
     };
     return switch (step.caller) {
-        .blocked => (async_mod.ReturnCode{ .blocked = {} }).encode(),
+        .blocked => blk: {
+            // Remember a parked WRITE's source span: a host file role
+            // registered after the fact (write-via-stream under
+            // futures::join!) completes it at registration.
+            if (end.kind == .stream and end.side == .writable)
+                try abc.ctx.pending_writes.put(abc.ctx.alloc, handle, .{ .ptr = ptr, .count = count, .elem_size = abc.elem_size });
+            break :blk (async_mod.ReturnCode{ .blocked = {} }).encode();
+        },
         .dropped => (async_mod.ReturnCode{ .dropped = 0 }).encode(),
         // n==0 moves no bytes; n>0 needs marshalling at `ptr` (Unit E) and is
         // unreachable in the single-task model (no concurrent peer with data).
@@ -2204,9 +2299,12 @@ fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
     if (ctx.streams.get(handle)) |end| {
         _ = ctx.host_result_futures.remove(handle);
         _ = ctx.pending_reads.remove(handle);
+        _ = ctx.pending_writes.remove(handle);
         if (end.shared != 0 and (ctx.shared.refcountOf(end.shared) orelse 0) == 1) {
             _ = ctx.host_sinks.remove(end.shared);
             _ = ctx.host_sources.remove(end.shared);
+            _ = ctx.host_file_streams.remove(end.shared);
+            _ = ctx.host_dir_streams.remove(end.shared);
         }
     } else |_| {
         // Stale handle: dropEndGuarded below surfaces the guest fault.
@@ -2240,19 +2338,7 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
             .drop => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32) WasiP2Error!void, p2WaitableSetDrop),
             .wait => unreachable, // synthDef rejects it
         },
-        .host_op_async => |op| {
-            // Every host op other than the timer waits completes eagerly today;
-            // an async lower of one is unreached by the conformance corpus —
-            // reject until its phase (B fs / C sockets / D http) binds the
-            // generic async-eager shim.
-            if (op == .clocks_wait_until) {
-                try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i64) WasiP2Error!u32, p2WaitUntil);
-            } else if (op == .clocks_wait_for) {
-                try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i64) WasiP2Error!u32, p2WaitFor);
-            } else {
-                return error.UnsupportedWasiImport;
-            }
-        },
+        .host_op_async => |op| try defineAsyncLoweredOp(lk, ns, e.name, op, ctx),
         .context_builtin => |cb| {
             if (cb.slot.slot >= 2) return error.UnsupportedWasiImport; // spec ContextLocalStorage bound
             const cbc = try ctx.alloc.create(ContextBuiltinCtx);
@@ -2583,4 +2669,671 @@ pub fn runWasiMain(engine: *Engine, alloc: Allocator, bytes: []const u8, host: *
         }
     }
     return runWasiP2MainBuilt(&built);
+}
+
+// ============================================================
+// wasi:filesystem@0.3.0 (ADR-0205 phase B)
+// ============================================================
+// The 0.3 descriptor surface. Async funcs arrive ASYNC-LOWERED from
+// wit-bindgen guests and complete eagerly (ADR-0205 D5): flat params ≤ 4 stay
+// flat (+ retptr), larger signatures spill to ONE args pointer (+ retptr);
+// results always land at retptr; the trampoline returns the packed subtask
+// status (eager = RETURNED). The via-stream/read-directory funcs are PLAIN
+// funcs (sync-lowered) minting host-peer streams like the ADR-0190 stdio
+// pattern, but against file fds at tracked positions.
+
+/// 0.3 `error-code` variant ordinals (0.2's `would-block` was REMOVED, so the
+/// generations renumber; 36 = the `other(option<string>)` catch-all).
+fn errnoToFs3ErrorCode(errno: wasi_p1.Errno) u8 {
+    return switch (errno) {
+        .acces => 0,
+        .already => 1,
+        .badf => 2,
+        .busy => 3,
+        .deadlk => 4,
+        .dquot => 5,
+        .exist => 6,
+        .fbig => 7,
+        .ilseq => 8,
+        .inprogress => 9,
+        .intr => 10,
+        .inval => 11,
+        .io => 12,
+        .isdir => 13,
+        .loop => 14,
+        .mlink => 15,
+        .msgsize => 16,
+        .nametoolong => 17,
+        .nodev => 18,
+        .noent => 19,
+        .nolck => 20,
+        .nomem => 21,
+        .nospc => 22,
+        .notdir => 23,
+        .notempty => 24,
+        .notrecoverable => 25,
+        .notsup => 26,
+        .notty => 27,
+        .nxio => 28,
+        .overflow => 29,
+        .perm => 30,
+        .pipe => 31,
+        .rofs => 32,
+        .spipe => 33,
+        .txtbsy => 34,
+        .xdev => 35,
+        // P1's sandbox-escape errno; 0.3 names the same condition
+        // `not-permitted` ("reaches a directory outside of the base
+        // directory ... fails with error-code::not-permitted").
+        .notcapable => 30,
+        else => 36,
+    };
+}
+
+/// 0.3 `descriptor-type` VARIANT ordinals (0.2 was an enum with `unknown` at
+/// 0; 0.3 drops it and appends `other(option<string>)` = 7).
+fn filetypeToFs3DescriptorType(ft: wasi_p1.Filetype) u8 {
+    return switch (ft) {
+        .block_device => 0,
+        .character_device => 1,
+        .directory => 2,
+        .symbolic_link => 4,
+        .regular_file => 5,
+        .socket_dgram, .socket_stream => 6,
+        else => 7,
+    };
+}
+
+/// Store `result.err(error-code)` at `retptr` for a 0.3 result whose payload
+/// slot sits at `payload_off` (8 for align-8 ok payloads, 4 otherwise).
+/// error-code = variant{disc u8 @0, `other`'s option<string> @4 → none}.
+fn writeFs3Err(mem: Memory, retptr: u32, payload_off: u32, errno: wasi_p1.Errno) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 1)); // result disc: err
+    try mem.write(retptr + payload_off, errnoToFs3ErrorCode(errno));
+    try mem.write(retptr + payload_off + 4, @as(u8, 0)); // option<string>: none
+}
+
+/// Write a 0.3 `descriptor-type` variant (16 B, align 4) at `ptr`.
+fn writeFs3DescriptorType(mem: Memory, ptr: u32, ft: wasi_p1.Filetype) WasiP2Error!void {
+    try mem.write(ptr, filetypeToFs3DescriptorType(ft));
+    try mem.write(ptr + 4, @as(u8, 0)); // `other`'s option<string>: none
+}
+
+/// Resolve a descriptor handle to its P1 fd (shared fs3 front-half).
+fn fs3Fd(ctx: *WasiP2Ctx, handle: u32) WasiP2Error!wasi_p1.Fd {
+    return @intCast(try ctx.resources.rep(WasiP2Ctx.DESCRIPTOR_RT, handle));
+}
+
+/// `[async-lower][method]descriptor.stat` (self, retptr) — store
+/// `result<descriptor-stat, error-code>` in the 0.3 layout: disc@0, payload@8;
+/// descriptor-stat = %type@0 (16 B variant), link-count@16, size@24, then
+/// three `option<instant>` @32/56/80 (disc@0, instant{seconds s64@8, ns u32@16}).
+fn fs3Stat(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    try writeFs3StatResult(mem, retptr, try descriptorFilestat(ctx, mem, fd));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3StatAt(caller: *Caller, self_handle: u32, path_flags: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const dirfd = try fs3Fd(ctx, self_handle);
+    try writeFs3StatResult(mem, retptr, try pathFilestat(ctx, mem, dirfd, path_flags, path_ptr, path_len));
+    return SUBTASK_RETURNED;
+}
+
+fn writeFs3StatResult(mem: Memory, retptr: u32, r: FilestatResult) WasiP2Error!void {
+    switch (r) {
+        .ok => |fs| {
+            try mem.write(retptr, @as(u8, 0)); // result disc: ok
+            const base = retptr + 8;
+            try writeFs3DescriptorType(mem, base, fs.filetype);
+            try mem.write(base + 16, @as(u64, fs.nlink));
+            try mem.write(base + 24, @as(u64, fs.size));
+            inline for (.{ .{ base + 32, fs.atim }, .{ base + 56, fs.mtim }, .{ base + 80, fs.ctim } }) |t| {
+                try mem.write(t[0], @as(u8, 1)); // option disc: some
+                try mem.write(t[0] + 8, @as(i64, @intCast(t[1] / std.time.ns_per_s)));
+                try mem.write(t[0] + 16, @as(u32, @intCast(t[1] % std.time.ns_per_s)));
+            }
+        },
+        .err => |errno| try writeFs3Err(mem, retptr, 8, errno),
+    }
+}
+
+/// `get-type` (self, retptr) — `result<descriptor-type, error-code>`: disc@0,
+/// payload@4 (align 4).
+fn fs3GetType(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    switch (try descriptorFilestat(ctx, mem, fd)) {
+        .ok => |fs| {
+            try mem.write(retptr, @as(u8, 0));
+            try writeFs3DescriptorType(mem, retptr + 4, fs.filetype);
+        },
+        .err => |errno| try writeFs3Err(mem, retptr, 4, errno),
+    }
+    return SUBTASK_RETURNED;
+}
+
+/// `get-flags` (self, retptr) — `result<descriptor-flags, error-code>`;
+/// descriptor-flags = 6 flags → one byte (read=1, write=2,
+/// mutate-directory=32). Derived from the object kind: files read+write,
+/// directories read+mutate-directory (the host does not model O_RDONLY opens).
+fn fs3GetFlags(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    switch (try descriptorFilestat(ctx, mem, fd)) {
+        .ok => |fs| {
+            // Reflect the open-time EFFECTIVE flags when recorded; preopens
+            // and 0.2-opened descriptors derive from kind.
+            const flags: u8 = if (ctx.descriptor_open_flags.get(self_handle)) |req|
+                req & (1 | 2 | 32)
+            else if (fs.filetype == .directory) 1 | 32 else 1 | 2;
+            try mem.write(retptr, @as(u8, 0));
+            try mem.write(retptr + 4, flags);
+        },
+        .err => |errno| try writeFs3Err(mem, retptr, 4, errno),
+    }
+    return SUBTASK_RETURNED;
+}
+
+/// `result<_, error-code>` writer (unit ok): disc@0, err payload@4.
+fn writeFs3UnitResult(mem: Memory, retptr: u32, errno: wasi_p1.Errno) WasiP2Error!void {
+    if (errno == .success) {
+        try mem.write(retptr, @as(u8, 0));
+    } else {
+        try writeFs3Err(mem, retptr, 4, errno);
+    }
+}
+
+fn fs3Sync(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3UnitResult(mem, retptr, wasi_fd.fdSync(ctx.host, try fs3Fd(ctx, self_handle)));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3SyncData(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3UnitResult(mem, retptr, wasi_fd.fdDatasync(ctx.host, try fs3Fd(ctx, self_handle)));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3SetSize(caller: *Caller, self_handle: u32, size_raw: i64, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    // A descriptor opened without WRITE must refuse resizing (WASI#712;
+    // official filesystem-set-size.wasm asserts it).
+    if (ctx.descriptor_open_flags.get(self_handle)) |req| {
+        if (req & 2 == 0) {
+            try writeFs3Err(mem, retptr, 4, .badf);
+            return SUBTASK_RETURNED;
+        }
+    }
+    try writeFs3UnitResult(mem, retptr, wasi_fd.fdFilestatSetSize(ctx.host, try fs3Fd(ctx, self_handle), @bitCast(size_raw)));
+    return SUBTASK_RETURNED;
+}
+
+/// `advise` (self, offset, length, advice, retptr) — 0.3 advice ordinals
+/// match P1's (normal..no-reuse).
+fn fs3Advise(caller: *Caller, self_handle: u32, offset_raw: i64, len_raw: i64, advice: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const errno = wasi_fd.fdAdvise(ctx.host, try fs3Fd(ctx, self_handle), @bitCast(offset_raw), @bitCast(len_raw), @intCast(advice & 0xff));
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+fn fs3CreateDirectoryAt(caller: *Caller, self_handle: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3UnitResult(mem, retptr, wasi_path.pathCreateDirectory(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), path_ptr, path_len));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3RemoveDirectoryAt(caller: *Caller, self_handle: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3UnitResult(mem, retptr, wasi_path.pathRemoveDirectory(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), path_ptr, path_len));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3UnlinkFileAt(caller: *Caller, self_handle: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3UnitResult(mem, retptr, wasi_fd.pathUnlinkFile(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), path_ptr, path_len));
+    return SUBTASK_RETURNED;
+}
+
+/// `readlink-at` (self, path, retptr) → `result<string, error-code>`
+/// (string align 4 → payload@4: ptr@4, len@8; target in fresh cabi_realloc
+/// backing).
+fn fs3ReadlinkAt(caller: *Caller, self_handle: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const dirfd = try fs3Fd(ctx, self_handle);
+    const cap: u32 = 4096;
+    const buf_ptr = try ctx.reallocGuest(cap, 1);
+    const used_ptr = try ctx.reallocGuest(4, 4);
+    const errno = wasi_path.pathReadlink(ctx.host, mem.slice(), dirfd, path_ptr, path_len, buf_ptr, cap, used_ptr);
+    if (errno != .success) {
+        try writeFs3Err(mem, retptr, 4, errno);
+        return SUBTASK_RETURNED;
+    }
+    const used = try mem.read(u32, used_ptr);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, buf_ptr);
+    try mem.write(retptr + 8, used);
+    return SUBTASK_RETURNED;
+}
+
+// -- spilled-args family: the Canonical ABI passes > 4-flat async-lowered
+// params through ONE args pointer; layouts are the params-record layouts.
+
+/// `open-at` args record: self@0(u32), path-flags@4(u8 flags),
+/// path@8(ptr,len), open-flags@16(u8), %flags@17(u8). Result:
+/// `result<own<descriptor>, error-code>` (handle@4).
+fn fs3OpenAt(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const path_ptr = try mem.read(u32, argsptr + 8);
+    const path_len = try mem.read(u32, argsptr + 12);
+    const open_flags = try mem.read(u8, argsptr + 16);
+    const dirfd = try fs3Fd(ctx, self_handle);
+    const oflags: wasi_p1.Oflags = @intCast(open_flags & 0x0F);
+    const rights = wasi_p1.RIGHTS_FD_READ | wasi_p1.RIGHTS_FD_WRITE;
+    const scratch = try ctx.reallocGuest(4, 4);
+    const errno = wasi_fd.pathOpen(ctx.host, mem.slice(), dirfd, 0, path_ptr, path_len, oflags, rights, rights, 0, scratch);
+    if (errno != .success) {
+        try writeFs3Err(mem, retptr, 4, errno);
+        return SUBTASK_RETURNED;
+    }
+    const opened_fd = try mem.read(u32, scratch);
+    const handle = try ctx.resources.new(WasiP2Ctx.DESCRIPTOR_RT, opened_fd);
+    // The EFFECTIVE flags `get-flags` reads back (official
+    // filesystem-flags-and-type.wasm): no read/write requested → READ by
+    // default; CREATE/TRUNCATE imply WRITE (without implying READ).
+    var dflags = try mem.read(u8, argsptr + 17);
+    if (dflags & 3 == 0) dflags |= 1;
+    if (open_flags & (0x1 | 0x8) != 0) dflags |= 2;
+    try ctx.descriptor_open_flags.put(ctx.alloc, handle, dflags);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, handle);
+    return SUBTASK_RETURNED;
+}
+
+/// One decoded `new-timestamp` (24 B variant, align 8: disc@0, instant@8).
+const Fs3NewTimestamp = struct { ns: u64, set: bool, now: bool };
+
+fn readFs3NewTimestamp(mem: Memory, ptr: u32) WasiP2Error!Fs3NewTimestamp {
+    const disc = try mem.read(u8, ptr);
+    return switch (disc) {
+        0 => .{ .ns = 0, .set = false, .now = false }, // no-change
+        1 => .{ .ns = 0, .set = false, .now = true }, // now
+        else => blk: {
+            const secs = try mem.read(i64, ptr + 8);
+            const nanos = try mem.read(u32, ptr + 16);
+            // Pre-epoch instants clamp to 0 (P1 timestamps are unsigned ns).
+            const total: u64 = if (secs < 0) 0 else @as(u64, @intCast(secs)) *| std.time.ns_per_s +| nanos;
+            break :blk .{ .ns = total, .set = true, .now = false };
+        },
+    };
+}
+
+fn fs3FstflagsOf(atim: Fs3NewTimestamp, mtim: Fs3NewTimestamp) wasi_p1.Fstflags {
+    var f: u16 = 0;
+    if (atim.set) f |= 1; // ATIM
+    if (atim.now) f |= 2; // ATIM_NOW
+    if (mtim.set) f |= 4; // MTIM
+    if (mtim.now) f |= 8; // MTIM_NOW
+    return @bitCast(f);
+}
+
+/// `set-times` args record: self@0, atim new-timestamp@8, mtim@32.
+fn fs3SetTimes(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const atim = try readFs3NewTimestamp(mem, argsptr + 8);
+    const mtim = try readFs3NewTimestamp(mem, argsptr + 32);
+    const errno = wasi_fd.fdFilestatSetTimes(ctx.host, try fs3Fd(ctx, self_handle), atim.ns, mtim.ns, fs3FstflagsOf(atim, mtim));
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+/// `set-times-at` args record: self@0, path-flags@4(u8), path@8(8),
+/// atim@16(24, align 8), mtim@40(24).
+fn fs3SetTimesAt(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const path_flags = try mem.read(u8, argsptr + 4);
+    const path_ptr = try mem.read(u32, argsptr + 8);
+    const path_len = try mem.read(u32, argsptr + 12);
+    const atim = try readFs3NewTimestamp(mem, argsptr + 16);
+    const mtim = try readFs3NewTimestamp(mem, argsptr + 40);
+    const errno = wasi_path.pathFilestatSetTimes(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), path_flags, path_ptr, path_len, atim.ns, mtim.ns, fs3FstflagsOf(atim, mtim));
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+/// `rename-at` args record: self@0, old-path@4(8), new-descriptor@12(u32),
+/// new-path@16(8).
+fn fs3RenameAt(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const old_ptr = try mem.read(u32, argsptr + 4);
+    const old_len = try mem.read(u32, argsptr + 8);
+    const new_desc = try mem.read(u32, argsptr + 12);
+    const new_ptr = try mem.read(u32, argsptr + 16);
+    const new_len = try mem.read(u32, argsptr + 20);
+    const errno = wasi_path.pathRename(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), old_ptr, old_len, try fs3Fd(ctx, new_desc), new_ptr, new_len);
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+/// `symlink-at` args record: self@0, old-path@4(8), new-path@12(8).
+fn fs3SymlinkAt(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const old_ptr = try mem.read(u32, argsptr + 4);
+    const old_len = try mem.read(u32, argsptr + 8);
+    const new_ptr = try mem.read(u32, argsptr + 12);
+    const new_len = try mem.read(u32, argsptr + 16);
+    const errno = wasi_path.pathSymlink(ctx.host, mem.slice(), old_ptr, old_len, try fs3Fd(ctx, self_handle), new_ptr, new_len);
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+/// `link-at` args record: self@0, old-path-flags@4(u8), old-path@8(8),
+/// new-descriptor@16(u32), new-path@20(8).
+fn fs3LinkAt(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self_handle = try mem.read(u32, argsptr);
+    const old_flags = try mem.read(u8, argsptr + 4);
+    const old_ptr = try mem.read(u32, argsptr + 8);
+    const old_len = try mem.read(u32, argsptr + 12);
+    const new_desc = try mem.read(u32, argsptr + 16);
+    const new_ptr = try mem.read(u32, argsptr + 20);
+    const new_len = try mem.read(u32, argsptr + 24);
+    const errno = wasi_path.pathLink(ctx.host, mem.slice(), try fs3Fd(ctx, self_handle), old_flags, old_ptr, old_len, try fs3Fd(ctx, new_desc), new_ptr, new_len);
+    try writeFs3UnitResult(mem, retptr, errno);
+    return SUBTASK_RETURNED;
+}
+
+/// `is-same-object` (self, other, retptr) → bool (no error case): P1 dev+ino
+/// equality.
+fn fs3IsSameObject(caller: *Caller, self_handle: u32, other_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const a = try descriptorFilestat(ctx, mem, try fs3Fd(ctx, self_handle));
+    const b = try descriptorFilestat(ctx, mem, try fs3Fd(ctx, other_handle));
+    const same = switch (a) {
+        .ok => |fa| switch (b) {
+            .ok => |fb| fa.dev == fb.dev and fa.ino == fb.ino,
+            .err => false,
+        },
+        .err => false,
+    };
+    try mem.write(retptr, @as(u8, @intFromBool(same)));
+    return SUBTASK_RETURNED;
+}
+
+/// `metadata-hash` family → `result<metadata-hash-value{lower,upper},
+/// error-code>` (payload@8): a Wyhash over (dev, ino, size, mtim) — stable
+/// while the object is unmodified, changes when it changes (the spec's
+/// encouraged properties; none is required).
+fn fs3HashOf(fs: wasi_p1.Filestat) [2]u64 {
+    var h = std.hash.Wyhash.init(0x7a77_6173_6d5f_6673); // "zwasm_fs"
+    h.update(std.mem.asBytes(&fs.dev));
+    h.update(std.mem.asBytes(&fs.ino));
+    h.update(std.mem.asBytes(&fs.size));
+    h.update(std.mem.asBytes(&fs.mtim));
+    const lo = h.final();
+    var h2 = std.hash.Wyhash.init(lo);
+    h2.update(std.mem.asBytes(&fs.ino));
+    return .{ lo, h2.final() };
+}
+
+fn writeFs3HashResult(mem: Memory, retptr: u32, r: FilestatResult) WasiP2Error!void {
+    switch (r) {
+        .ok => |fs| {
+            const hv = fs3HashOf(fs);
+            try mem.write(retptr, @as(u8, 0));
+            try mem.write(retptr + 8, hv[0]);
+            try mem.write(retptr + 16, hv[1]);
+        },
+        .err => |errno| try writeFs3Err(mem, retptr, 8, errno),
+    }
+}
+
+fn fs3MetadataHash(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3HashResult(mem, retptr, try descriptorFilestat(ctx, mem, try fs3Fd(ctx, self_handle)));
+    return SUBTASK_RETURNED;
+}
+
+fn fs3MetadataHashAt(caller: *Caller, self_handle: u32, path_flags: u32, path_ptr: u32, path_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeFs3HashResult(mem, retptr, try pathFilestat(ctx, mem, try fs3Fd(ctx, self_handle), path_flags, path_ptr, path_len));
+    return SUBTASK_RETURNED;
+}
+
+// -- via-stream data plane (plain funcs, sync-lowered) --
+
+/// `read-via-stream` (self, offset, retptr) → tuple<stream<u8>,
+/// future<result<_,error-code>>> (stream handle@retptr, future@retptr+4):
+/// the host is the stream's WRITER, supplying bytes preread from the file at
+/// the tracked position (ADR-0190 pattern on a positional fd).
+fn fs3ReadViaStream(caller: *Caller, self_handle: u32, offset_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_file_streams.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, .{ .fd = fd, .pos = @bitCast(offset_raw), .result_future = fut.readable });
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    try mem.write(retptr, pair.readable);
+    try mem.write(retptr + 4, fut.readable);
+}
+
+/// `write-via-stream` (self, data readable-stream, offset) → future handle:
+/// the guest hands over the READABLE end of its data stream; the host drains
+/// it as a positional file sink.
+fn fs3WriteViaStream(caller: *Caller, self_handle: u32, data_handle: u32, offset_raw: i64) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const fd = try fs3Fd(ctx, self_handle);
+    return fs3RegisterFileSink(ctx, fd, data_handle, @bitCast(offset_raw)) catch |e| mapAsyncFault(e);
+}
+
+/// `append-via-stream` (self, data) → future handle: the sink position starts
+/// at the current file size.
+fn fs3AppendViaStream(caller: *Caller, self_handle: u32, data_handle: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    const size: u64 = switch (try descriptorFilestat(ctx, mem, fd)) {
+        .ok => |fs| fs.size,
+        .err => 0,
+    };
+    return fs3RegisterFileSink(ctx, fd, data_handle, size) catch |e| mapAsyncFault(e);
+}
+
+fn fs3RegisterFileSink(ctx: *WasiP2Ctx, fd: wasi_p1.Fd, data_handle: u32, pos: u64) WasiP2Error!u32 {
+    // Copy the shared id out BEFORE minting the future pair — the mint grows
+    // the end table and invalidates `get`'s pointer.
+    const shared_id = blk: {
+        const end = try ctx.streams.get(data_handle);
+        if (end.kind != .stream) return WasiP2Error.InvalidHandle;
+        break :blk end.shared;
+    };
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_file_streams.put(ctx.alloc, shared_id, .{ .fd = fd, .pos = pos, .result_future = fut.readable });
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    try fs3DrainParkedWrite(ctx, shared_id);
+    return fut.readable;
+}
+
+/// A writer PARKED on this stream before the host role existed
+/// (`futures::join!` ordering): drain its recorded span into the file now and
+/// deliver its STREAM_WRITE completion event.
+fn fs3DrainParkedWrite(ctx: *WasiP2Ctx, shared_id: u32) WasiP2Error!void {
+    const sh = try ctx.shared.get(shared_id);
+    const pending = switch (sh.*) {
+        .stream => |*st| st.pending orelse return,
+        .future, .subtask => return,
+    };
+    if (pending.side != .writable) return;
+    const pw = ctx.pending_writes.get(pending.waitable) orelse return;
+    const role = ctx.host_file_streams.getPtr(shared_id) orelse return;
+    const mem = try ctx.memory();
+    const bytes = mem.sliceAt(pw.ptr, pw.count * pw.elem_size) catch return WasiP2Error.OutOfBounds;
+    const errno = wasi_fd.pwriteSlice(ctx.host, role.fd, bytes, role.pos);
+    const writer = try ctx.streams.get(pending.waitable);
+    if (errno != .success) {
+        _ = try fs3FailFileStream(ctx, writer, role, errno);
+        return;
+    }
+    role.pos += bytes.len;
+    writer.state = .idle;
+    writer.setPendingEvent(.{ .code = .stream_write, .index = pending.waitable, .payload = (async_mod.ReturnCode{ .completed = @intCast(pw.count) }).encode() });
+    switch (sh.*) {
+        .stream => |*st| st.pending = null,
+        .future, .subtask => {},
+    }
+    _ = ctx.pending_writes.remove(pending.waitable);
+}
+
+/// A file via-stream copy failed: record the 0.3 error-code on the stream's
+/// result future, close the stream (DROPPED), and report the drop to the
+/// caller — the guest then reads the error from the future.
+fn fs3FailFileStream(ctx: *WasiP2Ctx, end: *async_mod.StreamFutureEnd, role: *WasiP2Ctx.FileStreamRole, errno: wasi_p1.Errno) WasiP2Error!u32 {
+    if (role.result_future != 0) {
+        if (ctx.host_result_futures.getPtr(role.result_future)) |v| v.* = errnoToFs3ErrorCode(errno);
+    }
+    switch ((try ctx.shared.get(end.shared)).*) {
+        .stream => |*sh_s| sh_s.dropped = true,
+        .future, .subtask => return WasiP2Error.InvalidHandle,
+    }
+    end.state = .done;
+    return (async_mod.ReturnCode{ .dropped = 0 }).encode();
+}
+
+/// `read-directory` (self, retptr) → tuple<stream<directory-entry>, future>:
+/// register a P1 readdir cursor under the stream's shared id; the stream-read
+/// path marshals `directory-entry` records (24 B, align 4: %type@0 (16),
+/// name string@16 (ptr,len)) with names in fresh cabi_realloc backings.
+fn fs3ReadDirectory(caller: *Caller, self_handle: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fd = try fs3Fd(ctx, self_handle);
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    const state_index: u32 = @intCast(ctx.dir_streams.items.len);
+    ctx.dir_streams.append(ctx.alloc, .{ .fd = fd, .cookie = 0 }) catch return WasiP2Error.OutOfMemory;
+    try ctx.host_dir_streams.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, state_index);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    try mem.write(retptr, pair.readable);
+    try mem.write(retptr + 4, fut.readable);
+}
+
+/// Bind one ASYNC-lowered host import (`canon lower ... async`): the timer
+/// waits (genuinely async) + the wasi:filesystem@0.3.0 async funcs
+/// (async-EAGER per ADR-0205 D5; flat params ≤ 4 stay flat + retptr, larger
+/// signatures spill to one args-ptr + retptr; each returns the packed subtask
+/// status). Any op outside this table completes eagerly through its SYNC
+/// trampoline only — an async lower of it is unreached by the conformance
+/// corpus, so reject until its phase (C sockets / D http) binds it.
+fn defineAsyncLoweredOp(lk: *Linker, ns: []const u8, name: []const u8, op: adapter.P2Op, ctx: *WasiP2Ctx) !void {
+    const binds = .{
+        .{ adapter.P2Op.clocks_wait_until, fn (*Caller, i64) WasiP2Error!u32, p2WaitUntil },
+        .{ adapter.P2Op.clocks_wait_for, fn (*Caller, i64) WasiP2Error!u32, p2WaitFor },
+        .{ adapter.P2Op.fs3_stat, fn (*Caller, u32, u32) WasiP2Error!u32, fs3Stat },
+        .{ adapter.P2Op.fs3_get_type, fn (*Caller, u32, u32) WasiP2Error!u32, fs3GetType },
+        .{ adapter.P2Op.fs3_get_flags, fn (*Caller, u32, u32) WasiP2Error!u32, fs3GetFlags },
+        .{ adapter.P2Op.fs3_sync, fn (*Caller, u32, u32) WasiP2Error!u32, fs3Sync },
+        .{ adapter.P2Op.fs3_sync_data, fn (*Caller, u32, u32) WasiP2Error!u32, fs3SyncData },
+        .{ adapter.P2Op.fs3_metadata_hash, fn (*Caller, u32, u32) WasiP2Error!u32, fs3MetadataHash },
+        .{ adapter.P2Op.fs3_set_size, fn (*Caller, u32, i64, u32) WasiP2Error!u32, fs3SetSize },
+        .{ adapter.P2Op.fs3_advise, fn (*Caller, u32, i64, i64, u32, u32) WasiP2Error!u32, fs3Advise },
+        .{ adapter.P2Op.fs3_stat_at, fn (*Caller, u32, u32, u32, u32, u32) WasiP2Error!u32, fs3StatAt },
+        .{ adapter.P2Op.fs3_metadata_hash_at, fn (*Caller, u32, u32, u32, u32, u32) WasiP2Error!u32, fs3MetadataHashAt },
+        .{ adapter.P2Op.fs3_create_directory_at, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, fs3CreateDirectoryAt },
+        .{ adapter.P2Op.fs3_remove_directory_at, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, fs3RemoveDirectoryAt },
+        .{ adapter.P2Op.fs3_unlink_file_at, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, fs3UnlinkFileAt },
+        .{ adapter.P2Op.fs3_readlink_at, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, fs3ReadlinkAt },
+        .{ adapter.P2Op.fs3_is_same_object, fn (*Caller, u32, u32, u32) WasiP2Error!u32, fs3IsSameObject },
+        .{ adapter.P2Op.fs3_open_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3OpenAt },
+        .{ adapter.P2Op.fs3_set_times, fn (*Caller, u32, u32) WasiP2Error!u32, fs3SetTimes },
+        .{ adapter.P2Op.fs3_set_times_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3SetTimesAt },
+        .{ adapter.P2Op.fs3_rename_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3RenameAt },
+        .{ adapter.P2Op.fs3_symlink_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3SymlinkAt },
+        .{ adapter.P2Op.fs3_link_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3LinkAt },
+    };
+    inline for (binds) |b| {
+        if (op == b[0]) return lk.defineFuncCtx(ns, name, ctx, b[1], b[2]);
+    }
+    return error.UnsupportedWasiImport;
+}
+
+/// Read up to `count` `directory-entry` records from the P1 readdir cursor at
+/// `dir_streams[state_index]` into guest memory at `ptr` (record = 24 B,
+/// align 4: %type variant@0 (16), name string@16 (ptr@16, len@20); names land
+/// in fresh cabi_realloc backings). P1's synthetic "."/".." are skipped.
+/// Exhaustion with nothing read = the stream closes (DROPPED), so the guest
+/// never spins on 0-entry completions.
+fn fs3DirStreamRead(ctx: *WasiP2Ctx, state_index: u32, end: *async_mod.StreamFutureEnd, ptr: u32, count: u32) WasiP2Error!u32 {
+    if (state_index >= ctx.dir_streams.items.len) return WasiP2Error.InvalidHandle;
+    const state = &ctx.dir_streams.items[state_index];
+    const mem = try ctx.memory();
+    const buf_len: u32 = 4096;
+    const buf_ptr = try ctx.reallocGuest(buf_len, 8);
+    const used_ptr = try ctx.reallocGuest(4, 4);
+    var filled: u32 = 0;
+    outer: while (filled < count) {
+        const errno = wasi_fd.fdReaddir(ctx.host, mem.slice(), state.fd, buf_ptr, buf_len, state.cookie, used_ptr);
+        if (errno != .success) return WasiP2Error.WriteFailed;
+        const used = try mem.read(u32, used_ptr);
+        if (used < 24) break :outer; // stream end
+        const d_next = try mem.read(u64, buf_ptr);
+        const d_namlen = try mem.read(u32, buf_ptr + 16);
+        const d_type = try mem.read(u8, buf_ptr + 20);
+        if (used < 24 + d_namlen) return WasiP2Error.OutOfBounds; // > 4 KiB name
+        state.cookie = d_next;
+        const name = mem.sliceAt(buf_ptr + 24, d_namlen) catch return WasiP2Error.OutOfBounds;
+        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        const name_ptr = if (d_namlen == 0) 0 else try ctx.reallocGuest(d_namlen, 1);
+        if (d_namlen != 0) {
+            const dest = mem.sliceAt(name_ptr, d_namlen) catch return WasiP2Error.OutOfBounds;
+            // Re-slice the source: reallocGuest may have moved/grown memory.
+            const src = mem.sliceAt(buf_ptr + 24, d_namlen) catch return WasiP2Error.OutOfBounds;
+            @memcpy(dest, src);
+        }
+        const rec = ptr + filled * 24;
+        const p1_ft: wasi_p1.Filetype = @enumFromInt(d_type);
+        try writeFs3DescriptorType(mem, rec, p1_ft);
+        try mem.write(rec + 16, name_ptr);
+        try mem.write(rec + 20, d_namlen);
+        filled += 1;
+    }
+    if (filled == 0) {
+        switch ((try ctx.shared.get(end.shared)).*) {
+            .stream => |*s| s.dropped = true,
+            .future, .subtask => return WasiP2Error.InvalidHandle,
+        }
+        end.state = .done;
+        return (async_mod.ReturnCode{ .dropped = 0 }).encode();
+    }
+    return (async_mod.ReturnCode{ .completed = @intCast(filled) }).encode();
 }

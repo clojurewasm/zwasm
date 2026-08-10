@@ -1142,7 +1142,7 @@ fn graphWaitableSetNew(caller: *Caller) BoundaryError!u32 {
 /// `canon waitable.join` at the graph boundary (ADR-0195 d-c-2): add a waitable
 /// (a stream/future end handle in `GraphAsync.streams`) to a graph-shared set. A
 /// bad set handle is a guest fault → trap (mirror of `p2WaitableJoin`).
-fn graphWaitableJoin(caller: *Caller, set_handle: u32, waitable: u32) BoundaryError!void {
+fn graphWaitableJoin(caller: *Caller, waitable: u32, set_handle: u32) BoundaryError!void {
     const ctx = caller.data(GraphFutureCtx);
     try checkOwner(ctx, waitable); // a child may only join an end it owns (ADR-0197)
     const set = ctx.as.sets.get(set_handle) catch |e| return mapGraphAsyncFault(e);

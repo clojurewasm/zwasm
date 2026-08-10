@@ -829,6 +829,9 @@ const OfficialExpect = struct {
     assert_stdout: bool = false,
     assert_stderr: bool = false,
     exit_code: u32 = 0,
+    /// Legacy flat-manifest "root": the preopen tree name (copied to a fresh
+    /// tmp dir per run — the tests mutate it) mapped as guest "/".
+    root: ?[]const u8 = null,
 
     fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
         self.env_keys.deinit(alloc);
@@ -841,6 +844,10 @@ const OfficialExpect = struct {
 };
 
 fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value, out: *OfficialExpect) !void {
+    // Legacy flat form ({"root": ..., "exit_code": ...}) coexists with the
+    // operations form upstream (test_case.py LEGACY_CONFIG_KEYS).
+    if (parsed.object.get("root")) |r| out.root = r.string;
+    if (parsed.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
     const ops = parsed.object.get("operations") orelse return;
     for (ops.array.items) |op| {
         const ty = op.object.get("type").?.string;
@@ -902,6 +909,26 @@ fn runOfficialWasip3Test(comptime name: []const u8) !void {
     defer host.deinit();
     host.io = io;
 
+    // "root" preopen: copy the vendored tree into a fresh tmp dir (the guest
+    // mutates it) and map it as guest "/" (the upstream wasmtime adapter's
+    // `--dir root::/`).
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    if (expect.root) |root_name| {
+        const src_path = try std.fmt.allocPrint(alloc, "test/component/wasip3_official/{s}", .{root_name});
+        defer alloc.free(src_path);
+        var src_dir = try std.Io.Dir.cwd().openDir(io, src_path, .{ .iterate = true });
+        defer src_dir.close(io);
+        var it = src_dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            const data = try src_dir.readFileAlloc(io, entry.name, alloc, .limited(1 << 20));
+            defer alloc.free(data);
+            try tmp.dir.writeFile(io, .{ .sub_path = entry.name, .data = data });
+        }
+        _ = try host.addPreopen(tmp.dir.handle, "/");
+    }
+
     // argv[0] = the test's own basename (the upstream runner launches by name).
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(alloc);
@@ -918,7 +945,12 @@ fn runOfficialWasip3Test(comptime name: []const u8) !void {
     host.stdout_buffer = &stdout_cap;
     host.stderr_buffer = &stderr_cap;
 
-    try wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{});
+    wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{}) catch |err| {
+        // Surface the guest's own report (a rust assert panic lands on
+        // stderr) — the raw trap code alone is undebuggable.
+        std.debug.print("[official {s}] runner error {t}; guest stderr:\n{s}\n", .{ name, err, stderr_cap.items });
+        return err;
+    };
     try testing.expectEqual(@as(?u32, expect.exit_code), host.exit_code orelse 0);
     if (expect.assert_stdout) try testing.expectEqualStrings(expect.stdout.items, stdout_cap.items);
     if (expect.assert_stderr) try testing.expectEqualStrings(expect.stderr.items, stderr_cap.items);
@@ -956,4 +988,47 @@ test "wasip3-official: wall-clock" {
 }
 test "wasip3-official: run-with-err (exit code 1)" {
     try runOfficialWasip3Test("run-with-err");
+}
+
+test "wasip3-official: filesystem-stat" {
+    try runOfficialWasip3Test("filesystem-stat");
+}
+test "wasip3-official: filesystem-io (file via-stream data plane)" {
+    try runOfficialWasip3Test("filesystem-io");
+}
+test "wasip3-official: filesystem-advise" {
+    try runOfficialWasip3Test("filesystem-advise");
+}
+test "wasip3-official: filesystem-dotdot" {
+    try runOfficialWasip3Test("filesystem-dotdot");
+}
+test "wasip3-official: filesystem-flags-and-type" {
+    try runOfficialWasip3Test("filesystem-flags-and-type");
+}
+test "wasip3-official: filesystem-hard-links" {
+    try runOfficialWasip3Test("filesystem-hard-links");
+}
+test "wasip3-official: filesystem-is-same-object" {
+    try runOfficialWasip3Test("filesystem-is-same-object");
+}
+test "wasip3-official: filesystem-metadata-hash" {
+    try runOfficialWasip3Test("filesystem-metadata-hash");
+}
+test "wasip3-official: filesystem-mkdir-rmdir" {
+    try runOfficialWasip3Test("filesystem-mkdir-rmdir");
+}
+test "wasip3-official: filesystem-open-errors" {
+    try runOfficialWasip3Test("filesystem-open-errors");
+}
+test "wasip3-official: filesystem-read-directory" {
+    try runOfficialWasip3Test("filesystem-read-directory");
+}
+test "wasip3-official: filesystem-rename" {
+    try runOfficialWasip3Test("filesystem-rename");
+}
+test "wasip3-official: filesystem-set-size" {
+    try runOfficialWasip3Test("filesystem-set-size");
+}
+test "wasip3-official: filesystem-unlink-errors" {
+    try runOfficialWasip3Test("filesystem-unlink-errors");
 }
