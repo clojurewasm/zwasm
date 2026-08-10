@@ -492,7 +492,10 @@ fn callIndirectOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
             break :blk ref_test_ops.concreteReaches(rt, fe.raw_typeidx, @intCast(instr.payload));
         break :blk sigEq(callee.sig, expected);
     } else sigEq(callee.sig, expected);
-    if (!accepted) return Trap.IndirectCallTypeMismatch;
+    if (!accepted) {
+        if (dbg.on("interp.calltrap")) std.debug.print("[calltrap] indirect mismatch: sel={d} callee_idx={d} callee.sig params={any} results={any} expected params={any} results={any}\n", .{ sel, fe.func_idx, callee.sig.params, callee.sig.results, expected.params, expected.results });
+        return Trap.IndirectCallTypeMismatch;
+    }
 
     // An imported func (host trampoline or cross-module guest) reached through a
     // table slot dispatches via host_calls, not by executing its placeholder
@@ -550,7 +553,10 @@ fn callRefOp(c: *InterpCtx, instr: *const ZirInstr) anyerror!void {
             break :blk ref_test_ops.concreteReaches(rt, fe.raw_typeidx, @intCast(instr.payload));
         break :blk sigEq(callee.sig, expected);
     } else sigEq(callee.sig, expected);
-    if (!accepted) return Trap.IndirectCallTypeMismatch;
+    if (!accepted) {
+        if (dbg.on("interp.calltrap")) std.debug.print("[calltrap] call_ref mismatch: callee_idx={d} callee.sig params={any} results={any} expected params={any} results={any}\n", .{ fe.func_idx, callee.sig.params, callee.sig.results, expected.params, expected.results });
+        return Trap.IndirectCallTypeMismatch;
+    }
 
     // An imported func (host trampoline or cross-module guest) reached through a
     // table slot dispatches via host_calls, not by executing its placeholder

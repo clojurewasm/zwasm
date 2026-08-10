@@ -382,6 +382,14 @@ pub const ComponentGraph = struct {
             const set = try self.state.sets.get(set_index);
             return try set.poll(&self.state.streams);
         }
+
+        /// No-progress seam (ADR-0205 D2): the graph boundary wires no host
+        /// timers today (guest↔guest only), so a stalled pass is a genuine
+        /// deadlock — nothing to sleep for.
+        pub fn waitForTimer(self: *GraphAsyncCtx) !bool {
+            _ = self;
+            return false;
+        }
     };
 
     /// Drive the graph's main async export (`name`) to completion through the
@@ -663,7 +671,7 @@ fn pourSyntheticExport(
     if (ex.sort != .func) return GraphError.UnsupportedBoundaryType;
     const cf = child.info.coreFunc(ex.index) orelse return GraphError.ImportUnsatisfied;
     const import_name = switch (cf) {
-        .lower => |component_func_idx| importNameOfLoweredFunc(&child.info, component_func_idx) orelse return GraphError.ImportUnsatisfied,
+        .lower => |l| importNameOfLoweredFunc(&child.info, l.func) orelse return GraphError.ImportUnsatisfied,
         // A child's own `canon task.return` (ADR-0195 d-a): wire the graph-level
         // host func that captures the value into the currently-executing task.
         // Only the minimal single-`u32` result is implemented; a multi-value /
@@ -1195,7 +1203,8 @@ fn graphFutureWrite(caller: *Caller, handle: u32, ptr: u32) BoundaryError!u32 {
     const sh = ctx.as.shared.get(end.shared) catch |e| return mapGraphAsyncFault(e);
     const fut = switch (sh.*) {
         .future => |*f| f,
-        .stream => return error.Unreachable, // future.write on a stream handle = guest fault
+        // future.* on a non-future handle = guest fault (subtask never linked).
+        .stream, .subtask => return error.Unreachable,
     };
     // Stash the writer's bytes BEFORE the rendezvous step (so a parked writer's
     // value is available when the reader later completes the rendezvous).
@@ -1217,7 +1226,7 @@ fn graphFutureRead(caller: *Caller, handle: u32, ptr: u32) BoundaryError!u32 {
     const sh = ctx.as.shared.get(end.shared) catch |e| return mapGraphAsyncFault(e);
     const fut = switch (sh.*) {
         .future => |*f| f,
-        .stream => return error.Unreachable,
+        .stream, .subtask => return error.Unreachable,
     };
     const step = end.copy(fut, &ctx.as.streams, handle, 1) catch |e| return mapGraphAsyncFault(e);
     if (step.caller == .completed) {
@@ -1264,7 +1273,8 @@ fn graphStreamWrite(caller: *Caller, handle: u32, ptr: u32, count: u32) Boundary
     const sh = ctx.as.shared.get(end.shared) catch |e| return mapGraphAsyncFault(e);
     const st = switch (sh.*) {
         .stream => |*s| s,
-        .future => return error.Unreachable, // stream.write on a future handle = guest fault
+        // stream.* on a non-stream handle = guest fault (subtask never linked).
+        .future, .subtask => return error.Unreachable,
     };
     const nbytes = @as(u64, count) * @as(u64, ctx.elem_size);
     if (nbytes > async_mod.SharedStream.BUF_CAP) return error.Unreachable; // > inline buf: d-c later slice
@@ -1308,7 +1318,7 @@ fn graphStreamRead(caller: *Caller, handle: u32, ptr: u32, count: u32) BoundaryE
     const sh = ctx.as.shared.get(end.shared) catch |e| return mapGraphAsyncFault(e);
     const st = switch (sh.*) {
         .stream => |*s| s,
-        .future => return error.Unreachable,
+        .future, .subtask => return error.Unreachable,
     };
     const step = end.copy(st, &ctx.as.streams, handle, count) catch |e| return mapGraphAsyncFault(e);
     if (step.caller == .completed) {

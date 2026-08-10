@@ -65,13 +65,31 @@ const P3CallbackCtx = struct {
 
     /// Non-blocking WAIT seam for `driveScheduler` (ADR-0195 step c): deliver any
     /// parked host-source reads (the synchronous "make progress" hook, ADR-0191
-    /// E2c) then poll. Returns null when no event is deliverable — the scheduler
-    /// decides deadlock across ALL tasks (vs single-task `waitOn`, which traps
-    /// directly because its one task IS the whole program).
+    /// E2c) + fire due timers (ADR-0205 D2), then poll. Returns null when no
+    /// event is deliverable — the scheduler decides deadlock across ALL tasks
+    /// (vs single-task `waitOn`, which traps directly because its one task IS
+    /// the whole program).
     pub fn pollSet(self: *P3CallbackCtx, set_index: u32) !?async_mod.EventTuple {
         const set = try self.wp2.sets.get(set_index);
         try self.wp2.deliverParkedReads(set);
+        _ = try self.wp2.fireDueTimers();
         return try set.poll(&self.wp2.streams);
+    }
+
+    /// The no-progress seam (ADR-0205 D2): a pass delivered nothing — if a
+    /// timer subtask is still armed, sleep until the nearest deadline and fire
+    /// it (true = the scheduler retries); no armed timer = genuine deadlock.
+    pub fn waitForTimer(self: *P3CallbackCtx) !bool {
+        const nearest = (try self.wp2.fireDueTimers()) orelse return false;
+        const now = try self.wp2.monotonicNowNs();
+        if (nearest > now) {
+            const io = self.wp2.host.io orelse return error.NoHostIo;
+            std.Io.sleep(io, std.Io.Duration.fromNanoseconds(@intCast(nearest - now)), .awake) catch |err| switch (err) {
+                error.Canceled => {}, // an early wake just re-polls
+            };
+        }
+        _ = try self.wp2.fireDueTimers();
+        return true;
     }
 };
 
@@ -129,6 +147,11 @@ pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
     // before exiting — otherwise it "failed to produce a result" → guest trap.
     if (built.ctx.task_return == null and asyncExportExpectsResult(built, lift.type_index))
         return error.Unreachable;
+    // `run: async func() -> result` — an `err` task.return (discriminant 1) is
+    // exit code 1 per the wasi:cli command contract (official run-with-err.wasm).
+    if (built.ctx.task_return) |tr| {
+        if (tr != 0 and built.ctx.host.exit_code == null) built.ctx.host.exit_code = 1;
+    }
 }
 
 /// True if the async-lifted export (component func type at `type_index`) declares
@@ -782,4 +805,155 @@ test "WASI 0.3 conformance (wasip3): cli-clocks reads wall+monotonic clocks (rea
     // (wall) must succeed → exit(0); proves wasi:clocks is served to the guest.
     try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
+}
+
+// ============================================================
+// Official wasi-testsuite conformance (ADR-0205 D3)
+// ============================================================
+// Fixtures = the upstream-BUILT `prod/testsuite-base` wasm32-wasip3 binaries
+// (stripped; provenance + pin in scripts/vendor_wasip3_official.sh), driven by
+// the official per-test manifests. The in-process runner flattens the
+// operation stream: stdin `write` payloads are pre-supplied, stdout/stderr
+// `read` payloads become capture assertions, `wait.exit_code` the exit check —
+// faithful for every vendored test (none requires mid-run interactivity).
+
+/// The flattened expectation set of one official manifest (absent manifest =
+/// upstream default: run with no I/O, expect exit 0).
+const OfficialExpect = struct {
+    env_keys: std.ArrayList([]const u8) = .empty,
+    env_vals: std.ArrayList([]const u8) = .empty,
+    args: std.ArrayList([]const u8) = .empty,
+    stdin: std.ArrayList(u8) = .empty,
+    stdout: std.ArrayList(u8) = .empty,
+    stderr: std.ArrayList(u8) = .empty,
+    assert_stdout: bool = false,
+    assert_stderr: bool = false,
+    exit_code: u32 = 0,
+
+    fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
+        self.env_keys.deinit(alloc);
+        self.env_vals.deinit(alloc);
+        self.args.deinit(alloc);
+        self.stdin.deinit(alloc);
+        self.stdout.deinit(alloc);
+        self.stderr.deinit(alloc);
+    }
+};
+
+fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value, out: *OfficialExpect) !void {
+    const ops = parsed.object.get("operations") orelse return;
+    for (ops.array.items) |op| {
+        const ty = op.object.get("type").?.string;
+        if (std.mem.eql(u8, ty, "run")) {
+            if (op.object.get("env")) |env| {
+                var it = env.object.iterator();
+                while (it.next()) |e| {
+                    try out.env_keys.append(alloc, e.key_ptr.*);
+                    try out.env_vals.append(alloc, e.value_ptr.string);
+                }
+            }
+            if (op.object.get("args")) |args| {
+                for (args.array.items) |a| try out.args.append(alloc, a.string);
+            }
+        } else if (std.mem.eql(u8, ty, "write")) {
+            // Only stdin is writable from the runner side.
+            try out.stdin.appendSlice(alloc, op.object.get("payload").?.string);
+        } else if (std.mem.eql(u8, ty, "read")) {
+            const id = op.object.get("id").?.string;
+            const payload = op.object.get("payload").?.string;
+            if (std.mem.eql(u8, id, "stdout")) {
+                try out.stdout.appendSlice(alloc, payload);
+                out.assert_stdout = true;
+            } else if (std.mem.eql(u8, id, "stderr")) {
+                try out.stderr.appendSlice(alloc, payload);
+                out.assert_stderr = true;
+            }
+        } else if (std.mem.eql(u8, ty, "wait")) {
+            if (op.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+        }
+    }
+}
+
+/// Run one vendored official test end-to-end and assert its manifest.
+fn runOfficialWasip3Test(comptime name: []const u8) !void {
+    const alloc = testing.allocator;
+    var threaded: std.Io.Threaded = .init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3_official/" ++ name ++ ".wasm", alloc, .limited(8 << 20));
+    defer alloc.free(bytes);
+
+    var expect: OfficialExpect = .{};
+    defer expect.deinit(alloc);
+    var manifest_parsed: ?std.json.Parsed(std.json.Value) = null;
+    defer if (manifest_parsed) |*p| p.deinit();
+    if (std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3_official/" ++ name ++ ".json", alloc, .limited(1 << 20))) |mb| {
+        defer alloc.free(mb);
+        manifest_parsed = try std.json.parseFromSlice(std.json.Value, alloc, mb, .{});
+        try parseOfficialManifest(alloc, &manifest_parsed.?.value, &expect);
+    } else |_| {
+        // No manifest = upstream default (run, expect exit 0, no I/O asserts).
+    }
+
+    var eng = try Engine.init(alloc, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(alloc);
+    defer host.deinit();
+    host.io = io;
+
+    // argv[0] = the test's own basename (the upstream runner launches by name).
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(alloc);
+    try argv.append(alloc, name ++ ".wasm");
+    try argv.appendSlice(alloc, expect.args.items);
+    try host.setArgs(argv.items);
+    if (expect.env_keys.items.len > 0) try host.setEnvs(expect.env_keys.items, expect.env_vals.items);
+    host.stdin_bytes = expect.stdin.items;
+
+    var stdout_cap: std.ArrayList(u8) = .empty;
+    defer stdout_cap.deinit(alloc);
+    var stderr_cap: std.ArrayList(u8) = .empty;
+    defer stderr_cap.deinit(alloc);
+    host.stdout_buffer = &stdout_cap;
+    host.stderr_buffer = &stderr_cap;
+
+    try wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{});
+    try testing.expectEqual(@as(?u32, expect.exit_code), host.exit_code orelse 0);
+    if (expect.assert_stdout) try testing.expectEqualStrings(expect.stdout.items, stdout_cap.items);
+    if (expect.assert_stderr) try testing.expectEqualStrings(expect.stderr.items, stderr_cap.items);
+}
+
+test "wasip3-official: cli-env" {
+    try runOfficialWasip3Test("cli-env");
+}
+test "wasip3-official: cli-exit" {
+    try runOfficialWasip3Test("cli-exit");
+}
+test "wasip3-official: cli-stdio" {
+    try runOfficialWasip3Test("cli-stdio");
+}
+test "wasip3-official: cli-stdio-roundtrip" {
+    try runOfficialWasip3Test("cli-stdio-roundtrip");
+}
+test "wasip3-official: cli-stdout-flush" {
+    try runOfficialWasip3Test("cli-stdout-flush");
+}
+test "wasip3-official: cli-terminal" {
+    try runOfficialWasip3Test("cli-terminal");
+}
+test "wasip3-official: monotonic-clock (async wait-until/wait-for timers)" {
+    try runOfficialWasip3Test("monotonic-clock");
+}
+test "wasip3-official: multi-clock-wait (20 interleaved wait-until subtasks)" {
+    try runOfficialWasip3Test("multi-clock-wait");
+}
+test "wasip3-official: random (incl. cached insecure-seed)" {
+    try runOfficialWasip3Test("random");
+}
+test "wasip3-official: wall-clock" {
+    try runOfficialWasip3Test("wall-clock");
+}
+test "wasip3-official: run-with-err (exit code 1)" {
+    try runOfficialWasip3Test("run-with-err");
 }

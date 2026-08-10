@@ -24,7 +24,7 @@
     (import "async" "stream-new" (func $sn (result i64)))
     (import "async" "stream-write" (func $wr (param i32 i32 i32) (result i32)))
     (import "async" "drop-writable" (func $dw (param i32)))
-    (import "async" "future-read" (func $fr (param i32 i32 i32) (result i32)))
+    (import "async" "future-read" (func $fr (param i32 i32) (result i32)))
     (import "libc" "mem" (memory 1))
     (func (export "callback") (param i32 i32 i32) (result i32) i32.const 0)
     (func (export "run") (result i32)
@@ -37,8 +37,8 @@
       (call $wr (local.get $w) (i32.const 0) (i32.const 2))
       (i32.const 0x20) (i32.ne) (if (then unreachable)) ;; COMPLETED(2)
       (call $dw (local.get $w))
-      (call $fr (local.get $fut) (i32.const 8) (i32.const 1)) ;; future.read into mem[8]
-      (i32.const 0x10) (i32.ne) (if (then unreachable)) ;; COMPLETED(1)
+      (call $fr (local.get $fut) (i32.const 8)) ;; future.read into mem[8]
+      (i32.const 0x00) (i32.ne) (if (then unreachable)) ;; COMPLETED (futures pack no count)
       (if (i32.load8_u (i32.const 8)) (then unreachable)) ;; ok discriminant == 0
       i32.const 0)) ;; EXIT
   (core instance $deps

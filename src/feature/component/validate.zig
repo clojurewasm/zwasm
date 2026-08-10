@@ -1083,6 +1083,8 @@ fn checkCanons(info: *const TypeInfo, type_space_len: u32) Error!void {
             // wait/poll write the event tuple to `(memory m)`; bounds-check it.
             if (ws.memory) |m| if (m >= info.core_memory_count) return Error.InvalidCanon;
         },
+        // No index-space operands (flags / slot indices only).
+        .task_cancel, .subtask_cancel, .subtask_drop, .context_get, .context_set, .thread_yield => {},
     };
 }
 

@@ -324,8 +324,11 @@ pub fn runComponentWasi(
     bytes: []const u8,
     argv: []const []const u8,
     preopens: []const PreopenDir,
+    env_keys: []const []const u8,
+    env_vals: []const []const u8,
+    stdin_bytes: ?[]const u8,
 ) !u8 {
-    return runComponentCaptured(alloc, io, bytes, argv, preopens, null);
+    return runComponentCaptured(alloc, io, bytes, argv, preopens, env_keys, env_vals, stdin_bytes, null);
 }
 
 /// `runComponentWasi` with an optional stdout capture buffer (tests assert on
@@ -336,6 +339,9 @@ pub fn runComponentCaptured(
     bytes: []const u8,
     argv: []const []const u8,
     preopens: []const PreopenDir,
+    env_keys: []const []const u8,
+    env_vals: []const []const u8,
+    stdin_bytes: ?[]const u8,
     stdout_capture: ?*std.ArrayList(u8),
 ) !u8 {
     const component = @import("../api/component.zig");
@@ -348,6 +354,8 @@ pub fn runComponentCaptured(
     host.io = io;
     if (stdout_capture) |b| host.stdout_buffer = b;
     if (argv.len > 0) try host.setArgs(argv);
+    if (env_keys.len > 0) try host.setEnvs(env_keys, env_vals); // D-295 P0: --env KEY=VAL
+    if (stdin_bytes) |s| host.stdin_bytes = s; // piped stdin → the guest stdin source
     // `--dir` preopens feed the P2 host: `get-directories` enumerates them and
     // the descriptor `*-at` methods resolve against their fds (CLI-scoped fd
     // lifetime, like the core-module paths).
@@ -683,7 +691,7 @@ fn writeResultText(io: std.Io, capture: ?*std.ArrayList(u8), alloc: std.mem.Allo
         return;
     }
     var ob: [256]u8 = undefined;
-    var sw = std.Io.File.stdout().writer(io, &ob);
+    var sw = std.Io.File.stdout().writerStreaming(io, &ob);
     const w = &sw.interface;
     try w.writeAll(text);
     try w.flush();
@@ -699,7 +707,7 @@ fn surfaceTrap(io: std.Io, trap: anytype) void {
     // kinds), so it is comptime-elided in test builds to keep output clean.
     if (@import("builtin").is_test) return;
     var stderr_buf: [256]u8 = undefined;
-    var sw = std.Io.File.stderr().writer(io, &stderr_buf);
+    var sw = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
     const w = &sw.interface;
     if (trap.message_ptr) |p| {
         w.print("zwasm: trap kind={s} msg={s}\n", .{
@@ -725,7 +733,7 @@ fn surfaceJitTrap(io: std.Io, code: u32) void {
     // See surfaceTrap: comptime-elided under test to keep harness stderr clean.
     if (@import("builtin").is_test) return;
     var stderr_buf: [256]u8 = undefined;
-    var sw = std.Io.File.stderr().writer(io, &stderr_buf);
+    var sw = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
     const w = &sw.interface;
     if (trap_surface.jitTrapCode(code)) |kind| {
         // EXEMPT-FALLBACK: ADR-0016 phase 1 — best-effort trap stderr; closed-pipe failure has no recovery path.
@@ -788,7 +796,7 @@ test "runComponentWasi: a real WASI-P2 component runs from the CLI path + prints
     defer testing.allocator.free(bytes);
     var capture: std.ArrayList(u8) = .empty;
     defer capture.deinit(testing.allocator);
-    const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &capture);
+    const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &.{}, &.{}, null, &capture);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("hello\n", capture.items);
 }
@@ -800,7 +808,7 @@ test "runComponentWasi: an ASYNC (WASI-0.3 P3) component runs from the CLI path 
     defer testing.allocator.free(bytes);
     var capture: std.ArrayList(u8) = .empty;
     defer capture.deinit(testing.allocator);
-    const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &capture);
+    const code = try runComponentCaptured(testing.allocator, testing.io, bytes, &.{}, &.{}, &.{}, &.{}, null, &capture);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("hi\n", capture.items);
 }

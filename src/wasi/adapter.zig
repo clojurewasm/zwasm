@@ -113,8 +113,9 @@ pub const P2Op = enum {
     in_stream_read,
     in_stream_blocking_read,
     in_stream_drop,
-    // wasi:cli/exit.
+    // wasi:cli/exit. `exit-with-code` is the 0.3.0 addition (arbitrary u8).
     cli_exit,
+    cli_exit_with_code,
     // wasi:clocks.
     clocks_wall_now,
     clocks_monotonic_now,
@@ -125,6 +126,11 @@ pub const P2Op = enum {
     clocks_system_now,
     clocks_system_get_resolution,
     clocks_monotonic_get_resolution,
+    // wasi:clocks/monotonic-clock@0.3.0 `wait-until`/`wait-for` — async funcs
+    // served by a TIMER subtask waitable on the P3 scheduler (ADR-0205 phase A);
+    // bound only under an async `canon lower`.
+    clocks_wait_until,
+    clocks_wait_for,
     // wasi:random.
     random_get_bytes,
     // wasi:filesystem/types — `descriptor` resource methods. A descriptor is a
@@ -295,9 +301,12 @@ pub fn p1Target(op: P2Op) P1Target {
         // (ADR-0190), not the generic P1-target path.
         .cli_stdout_write_via_stream, .cli_stderr_write_via_stream, .cli_stdin_read_via_stream => .noop,
         .in_stream_read, .in_stream_blocking_read => .{ .fd_read = 0 },
-        .cli_exit => .proc_exit,
+        .cli_exit, .cli_exit_with_code => .proc_exit,
         .clocks_wall_now => .{ .clock_time_get = 0 },
         .clocks_monotonic_now => .{ .clock_time_get = 1 },
+        // Timer waits read the monotonic clock but resolve via the scheduler's
+        // timer waitable, not a P1 syscall at the trampoline.
+        .clocks_wait_until, .clocks_wait_for => .{ .clock_time_get = 1 },
         .clocks_system_now => .{ .clock_time_get = 0 },
         .clocks_system_get_resolution => .{ .clock_res_get = 0 },
         .clocks_monotonic_get_resolution => .{ .clock_res_get = 1 },
@@ -392,6 +401,7 @@ const table = [_]Entry{
     .{ .iface = "wasi:cli/stderr", .func = "get-stderr", .op = .cli_get_stderr },
     .{ .iface = "wasi:cli/stdin", .func = "get-stdin", .op = .cli_get_stdin },
     .{ .iface = "wasi:cli/exit", .func = "exit", .op = .cli_exit },
+    .{ .iface = "wasi:cli/exit", .func = "exit-with-code", .op = .cli_exit_with_code },
     // WASI 0.3 (Preview 3) async stdio: the host becomes a stream peer
     // (ADR-0190). write-via-stream(stream<u8>) -> future<result<_,error-code>>.
     .{ .iface = "wasi:cli/stdout", .func = "write-via-stream", .op = .cli_stdout_write_via_stream },
@@ -410,6 +420,8 @@ const table = [_]Entry{
     .{ .iface = "wasi:clocks/system-clock", .func = "now", .op = .clocks_system_now },
     .{ .iface = "wasi:clocks/system-clock", .func = "get-resolution", .op = .clocks_system_get_resolution },
     .{ .iface = "wasi:clocks/monotonic-clock", .func = "get-resolution", .op = .clocks_monotonic_get_resolution },
+    .{ .iface = "wasi:clocks/monotonic-clock", .func = "wait-until", .op = .clocks_wait_until },
+    .{ .iface = "wasi:clocks/monotonic-clock", .func = "wait-for", .op = .clocks_wait_for },
     .{ .iface = "wasi:random/random", .func = "get-random-bytes", .op = .random_get_bytes },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.read", .op = .fs_descriptor_read },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.write", .op = .fs_descriptor_write },
@@ -429,6 +441,8 @@ const table = [_]Entry{
     .{ .iface = "wasi:cli/environment", .func = "get-environment", .op = .cli_get_environment },
     .{ .iface = "wasi:cli/environment", .func = "get-arguments", .op = .cli_get_arguments },
     .{ .iface = "wasi:cli/environment", .func = "initial-cwd", .op = .cli_initial_cwd },
+    // 0.3.0 renamed `initial-cwd` → `get-initial-cwd` (same shape).
+    .{ .iface = "wasi:cli/environment", .func = "get-initial-cwd", .op = .cli_initial_cwd },
     .{ .iface = "wasi:cli/terminal-stdin", .func = "get-terminal-stdin", .op = .cli_get_terminal_stdin },
     .{ .iface = "wasi:cli/terminal-stdout", .func = "get-terminal-stdout", .op = .cli_get_terminal_stdout },
     .{ .iface = "wasi:cli/terminal-stderr", .func = "get-terminal-stderr", .op = .cli_get_terminal_stderr },
@@ -437,6 +451,8 @@ const table = [_]Entry{
     .{ .iface = "wasi:random/insecure", .func = "get-insecure-random-bytes", .op = .random_insecure_get_bytes },
     .{ .iface = "wasi:random/insecure", .func = "get-insecure-random-u64", .op = .random_insecure_get_u64 },
     .{ .iface = "wasi:random/insecure-seed", .func = "insecure-seed", .op = .random_insecure_seed },
+    // 0.3.0 renamed `insecure-seed` → `get-insecure-seed` (same shape).
+    .{ .iface = "wasi:random/insecure-seed", .func = "get-insecure-seed", .op = .random_insecure_seed },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.stat-at", .op = .fs_descriptor_stat_at },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.create-directory-at", .op = .fs_descriptor_create_directory_at },
     .{ .iface = "wasi:filesystem/types", .func = "[method]descriptor.link-at", .op = .fs_descriptor_link_at },
@@ -645,4 +661,13 @@ test "classify: unknown interface/func → null; isWasiP2Interface" {
     try testing.expectEqual(@as(?P2Op, null), classifyImport("env", "foo"));
     try testing.expect(isWasiP2Interface("wasi:cli/run"));
     try testing.expect(!isWasiP2Interface("env"));
+}
+
+test "classify: official 0.3.0 additions (ADR-0205 phase A)" {
+    try testing.expectEqual(P2Op.clocks_wait_until, classifyImport("wasi:clocks/monotonic-clock", "wait-until").?);
+    try testing.expectEqual(P2Op.clocks_wait_for, classifyImport("wasi:clocks/monotonic-clock", "wait-for").?);
+    try testing.expectEqual(P2Op.cli_exit_with_code, classifyImport("wasi:cli/exit", "exit-with-code").?);
+    // 0.3.0 renames of shape-identical funcs share the 0.2 handlers.
+    try testing.expectEqual(P2Op.cli_initial_cwd, classifyImport("wasi:cli/environment", "get-initial-cwd").?);
+    try testing.expectEqual(P2Op.random_insecure_seed, classifyImport("wasi:random/insecure-seed", "get-insecure-seed").?);
 }

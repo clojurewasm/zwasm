@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const dbg = @import("../support/dbg.zig");
 
 const _api_instance = @import("../api/instance.zig");
 const _api_wasi = @import("../api/wasi.zig");
@@ -626,6 +627,11 @@ pub const Linker = struct {
                         switch (entry.payload) {
                             .host_func => |host| {
                                 if (!sigEqual(declared.params, host.params) or !sigEqual(declared.results, host.results)) {
+                                    // `ZWASM_DEBUG=link.trace` names the offending
+                                    // import (the bare error code cost a real
+                                    // debugging session on the official wasip3
+                                    // corpus — keep the diagnostic).
+                                    if (dbg.on("link.trace")) std.debug.print("[link] SignatureMismatch: {s}::{s}\n", .{ it.module, it.name });
                                     return error.SignatureMismatch;
                                 }
                                 bindings_list.append(scratch, .{

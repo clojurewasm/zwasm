@@ -348,7 +348,23 @@ pub const Canon = union(enum) {
     /// `canon waitable-set.*` / `waitable.join` (0x1f–0x23). `memory`/`cancellable`
     /// present only for `wait`/`poll`.
     waitable_set: struct { op: WaitableSetOp, cancellable: bool = false, memory: ?u32 = null },
+    /// `canon task.cancel` (0x05) — cancel the current task.
+    task_cancel,
+    /// `canon subtask.cancel` (0x06 `async?`).
+    subtask_cancel: struct { is_async: bool },
+    /// `canon subtask.drop` (0x0d).
+    subtask_drop,
+    /// `canon context.{get,set}` (0x0a/0x0b): a core valtype (i32/i64) + the
+    /// slot index into the current task's context-local storage.
+    context_get: ContextSlot,
+    context_set: ContextSlot,
+    /// `canon thread.yield` (0x0c `cancel?`).
+    thread_yield: struct { cancellable: bool },
 };
+
+/// `canon context.{get,set}` operand pair — `t:<core valtype>` (0x7f i32 /
+/// 0x7e i64) + the storage slot index.
+pub const ContextSlot = struct { is_i64: bool, slot: u32 };
 
 /// `core:instantiatearg ::= name 0x12 instanceidx` — a `with` argument
 /// supplying an imported instance to a core instantiation.
@@ -379,8 +395,10 @@ pub const CoreInstance = union(enum) {
 /// alias-only count mis-indexed any component mixing lowers + aliases).
 pub const CoreFuncDef = union(enum) {
     /// `canon lower` of component func `func` — host-implemented (the host
-    /// satisfies the lowered import, e.g. a WASI-P2 trampoline).
-    lower: u32,
+    /// satisfies the lowered import, e.g. a WASI-P2 trampoline). `opts` decides
+    /// the core ABI the trampoline must present (notably the CM-async `async`
+    /// canonopt: an async-lowered import returns a packed subtask status).
+    lower: struct { func: u32, opts: CanonOpts },
     resource_new: u32,
     resource_drop: u32,
     resource_rep: u32,
@@ -393,6 +411,14 @@ pub const CoreFuncDef = union(enum) {
     /// A `canon waitable-set.*` / `waitable.join` (0x1f–0x23) minted into the
     /// core-func space; `memory` set only for `wait`/`poll`.
     waitable_set: struct { op: WaitableSetOp, cancellable: bool = false, memory: ?u32 = null },
+    /// The CM-async task/subtask/context builtins (0x05/0x06/0x0a–0x0d)
+    /// minted into the core-func space ("(core func)").
+    task_cancel,
+    subtask_cancel: struct { is_async: bool },
+    subtask_drop,
+    context_get: ContextSlot,
+    context_set: ContextSlot,
+    thread_yield: struct { cancellable: bool },
     /// A core-func `alias` (a core-instance export, or an `outer` alias).
     alias: AliasTarget,
 };
@@ -1419,16 +1445,35 @@ fn decodeStreamFutureCanon(op: StreamFutureOp, body: []const u8, pos: *usize) Er
 /// `canon waitable-set.{wait,poll}` (0x20/0x21): `cancel?` flag byte (0x00/0x01)
 /// then a `core:memidx` (where the event tuple is written).
 fn decodeWaitableSetWait(op: WaitableSetOp, body: []const u8, pos: *usize) Error!Canon {
-    if (pos.* >= body.len) return Error.UnsupportedCanon;
-    const cancel_byte = body[pos.*];
-    pos.* += 1;
-    const cancellable = switch (cancel_byte) {
-        0x00 => false,
-        0x01 => true,
-        else => return Error.UnsupportedCanon,
-    };
+    const cancellable = try decodeFlagByte(body, pos);
     const memory = try leb128.readUleb128(u32, body, pos);
     return .{ .waitable_set = .{ .op = op, .cancellable = cancellable, .memory = memory } };
+}
+
+/// A one-byte 0x00/0x01 flag (`async?` / `cancel?` in `Binary.md`).
+fn decodeFlagByte(body: []const u8, pos: *usize) Error!bool {
+    if (pos.* >= body.len) return Error.UnsupportedCanon;
+    const b = body[pos.*];
+    pos.* += 1;
+    return switch (b) {
+        0x00 => false,
+        0x01 => true,
+        else => Error.UnsupportedCanon,
+    };
+}
+
+/// `canon context.{get,set}` operands: `t:<core valtype>` (only i32/i64 are
+/// valid per `CanonicalABI.md`) + the slot index.
+fn decodeContextSlot(body: []const u8, pos: *usize) Error!ContextSlot {
+    if (pos.* >= body.len) return Error.Truncated;
+    const vt = body[pos.*];
+    pos.* += 1;
+    const is_i64 = switch (vt) {
+        0x7f => false,
+        0x7e => true,
+        else => return Error.UnsupportedCanon,
+    };
+    return .{ .is_i64 = is_i64, .slot = try leb128.readUleb128(u32, body, pos) };
 }
 
 fn decodeCanonSection(arena: Allocator, out: *std.ArrayList(Canon), body: []const u8) Error!void {
@@ -1479,8 +1524,14 @@ fn decodeCanonSection(arena: Allocator, out: *std.ArrayList(Canon), body: []cons
             0x21 => try decodeWaitableSetWait(.poll, body, &pos),
             0x22 => .{ .waitable_set = .{ .op = .drop } },
             0x23 => .{ .waitable_set = .{ .op = .join } },
-            // subtask / task / context / thread / error-context builtins
-            // (0x05–0x0d, 0x1c–0x1e, 0x24+) defer.
+            0x05 => .task_cancel,
+            0x06 => .{ .subtask_cancel = .{ .is_async = try decodeFlagByte(body, &pos) } },
+            0x0a => .{ .context_get = try decodeContextSlot(body, &pos) },
+            0x0b => .{ .context_set = try decodeContextSlot(body, &pos) },
+            0x0c => .{ .thread_yield = .{ .cancellable = try decodeFlagByte(body, &pos) } },
+            0x0d => .subtask_drop,
+            // error-context (0x1c–0x1e), backpressure (0x24/0x25) and the 🧵
+            // thread builtins (0x26+) defer.
             else => return Error.UnsupportedCanon,
         };
         try out.append(arena, canon);
@@ -1674,7 +1725,13 @@ pub fn decodeTypeInfo(parent: Allocator, component: *const decode.Component) Err
                 else => {},
             },
             .canon => for (canons.items[canons_before..], canons_before..) |c, abs| switch (c) {
-                .lower => |l| try core_funcs.append(a, .{ .lower = l.func }),
+                .lower => |l| try core_funcs.append(a, .{ .lower = .{ .func = l.func, .opts = l.opts } }),
+                .task_cancel => try core_funcs.append(a, .task_cancel),
+                .subtask_cancel => |sc| try core_funcs.append(a, .{ .subtask_cancel = .{ .is_async = sc.is_async } }),
+                .subtask_drop => try core_funcs.append(a, .subtask_drop),
+                .context_get => |cg| try core_funcs.append(a, .{ .context_get = cg }),
+                .context_set => |cs| try core_funcs.append(a, .{ .context_set = cs }),
+                .thread_yield => |ty| try core_funcs.append(a, .{ .thread_yield = .{ .cancellable = ty.cancellable } }),
                 .resource_new => |t| try core_funcs.append(a, .{ .resource_new = t }),
                 .resource_drop => |t| try core_funcs.append(a, .{ .resource_drop = t }),
                 .resource_rep => |t| try core_funcs.append(a, .{ .resource_rep = t }),

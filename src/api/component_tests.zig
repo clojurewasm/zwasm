@@ -1815,3 +1815,48 @@ test "D-527: a component with two exports validates (the func index space counts
         try testing.expect(ex.index < info.component_funcs.items.len);
     }
 }
+
+test "ADR-0205 A: official wasip3 binary decodes the async-support canon builtins" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3_official/monotonic-clock.wasm", testing.allocator, .limited(8 << 20));
+    defer testing.allocator.free(bytes);
+
+    var comp = try decode.decode(testing.allocator, bytes);
+    defer comp.deinit(testing.allocator);
+    var info = try ctypes.decodeTypeInfo(testing.allocator, &comp);
+    defer info.deinit();
+
+    // The wit-bindgen async runtime imports the full builtin set; decode must
+    // surface each (previously Error.UnsupportedCanon killed the whole binary).
+    var seen = [_]bool{false} ** 6; // task_cancel, subtask_cancel, subtask_drop, ctx_get, ctx_set, ws_poll
+    var async_lowers: usize = 0;
+    for (info.canons.items) |c| switch (c) {
+        .task_cancel => seen[0] = true,
+        .subtask_cancel => seen[1] = true,
+        .subtask_drop => seen[2] = true,
+        .context_get => |cg| {
+            seen[3] = true;
+            try testing.expectEqual(false, cg.is_i64);
+            try testing.expectEqual(@as(u32, 0), cg.slot);
+        },
+        .context_set => |cs| {
+            seen[4] = true;
+            try testing.expectEqual(@as(u32, 0), cs.slot);
+        },
+        .waitable_set => |ws| {
+            if (ws.op == .poll) {
+                seen[5] = true;
+                try testing.expect(ws.memory != null);
+            }
+        },
+        .lower => |l| {
+            if (l.opts.is_async) async_lowers += 1;
+        },
+        else => {},
+    };
+    for (seen) |s| try testing.expect(s);
+    // wait-until + wait-for are the two async-lowered host imports.
+    try testing.expectEqual(@as(usize, 2), async_lowers);
+}

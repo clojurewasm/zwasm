@@ -21,6 +21,10 @@ These ship in the published artifact:
 ## Test- and bench-only (not in the distributed package)
 
 - `test/spec/**` — WebAssembly spec / proposals testsuite, Apache-2.0.
+- `test/component/wasip3_official/**` — WebAssembly/wasi-testsuite prebuilt
+  `wasm32-wasip3` conformance binaries + manifests (`prod/testsuite-base`
+  branch, stripped; pin + regen in `scripts/vendor_wasip3_official.sh`),
+  Apache-2.0 (ADR-0205 D3).
 - `bench/sightglass/**` — Bytecode Alliance sightglass benchmarks,
   Apache-2.0 (provenance + selection in `bench/sightglass/PROVENANCE.txt`).
 - `bench/shootout-src/**` — sightglass shootout sources, Apache-2.0.

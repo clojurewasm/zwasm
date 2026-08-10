@@ -12,6 +12,7 @@
 //! are `pub` solely for the in-tree e2e/unit tests that live in `component.zig`.
 
 const std = @import("std");
+const dbg = @import("../support/dbg.zig");
 
 const decode = @import("../feature/component/decode.zig");
 const ctypes = @import("../feature/component/types.zig");
@@ -106,6 +107,8 @@ pub const WasiP2Ctx = struct {
     sets: async_mod.WaitableSetTable,
     /// Per-definition contexts for the synthesized async builtins.
     ab_ctxs: std.ArrayList(*AsyncBuiltinCtx) = .empty,
+    /// Per-definition contexts for the `canon context.{get,set}` builtins.
+    cb_ctxs: std.ArrayList(*ContextBuiltinCtx) = .empty,
     /// WASI 0.3 host stream peers (ADR-0190): a `SharedStream` handle whose
     /// readable end the host drains → the P1 fd it sinks to. A guest
     /// `stream.write` to such a stream COMPLETES immediately (stdout/stderr are
@@ -129,6 +132,16 @@ pub const WasiP2Ctx = struct {
     /// `future.read` on it COMPLETES with the `ok` discriminant (0) without a
     /// rendezvous.
     host_result_futures: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// `insecure-seed`'s cached 128-bit value — a moral value import: every
+    /// call must observe the same seed (official random.wasm asserts it).
+    insecure_seed: ?[2]u64 = null,
+    /// CM-async `canon context.{get,set}` task-local storage (ADR-0205 phase A;
+    /// spec `ContextLocalStorage`). One pair per TASK — valid while every
+    /// runner keeps ≤ 1 live task per ctx (the single-component runner seeds
+    /// exactly one; the graph runner gives each child component its own ctx).
+    /// When a runner ever multiplexes tasks over one ctx, this moves into
+    /// `TaskDescriptor`.
+    task_context: [2]u64 = .{ 0, 0 },
 
     /// Resource-type ids for the P2 resources the host models (`pub` for the
     /// in-tree tests that mint handles directly).
@@ -190,6 +203,8 @@ pub const WasiP2Ctx = struct {
         self.guest_dtors.deinit(self.alloc);
         for (self.ab_ctxs.items) |p| self.alloc.destroy(p);
         self.ab_ctxs.deinit(self.alloc);
+        for (self.cb_ctxs.items) |p| self.alloc.destroy(p);
+        self.cb_ctxs.deinit(self.alloc);
         self.host_sinks.deinit(self.alloc);
         self.host_sources.deinit(self.alloc);
         self.pending_reads.deinit(self.alloc);
@@ -217,6 +232,21 @@ pub const WasiP2Ctx = struct {
         const rt = inst.handle.runtime orelse return WasiP2Error.NoMemory;
         if (rt.memory.len == 0) return WasiP2Error.NoMemory;
         return .{ .backing = .{ .interp = rt } };
+    }
+
+    /// The host monotonic clock (P1 clock id 1) in ns — the time base for
+    /// `monotonic-clock.now` AND the timer subtask deadlines, so `wait-until`
+    /// comparisons are exact.
+    pub fn monotonicNowNs(self: *WasiP2Ctx) WasiP2Error!u64 {
+        return wasi_clocks.clockTimeNs(self.host, 1) catch WasiP2Error.NoHostIo;
+    }
+
+    /// Resolve every due timer subtask against the clock now (ADR-0205 D2).
+    /// Returns the nearest still-future deadline (the scheduler's sleep bound).
+    /// No armed timer → no clock read (hosts without `io` never need one).
+    pub fn fireDueTimers(self: *WasiP2Ctx) WasiP2Error!?u64 {
+        if (!self.streams.hasArmedTimer()) return null;
+        return self.streams.fireDueTimers(try self.monotonicNowNs());
     }
 
     /// WAIT-path delivery (ADR-0191 E2c): for each member of `set` with a parked
@@ -250,7 +280,7 @@ fn ctxMemory(caller: *Caller) WasiP2Error!Memory {
     return caller.memory() orelse return WasiP2Error.NoMemory;
 }
 
-pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed, ProcExit, OutOfMemory, NoHostIo, Unreachable } ||
+pub const WasiP2Error = error{ NoMemory, OutOfBounds, WriteFailed, NoRealloc, ReallocFailed, ProcExit, OutOfMemory, NoHostIo, Unreachable, UnsupportedAsyncBuiltin } ||
     resource_table.Error || Memory.Error || async_mod.Error;
 
 const Memory = @import("../zwasm/memory.zig").Memory;
@@ -276,6 +306,15 @@ fn p2GetStderr(caller: *Caller) WasiP2Error!u32 {
 fn p2Exit(caller: *Caller, status: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     _ = wasi_proc.procExit(ctx.host, status);
+    return WasiP2Error.ProcExit;
+}
+
+/// `wasi:cli/exit@0.3.0` `exit-with-code(status-code: u8)` — the arbitrary-code
+/// sibling of `exit` (official 0.3.0 addition). The u8 lowers to an i32; pass
+/// it through as the recorded exit code and unwind like `exit`.
+fn p2ExitWithCode(caller: *Caller, code: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    _ = wasi_proc.procExit(ctx.host, code & 0xff);
     return WasiP2Error.ProcExit;
 }
 
@@ -953,16 +992,23 @@ fn p2RandomGetU64(caller: *Caller) WasiP2Error!i64 {
 
 /// `wasi:random/insecure-seed` `insecure-seed` `() -> tuple<u64, u64>`: a
 /// 128-bit seed for hashing. The contract permits a non-crypto source, so the
-/// host's secure fill over-satisfies it. The tuple flattens past
-/// MAX_FLAT_RESULTS=1 → the two u64 land at `retptr` (+0, +8).
+/// host's secure fill over-satisfies it — but the value is morally a VALUE
+/// IMPORT ("should return the same values each time it is called"), so the
+/// first fill is cached per ctx. The tuple flattens past MAX_FLAT_RESULTS=1 →
+/// the two u64 land at `retptr` (+0, +8).
 fn p2RandomInsecureSeed(caller: *Caller, retptr: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
-    var buf: [16]u8 = undefined;
-    if (wasi_clocks.randomFill(ctx.host, &buf) != .success)
-        return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
-    try mem.write(retptr, std.mem.readInt(u64, buf[0..8], .little));
-    try mem.write(retptr + 8, std.mem.readInt(u64, buf[8..16], .little));
+    const seed = ctx.insecure_seed orelse blk: {
+        var buf: [16]u8 = undefined;
+        if (wasi_clocks.randomFill(ctx.host, &buf) != .success)
+            return WasiP2Error.NoHostIo; // precondition: the component-run path plants host.io
+        const s: [2]u64 = .{ std.mem.readInt(u64, buf[0..8], .little), std.mem.readInt(u64, buf[8..16], .little) };
+        ctx.insecure_seed = s;
+        break :blk s;
+    };
+    try mem.write(retptr, seed[0]);
+    try mem.write(retptr + 8, seed[1]);
 }
 
 /// `wasi:filesystem/types` `[method]descriptor.read` (self, length, offset,
@@ -1506,6 +1552,10 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_get_directories => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2GetDirectories),
         .fs_descriptor_open_at => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, p2DescriptorOpenAt),
         .cli_exit => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2Exit),
+        .cli_exit_with_code => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2ExitWithCode),
+        // The async wait funcs under a SYNC lower: the call blocks in the host.
+        .clocks_wait_until => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, i64) WasiP2Error!void, p2WaitUntilSync),
+        .clocks_wait_for => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, i64) WasiP2Error!void, p2WaitForSync),
         .clocks_monotonic_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!i64, p2MonotonicNow),
         .clocks_wall_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2WallNow),
         .clocks_system_now => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2SystemNow),
@@ -1628,10 +1678,23 @@ const Def = union(enum) {
     /// selects the trampoline; `type_index` is the stream/future type. Slice 2
     /// wires `stream.new`/`future.new`; the rest are a later slice.
     async_builtin: struct { op: ctypes.StreamFutureOp, type_index: u32, elem_size: u32 = 1 },
-    /// A `canon waitable-set.new` / `waitable.join` builtin (WASI 0.3, ADR-0190
-    /// E2b) on the per-task `WaitableSetTable`. `wait`/`poll`/`drop` defer.
+    /// A `canon waitable-set.new/join/poll/drop` builtin (WASI 0.3, ADR-0190
+    /// E2b + ADR-0205 phase A) on the per-task `WaitableSetTable`. `wait`
+    /// stays rejected (stackless: a guest blocks via the callback WAIT return).
     waitable_set_builtin: ctypes.WaitableSetOp,
+    /// An ASYNC-lowered host import (`canon lower ... async`, ADR-0205 phase
+    /// A): the trampoline returns the packed subtask status. Only ops with a
+    /// genuine async host path bind here; the rest are async-EAGER via their
+    /// sync trampolines (D5) or rejected until their phase lands.
+    host_op_async: adapter.P2Op,
+    /// A `canon context.{get,set}` builtin over `WasiP2Ctx.task_context`.
+    context_builtin: struct { is_set: bool, slot: ctypes.ContextSlot },
+    /// `canon task.cancel` / `subtask.{cancel,drop}` / `thread.yield` (ADR-0205
+    /// phase A): linkable; unimplemented ones fail loudly at CALL time.
+    async_support_builtin: AsyncSupportOp,
 };
+
+const AsyncSupportOp = enum { task_cancel, subtask_cancel, subtask_drop, thread_yield };
 
 /// Per-definition context for a synthesized async builtin (mirrors
 /// `ResourceBuiltinCtx`): the heap-stable ctx + the stream/future type index.
@@ -1678,9 +1741,10 @@ const Built = union(enum) { guest: *Instance, synthetic: []const SynthExport };
 fn synthDef(arena: Allocator, info: *const ctypes.TypeInfo, built: []const ?Built, ex: ctypes.CoreInlineExport) !?Def {
     switch (ex.sort) {
         .func => switch (info.coreFunc(ex.index) orelse return null) {
-            .lower => |cfn| {
-                const ref = info.resolveComponentImport(cfn) orelse return null;
+            .lower => |l| {
+                const ref = info.resolveComponentImport(l.func) orelse return null;
                 const op = adapter.classifyImport(ref.interface, ref.func) orelse return error.UnsupportedWasiImport;
+                if (l.opts.is_async) return .{ .host_op_async = op };
                 return .{ .host_op = op };
             },
             .resource_new => |ti| return .{ .resource_builtin = .{ .kind = .new, .type_index = ti } },
@@ -1695,13 +1759,19 @@ fn synthDef(arena: Allocator, info: *const ctypes.TypeInfo, built: []const ?Buil
             // task.return (CM-async) is satisfied by the P3 runner's host
             // builtin (ADR-0189 ζ2); it records the task's delivered result.
             .task_return => return .task_return_builtin,
-            // waitable-set.new/join are host-wired (ADR-0190 E2b); wait/poll are
-            // the stackful path (zwasm stackless re-enters via the callback WAIT
-            // return, not a guest wait call), drop defers — fail loudly.
+            // waitable-set.new/join/poll/drop are host-wired (ADR-0190 E2b +
+            // ADR-0205 phase A); `wait` is the stackful path (zwasm stackless
+            // re-enters via the callback WAIT return, not a guest wait call).
             .waitable_set => |ws| switch (ws.op) {
-                .new, .join => return .{ .waitable_set_builtin = ws.op },
-                .wait, .poll, .drop => return error.UnsupportedWasiImport,
+                .new, .join, .poll, .drop => return .{ .waitable_set_builtin = ws.op },
+                .wait => return error.UnsupportedWasiImport,
             },
+            .task_cancel => return .{ .async_support_builtin = .task_cancel },
+            .subtask_cancel => return .{ .async_support_builtin = .subtask_cancel },
+            .subtask_drop => return .{ .async_support_builtin = .subtask_drop },
+            .context_get => |cg| return .{ .context_builtin = .{ .is_set = false, .slot = cg } },
+            .context_set => |cs| return .{ .context_builtin = .{ .is_set = true, .slot = cs } },
+            .thread_yield => return .{ .async_support_builtin = .thread_yield },
             // stream.new/future.new are wired (ADR-0189 ζ2 Slice 2); the rest of
             // the stream/future builtins (read/write/cancel/drop) land in a later
             // slice — fail loudly rather than silently mis-bind until then.
@@ -1865,6 +1935,156 @@ fn mapAsyncFault(e: WasiP2Error) WasiP2Error {
     };
 }
 
+/// Packed return of an async-lowered import call (`CanonicalABI.md`
+/// `canon_lower`, async case): `state | (subtask_handle << 4)`; an eager
+/// completion returns bare `RETURNED` with no handle minted.
+const SUBTASK_RETURNED: u32 = @intFromEnum(async_mod.SubtaskState.returned);
+
+/// `wasi:clocks/monotonic-clock@0.3.0` `wait-until: async func(when: mark)`
+/// under an async `canon lower` (ADR-0205 phase A). Already-elapsed deadline →
+/// eager RETURNED (no subtask). Otherwise mint a TIMER subtask waitable; the
+/// scheduler's poll path (`fireDueTimers`) resolves it and delivers the
+/// SUBTASK event through the set the guest joins it into.
+fn p2WaitUntil(caller: *Caller, when_raw: i64) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return p2WaitDeadlineAsync(ctx, @bitCast(when_raw)) catch |e| mapAsyncFault(e);
+}
+
+/// `wait-for: async func(how-long: duration)` — the relative-form sibling.
+fn p2WaitFor(caller: *Caller, dur_raw: i64) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const now = try ctx.monotonicNowNs();
+    const dur: u64 = @bitCast(dur_raw);
+    return p2WaitDeadlineAsync(ctx, now +| dur) catch |e| mapAsyncFault(e);
+}
+
+fn p2WaitDeadlineAsync(ctx: *WasiP2Ctx, deadline_ns: u64) WasiP2Error!u32 {
+    const now = try ctx.monotonicNowNs();
+    if (deadline_ns <= now) return SUBTASK_RETURNED;
+    const h = try ctx.streams.add(.{
+        .kind = .subtask,
+        .side = .readable,
+        .elem_type = null,
+        .subtask_state = .started,
+        .deadline_ns = deadline_ns,
+    });
+    return @intFromEnum(async_mod.SubtaskState.started) | (h << 4);
+}
+
+/// The SYNC-lowered form of the async wait funcs (the Canonical ABI lets a
+/// guest lower an `async func` synchronously — the call then blocks).
+fn p2WaitUntilSync(caller: *Caller, when_raw: i64) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    return p2WaitDeadlineSync(ctx, @bitCast(when_raw));
+}
+
+fn p2WaitForSync(caller: *Caller, dur_raw: i64) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const now = try ctx.monotonicNowNs();
+    const dur: u64 = @bitCast(dur_raw);
+    return p2WaitDeadlineSync(ctx, now +| dur);
+}
+
+fn p2WaitDeadlineSync(ctx: *WasiP2Ctx, deadline_ns: u64) WasiP2Error!void {
+    const now = try ctx.monotonicNowNs();
+    if (deadline_ns <= now) return;
+    const io = ctx.host.io orelse return WasiP2Error.NoHostIo;
+    std.Io.sleep(io, std.Io.Duration.fromNanoseconds(@intCast(deadline_ns - now)), .awake) catch |err| switch (err) {
+        error.Canceled => {}, // a cancelled sleep just wakes early
+    };
+}
+
+/// `canon waitable-set.poll` (non-blocking; `CanonicalABI.md`
+/// `canon_waitable_set_poll` + `unpack_event`): deliver parked host-source
+/// reads + fire due timers (the make-progress hooks), then poll the set. An
+/// event writes `(p1, p2)` at `ptr`/`ptr+4` and returns its code; no event
+/// returns NONE (0). Writes target the canon-lower-bound memory (`ctxMemory`),
+/// matching every other retptr-writing trampoline here.
+fn p2WaitableSetPoll(caller: *Caller, set_handle: u32, ptr: u32) WasiP2Error!u32 {
+    return p2WaitableSetPollInner(caller, set_handle, ptr) catch |e| mapAsyncFault(e);
+}
+fn p2WaitableSetPollInner(caller: *Caller, set_handle: u32, ptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const set = try ctx.sets.get(set_handle);
+    try ctx.deliverParkedReads(set);
+    _ = try ctx.fireDueTimers();
+    if (dbg.on("async.host")) std.debug.print("[host] poll set={d} members={d}\n", .{ set_handle, set.elems.items.len });
+    const ev = (try set.poll(&ctx.streams)) orelse return 0; // EventCode.none
+    const mem = try ctxMemory(caller);
+    try mem.write(ptr, ev.index);
+    try mem.write(ptr + 4, ev.payload);
+    return @intFromEnum(ev.code);
+}
+
+/// `canon waitable-set.drop` — remove the set from the table (tearing down its
+/// member list). Members themselves stay live (they just leave the set).
+fn p2WaitableSetDrop(caller: *Caller, set_handle: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    ctx.sets.remove(set_handle) catch |e| return mapAsyncFault(e);
+}
+
+/// `canon subtask.drop` — release a resolved subtask handle. Dropping an
+/// UNRESOLVED subtask is a guest fault per spec (`Subtask.drop` traps before
+/// `on_resolve` delivered), surfaced as the canonical guest trap.
+fn p2SubtaskDrop(caller: *Caller, handle: u32) WasiP2Error!void {
+    return p2SubtaskDropInner(caller, handle) catch |e| mapAsyncFault(e);
+}
+fn p2SubtaskDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const end = try ctx.streams.get(handle);
+    if (end.kind != .subtask) return WasiP2Error.InvalidHandle;
+    switch (end.subtask_state) {
+        .returned, .cancelled_before_started, .cancelled_before_returned => {},
+        .starting, .started => return WasiP2Error.Unreachable, // drop before resolve = guest fault
+    }
+    _ = try ctx.streams.remove(handle);
+}
+
+/// `canon task.cancel` / `canon subtask.cancel` — CM-async cancellation is not
+/// implemented (no current caller in the conformance corpus exercises it);
+/// linking succeeds, a CALL fails loudly (never a silent no-op).
+fn p2TaskCancel(caller: *Caller) WasiP2Error!void {
+    _ = caller;
+    return WasiP2Error.UnsupportedAsyncBuiltin;
+}
+
+fn p2SubtaskCancel(caller: *Caller, handle: u32) WasiP2Error!u32 {
+    _ = caller;
+    _ = handle;
+    return WasiP2Error.UnsupportedAsyncBuiltin;
+}
+
+/// `canon thread.yield` — cooperative yield point; same not-implemented
+/// posture as cancellation (fail loudly at call, not at link).
+fn p2ThreadYield(caller: *Caller) WasiP2Error!u32 {
+    _ = caller;
+    return WasiP2Error.UnsupportedAsyncBuiltin;
+}
+
+/// Per-definition ctx for a `canon context.{get,set}` builtin: the slot index
+/// into `WasiP2Ctx.task_context` (mirrors `ResourceBuiltinCtx`).
+pub const ContextBuiltinCtx = struct { ctx: *WasiP2Ctx, slot: u32 };
+
+fn p2ContextGet32(caller: *Caller) WasiP2Error!u32 {
+    const cbc = caller.data(ContextBuiltinCtx);
+    return @truncate(cbc.ctx.task_context[cbc.slot]);
+}
+
+fn p2ContextSet32(caller: *Caller, v: u32) WasiP2Error!void {
+    const cbc = caller.data(ContextBuiltinCtx);
+    cbc.ctx.task_context[cbc.slot] = v;
+}
+
+fn p2ContextGet64(caller: *Caller) WasiP2Error!i64 {
+    const cbc = caller.data(ContextBuiltinCtx);
+    return @bitCast(cbc.ctx.task_context[cbc.slot]);
+}
+
+fn p2ContextSet64(caller: *Caller, v: i64) WasiP2Error!void {
+    const cbc = caller.data(ContextBuiltinCtx);
+    cbc.ctx.task_context[cbc.slot] = @bitCast(v);
+}
+
 /// `canon stream.read`/`stream.write` (+ future) (ADR-0189 ζ2, re-scoped per
 /// lesson 2026-06-16): drive one rendezvous step on the end named by `handle`
 /// (`StreamFutureEnd.copy` dispatches read vs write on the end's side) and
@@ -1872,12 +2092,21 @@ fn mapAsyncFault(e: WasiP2Error) WasiP2Error {
 /// ready) or DROPPED (peer dropped first); a count > 0 COMPLETION needs a host
 /// stream peer (Unit E) — that path also wires the element marshalling at
 /// `ptr`, so it traps here until then (unreachable single-task).
+/// The future-copy trampoline: same rendezvous step, but the core ABI carries
+/// no count (a future moves exactly one value).
+fn p2FutureCopy(caller: *Caller, handle: u32, ptr: u32) WasiP2Error!u32 {
+    return p2StreamFutureCopyInner(caller, handle, ptr, 1) catch |e| mapAsyncFault(e);
+}
+
 fn p2StreamFutureCopy(caller: *Caller, handle: u32, ptr: u32, count: u32) WasiP2Error!u32 {
-    return p2StreamFutureCopyInner(caller, handle, ptr, count) catch |e| mapAsyncFault(e);
+    const r = p2StreamFutureCopyInner(caller, handle, ptr, count) catch |e| return mapAsyncFault(e);
+    if (dbg.on("async.host")) std.debug.print("[host] copy -> 0x{x}\n", .{r});
+    return r;
 }
 fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) WasiP2Error!u32 {
     const abc = caller.data(AsyncBuiltinCtx);
     const end = try abc.ctx.streams.get(handle);
+    if (dbg.on("async.host")) std.debug.print("[host] copy handle={d} kind={s} side={s} count={d}\n", .{ handle, @tagName(end.kind), @tagName(end.side), count });
     // Host result future (ADR-0190): the `future<result<_,error-code>>` returned
     // by write/read-via-stream. A host stream peer always succeeds → a guest
     // `future.read` COMPLETES with the `ok` discriminant (0, 1 byte) — no
@@ -1886,7 +2115,9 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         const mem = try abc.ctx.memory();
         const buf = mem.sliceAt(ptr, 1) catch return WasiP2Error.OutOfBounds;
         buf[0] = 0; // result<_, error-code> ok
-        return (async_mod.ReturnCode{ .completed = 1 }).encode();
+        // Future events never pack a count (CanonicalABI `future_event`:
+        // "the number of elements copied ... always zero").
+        return (async_mod.ReturnCode{ .completed = 0 }).encode();
     }
     // Host stream peer (Unit E, ADR-0190): the host is the always-ready reader,
     // so a guest write COMPLETES immediately — marshal the `count` u8s from guest
@@ -1925,6 +2156,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     const step = switch (sh.*) {
         .stream => |*s| try end.copy(s, &abc.ctx.streams, handle, count),
         .future => |*f| try end.copy(f, &abc.ctx.streams, handle, count),
+        .subtask => unreachable, // SharedTable never stores .subtask (subtask ends stay unlinked)
     };
     return switch (step.caller) {
         .blocked => (async_mod.ReturnCode{ .blocked = {} }).encode(),
@@ -1950,6 +2182,7 @@ fn p2StreamFutureCancelInner(caller: *Caller, handle: u32) WasiP2Error!u32 {
     const n = switch (sh.*) {
         .stream => |*s| try end.cancel(s),
         .future => |*f| try end.cancel(f),
+        .subtask => unreachable, // SharedTable never stores .subtask (subtask ends stay unlinked)
     };
     return (async_mod.ReturnCode{ .cancelled = @intCast(n) }).encode();
 }
@@ -1963,10 +2196,25 @@ fn p2StreamFutureDrop(caller: *Caller, handle: u32) WasiP2Error!void {
 }
 fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
     const abc = caller.data(AsyncBuiltinCtx);
+    const ctx = abc.ctx;
+    // Handle + shared slot ids are free-list-reused: scrub the host-role side
+    // tables BEFORE the drop, or a reused slot inherits the old role (a reused
+    // result-future handle short-circuited a fresh stream's writes to
+    // completed(0) — the official cli-stdio-roundtrip hang).
+    if (ctx.streams.get(handle)) |end| {
+        _ = ctx.host_result_futures.remove(handle);
+        _ = ctx.pending_reads.remove(handle);
+        if (end.shared != 0 and (ctx.shared.refcountOf(end.shared) orelse 0) == 1) {
+            _ = ctx.host_sinks.remove(end.shared);
+            _ = ctx.host_sources.remove(end.shared);
+        }
+    } else |_| {
+        // Stale handle: dropEndGuarded below surfaces the guest fault.
+    }
     // Shared drop contract: future-writable-before-write traps
     // (FutureDropBeforeWrite, mapAsyncFault → guest trap) + marks the rendezvous
     // DROPPED for the surviving peer (same helper the graph path uses).
-    try async_mod.dropEndGuarded(&abc.ctx.streams, &abc.ctx.shared, handle);
+    try async_mod.dropEndGuarded(&ctx.streams, &ctx.shared, handle);
 }
 
 /// Pour one synthetic export into `lk` under namespace `ns` as import `e.name`.
@@ -1988,7 +2236,48 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
         .waitable_set_builtin => |op| switch (op) {
             .new => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller) WasiP2Error!u32, p2WaitableSetNew),
             .join => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2WaitableJoin),
-            .wait, .poll, .drop => unreachable, // synthDef rejects these
+            .poll => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32, u32) WasiP2Error!u32, p2WaitableSetPoll),
+            .drop => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32) WasiP2Error!void, p2WaitableSetDrop),
+            .wait => unreachable, // synthDef rejects it
+        },
+        .host_op_async => |op| {
+            // Every host op other than the timer waits completes eagerly today;
+            // an async lower of one is unreached by the conformance corpus —
+            // reject until its phase (B fs / C sockets / D http) binds the
+            // generic async-eager shim.
+            if (op == .clocks_wait_until) {
+                try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i64) WasiP2Error!u32, p2WaitUntil);
+            } else if (op == .clocks_wait_for) {
+                try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i64) WasiP2Error!u32, p2WaitFor);
+            } else {
+                return error.UnsupportedWasiImport;
+            }
+        },
+        .context_builtin => |cb| {
+            if (cb.slot.slot >= 2) return error.UnsupportedWasiImport; // spec ContextLocalStorage bound
+            const cbc = try ctx.alloc.create(ContextBuiltinCtx);
+            errdefer ctx.alloc.destroy(cbc);
+            cbc.* = .{ .ctx = ctx, .slot = cb.slot.slot };
+            try ctx.cb_ctxs.append(ctx.alloc, cbc);
+            if (cb.is_set) {
+                if (cb.slot.is_i64) {
+                    try lk.defineFuncCtx(ns, e.name, @ptrCast(cbc), fn (*Caller, i64) WasiP2Error!void, p2ContextSet64);
+                } else {
+                    try lk.defineFuncCtx(ns, e.name, @ptrCast(cbc), fn (*Caller, u32) WasiP2Error!void, p2ContextSet32);
+                }
+            } else {
+                if (cb.slot.is_i64) {
+                    try lk.defineFuncCtx(ns, e.name, @ptrCast(cbc), fn (*Caller) WasiP2Error!i64, p2ContextGet64);
+                } else {
+                    try lk.defineFuncCtx(ns, e.name, @ptrCast(cbc), fn (*Caller) WasiP2Error!u32, p2ContextGet32);
+                }
+            }
+        },
+        .async_support_builtin => |op| switch (op) {
+            .task_cancel => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller) WasiP2Error!void, p2TaskCancel),
+            .subtask_cancel => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32) WasiP2Error!u32, p2SubtaskCancel),
+            .subtask_drop => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32) WasiP2Error!void, p2SubtaskDrop),
+            .thread_yield => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller) WasiP2Error!u32, p2ThreadYield),
         },
         .async_builtin => |ab| {
             const abc = try ctx.alloc.create(AsyncBuiltinCtx);
@@ -1999,7 +2288,10 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
                 .stream_new => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller) WasiP2Error!u64, p2StreamNew),
                 .future_new => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller) WasiP2Error!u64, p2FutureNew),
                 .stream_drop_readable, .stream_drop_writable, .future_drop_readable, .future_drop_writable => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller, u32) WasiP2Error!void, p2StreamFutureDrop),
-                .stream_read, .stream_write, .future_read, .future_write => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller, u32, u32, u32) WasiP2Error!u32, p2StreamFutureCopy),
+                .stream_read, .stream_write => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller, u32, u32, u32) WasiP2Error!u32, p2StreamFutureCopy),
+                // future.{read,write} core ABI is (handle, ptr) — no count (a
+                // future carries exactly one value; CanonicalABI `future_copy`).
+                .future_read, .future_write => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller, u32, u32) WasiP2Error!u32, p2FutureCopy),
                 .stream_cancel_read, .stream_cancel_write, .future_cancel_read, .future_cancel_write => try lk.defineFuncCtx(ns, e.name, @ptrCast(abc), fn (*Caller, u32) WasiP2Error!u32, p2StreamFutureCancel),
             }
         },
@@ -2266,6 +2558,9 @@ pub fn runWasiP2MainBuilt(built: *BuiltComponent) anyerror!void {
         if (err == error.ProcExit) return;
         return err;
     };
+    // `run: func() -> result` — an `err` return (flat discriminant 1) is exit
+    // code 1 per the wasi:cli command contract (official run-with-err.wasm).
+    if (results[0].i32 != 0 and built.ctx.host.exit_code == null) built.ctx.host.exit_code = 1;
 }
 
 /// The unified WASI-component entry (D-335 Unit F): build once, then dispatch —

@@ -79,9 +79,15 @@ certification meanwhile.
 
 ### D4 — Phasing (each phase = one `develop/*` PR, TDD, CI 3-OS gate)
 
-- **A — substrate**: D1 + D2 + D3 harness + `wait-until`/`wait-for` +
-  `exit-with-code`. Exit: official cli/clocks/random tests green; closes
-  D-524(1)(3).
+- **A — substrate**: D2 + D3 harness + the missing canon builtins
+  (context.get/set, subtask.drop/cancel, task.cancel, waitable-set.poll/drop,
+  thread.yield decode) + async-lower binding for the timer waits +
+  `wait-until`/`wait-for` + `exit-with-code`. Exit: official cli/clocks/random
+  tests green; closes D-524(1). *(Amended during phase A: D1
+  generation-aware dispatch moves to the START of phase B — no colliding
+  same-name row exists until filesystem-0.3 lands, and the dual-world official
+  binaries bind correctly under version-stripped matching, so implementing D1
+  in A would have been speculative.)*
 - **B — filesystem 0.3**: descriptor `read/write/append-via-stream` via the
   ADR-0190 host-stream-peer pattern on the existing P2 descriptor backend;
   remaining methods as async-eager (D5). Exit: official filesystem tests

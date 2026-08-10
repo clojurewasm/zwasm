@@ -141,12 +141,17 @@ fn foldResult(task: *TaskDescriptor, result: CallbackResult) void {
 /// `waiting` task poll its set and, if an event is pending, deliver it. Terminate
 /// when all tasks are `done`. Trap `AsyncDeadlock` when a whole pass makes NO
 /// progress — no task was `ready` and no `waiting` task's poll yielded an event
-/// (generalises the single-task `waitOn`-empty deadlock to N tasks). The ctx
-/// seam is the *non-blocking* multi-task pair (a task must never block the
-/// others), distinct from the single-task blocking `waitOn`:
+/// (generalises the single-task `waitOn`-empty deadlock to N tasks) — UNLESS a
+/// host timer is still armed (ADR-0205 D2): then the ctx parks until the
+/// nearest deadline and the pass retries. The ctx seam is the *non-blocking*
+/// multi-task triple (a task must never block the others), distinct from the
+/// single-task blocking `waitOn`:
 ///   - `invokeTaskCallback(funcidx, event_code, p1, p2) Error!u32` — re-enter the
 ///     task whose stackless callback is `funcidx`;
-///   - `pollSet(set_index) Error!?EventTuple` — non-blocking poll (null = none).
+///   - `pollSet(set_index) Error!?EventTuple` — non-blocking poll (null = none);
+///   - `waitForTimer() Error!bool` — no event was deliverable: if a host timer
+///     is armed, sleep until the nearest deadline + fire it (true = retry the
+///     pass); false = nothing will ever wake us (deadlock).
 pub fn driveScheduler(ctx: anytype, table: *TaskTable) !void {
     while (true) {
         var any_live = false; // a non-done task remains
@@ -166,29 +171,45 @@ pub fn driveScheduler(ctx: anytype, table: *TaskTable) !void {
                     any_live = true;
                     if (try ctx.pollSet(task.set_index)) |ev| {
                         progressed = true;
+                        if (@import("../../support/dbg.zig").on("async.sched")) std.debug.print("[sched] deliver code={s} idx={d} payload=0x{x} to task {d}\n", .{ @tagName(ev.code), ev.index, ev.payload, i });
                         const next = try ctx.invokeTaskCallback(task.callback_funcidx, @intFromEnum(ev.code), ev.index, ev.payload);
+                        if (@import("../../support/dbg.zig").on("async.sched")) std.debug.print("[sched] callback -> 0x{x}\n", .{next});
                         foldResult(task, try unpackCallbackResult(next));
                     }
                 },
             }
         }
         if (!any_live) return; // all tasks done
-        if (!progressed) return error.AsyncDeadlock; // all waiting, no events deliverable
+        if (!progressed) {
+            if (try ctx.waitForTimer()) continue; // a timer fired — retry the pass
+            return error.AsyncDeadlock; // all waiting, no events deliverable, no timer armed
+        }
     }
 }
 
-pub const EndKind = enum { stream, future };
+pub const EndKind = enum { stream, future, subtask };
 pub const EndSide = enum { readable, writable };
 
-/// One stream/future **end** in the handle table. `elem_type` is the element
+/// One waitable in the handle table: a stream/future **end**, or (ADR-0205
+/// phase A) a `Subtask` minted by an async-lowered host import that blocked.
+/// The spec keeps ALL waitables (stream/future ends, subtasks, sets) in one
+/// per-instance handle table; subtasks share this table so `waitable.join` /
+/// `waitable-set.poll` resolve them uniformly. `elem_type` is the element
 /// (stream) / value (future) WIT type index, or null for a payload-less
-/// `stream`/`future`. The shared rendezvous buffer joining the two ends lands
-/// in chunk β.
+/// `stream`/`future` (always null for a subtask). The shared rendezvous buffer
+/// joining the two ends lands in chunk β.
 pub const StreamFutureEnd = struct {
     kind: EndKind,
     side: EndSide,
     elem_type: ?u32,
     state: CopyState = .idle,
+    /// `kind == .subtask` only: the `Subtask.State` lifecycle of the blocked
+    /// async-lowered host call this waitable represents.
+    subtask_state: SubtaskState = .starting,
+    /// `kind == .subtask` only: a host TIMER deadline (monotonic ns) — the
+    /// waitable resolves (RETURNED) when the host clock passes it. Cleared on
+    /// fire. Null for non-timer subtasks (resolved by their own host wiring).
+    deadline_ns: ?u64 = null,
     /// spec `Waitable.pending_event` — at most one event awaits delivery. Stored
     /// as the value directly (the spec's optimized non-closure form).
     pending_event: ?EventTuple = null,
@@ -322,6 +343,37 @@ pub const StreamFutureTable = struct {
         self.slots.items[i] = null;
         try self.free.append(self.alloc, i);
         return end;
+    }
+
+    /// True if any timer subtask is armed — lets the host skip the clock read
+    /// entirely on the (overwhelmingly common) no-timer path.
+    pub fn hasArmedTimer(self: *const StreamFutureTable) bool {
+        for (self.slots.items) |slot| {
+            const end = slot orelse continue;
+            if (end.kind == .subtask and end.deadline_ns != null) return true;
+        }
+        return false;
+    }
+
+    /// Resolve every timer subtask whose deadline has passed at `now_ns`: mark
+    /// it RETURNED and set its pending SUBTASK event (deliverable via its
+    /// waitable set). Returns the nearest still-future deadline, or null when
+    /// no armed timer remains — the scheduler's sleep bound.
+    pub fn fireDueTimers(self: *StreamFutureTable, now_ns: u64) ?u64 {
+        var nearest: ?u64 = null;
+        for (self.slots.items, 0..) |*slot, i| {
+            const end = &(slot.* orelse continue);
+            if (end.kind != .subtask) continue;
+            const dl = end.deadline_ns orelse continue;
+            if (dl <= now_ns) {
+                end.deadline_ns = null;
+                end.subtask_state = .returned;
+                end.setPendingEvent(.{ .code = .subtask, .index = @intCast(i), .payload = @intFromEnum(SubtaskState.returned) });
+            } else if (nearest == null or dl < nearest.?) {
+                nearest = dl;
+            }
+        }
+        return nearest;
     }
 };
 
@@ -759,10 +811,13 @@ pub const SharedFuture = struct {
 };
 
 /// A rendezvous object shared by a stream's (or future's) two ends. Owned by
-/// the per-task `SharedTable`; `StreamFutureEnd.shared` indexes into it.
+/// the per-task `SharedTable`; `StreamFutureEnd.shared` indexes into it. A
+/// `.subtask` end has no rendezvous (its `shared` stays 0/unlinked) — the
+/// variant exists only to keep the union exhaustive over `EndKind`.
 pub const Shared = union(EndKind) {
     stream: SharedStream,
     future: SharedFuture,
+    subtask: void,
 };
 
 /// The per-task table of `Shared` rendezvous objects (ADR-0189 ζ2). A
@@ -804,6 +859,15 @@ pub const SharedTable = struct {
         if (i == 0 or i >= self.slots.items.len) return Error.InvalidHandle;
         if (self.slots.items[i] == null) return Error.InvalidHandle;
         return &self.slots.items[i].?.shared;
+    }
+
+    /// The live-end count of shared slot `i` (null for the 0-sentinel / a
+    /// hole). Lets the host layer scrub shared-keyed side tables exactly when
+    /// a drop is about to free the slot (slot ids are free-list-reused).
+    pub fn refcountOf(self: *SharedTable, i: u32) ?u8 {
+        if (i == 0 or i >= self.slots.items.len) return null;
+        const slot = self.slots.items[i] orelse return null;
+        return slot.refcount;
     }
 
     /// Drop one reference; tombstone + free-list the slot when the last end goes.
@@ -886,6 +950,7 @@ pub fn dropEndGuarded(ends: *StreamFutureTable, shared: *SharedTable, handle: u3
                 if (end.side == .writable) try f.guardWritableDrop();
                 try end.drop(f);
             },
+            .subtask => unreachable, // SharedTable never stores .subtask (subtask ends stay unlinked)
         }
     }
     try dropEnd(ends, shared, handle);
@@ -1217,6 +1282,10 @@ const SchedCtx = struct {
         try self.polls.append(self.alloc, set_index);
         return self.poll_event;
     }
+    fn waitForTimer(self: *SchedCtx) !bool {
+        _ = self; // scripted ctx wires no timers — a stalled pass is a deadlock
+        return false;
+    }
 };
 
 test "ADR-0195 step (c): driveScheduler runs every ready task once + terminates when all done" {
@@ -1365,4 +1434,67 @@ test "D-335 unit D-ζ2: future.new pair + reverse drop order frees the shared sy
     // the freed slot is reused by the next pair (free-list).
     const p2 = try newStreamPair(&ends, &shared, 9);
     try testing.expectEqual(@as(?u32, 9), (try shared.get((try ends.get(p2.readable)).shared)).stream.elem_type);
+}
+
+test "ADR-0205 D2: timer subtask fires at its deadline + reports the nearest future one" {
+    var table = try StreamFutureTable.init(testing.allocator);
+    defer table.deinit();
+    try testing.expect(!table.hasArmedTimer());
+    const early = try table.add(.{ .kind = .subtask, .side = .readable, .elem_type = null, .subtask_state = .started, .deadline_ns = 100 });
+    const late = try table.add(.{ .kind = .subtask, .side = .readable, .elem_type = null, .subtask_state = .started, .deadline_ns = 900 });
+    try testing.expect(table.hasArmedTimer());
+
+    // now=500: `early` fires (RETURNED + pending SUBTASK event), `late` is the bound.
+    try testing.expectEqual(@as(?u64, 900), table.fireDueTimers(500));
+    const e = try table.get(early);
+    try testing.expectEqual(SubtaskState.returned, e.subtask_state);
+    try testing.expectEqual(@as(?u64, null), e.deadline_ns);
+    const ev = e.pending_event.?;
+    try testing.expectEqual(EventCode.subtask, ev.code);
+    try testing.expectEqual(early, ev.index);
+    try testing.expectEqual(@as(u32, @intFromEnum(SubtaskState.returned)), ev.payload);
+    // A joined set delivers it like any waitable event.
+    var ws = WaitableSet.init(testing.allocator);
+    defer ws.deinit();
+    try ws.join(early);
+    try testing.expectEqual(EventCode.subtask, ((try ws.poll(&table)).?).code);
+
+    // now=900: the late timer fires too; nothing remains armed.
+    try testing.expectEqual(@as(?u64, null), table.fireDueTimers(900));
+    try testing.expectEqual(SubtaskState.returned, (try table.get(late)).subtask_state);
+    try testing.expect(!table.hasArmedTimer());
+}
+
+test "ADR-0205 D2: driveScheduler retries a stalled pass when the ctx reports a fired timer" {
+    // Ctx: one task waiting on set 7; the first poll delivers nothing, then
+    // waitForTimer "fires" (returns true once) and arms poll_event.
+    const TimerCtx = struct {
+        polls: u32 = 0,
+        timer_fired: bool = false,
+        fn invokeTaskCallback(self: *@This(), funcidx: u32, event_code: u32, p1: u32, p2: u32) !u32 {
+            _ = self;
+            _ = funcidx;
+            _ = p1;
+            _ = p2;
+            std.debug.assert(event_code == @intFromEnum(EventCode.subtask));
+            return 0; // EXIT
+        }
+        fn pollSet(self: *@This(), set_index: u32) !?EventTuple {
+            std.debug.assert(set_index == 7);
+            self.polls += 1;
+            if (!self.timer_fired) return null;
+            return .{ .code = .subtask, .index = 3, .payload = @intFromEnum(SubtaskState.returned) };
+        }
+        fn waitForTimer(self: *@This()) !bool {
+            if (self.timer_fired) return false;
+            self.timer_fired = true;
+            return true;
+        }
+    };
+    var table = try TaskTable.init(testing.allocator);
+    defer table.deinit();
+    _ = try table.add(.{ .callback_funcidx = 1, .state = .waiting, .set_index = 7 });
+    var ctx = TimerCtx{};
+    try driveScheduler(&ctx, &table);
+    try testing.expectEqual(@as(u32, 2), ctx.polls); // stalled poll + post-timer poll
 }
