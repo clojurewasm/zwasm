@@ -270,15 +270,20 @@ entries:
       connected DATA plane): tcp connect/send/receive + listen/accept stream +
       echo, udp send/receive, ip-name-lookup — the handlers are written
       (`sock3*` in component_wasi_p2.zig + UdpSocket in p2_sockets.zig + the
-      `pollBlockedSockets` readiness hook) but three structural barriers block
-      conformance: (1) `get-local-address` on a CONNECTED tcp / UDP socket
-      needs `getsockname` (the pinned std.Io.net exposes only the bind/connect
-      address, not the OS-resolved local sockaddr) → a libc-boundary ADR-0070
-      amendment for `std.c.getsockname`; (2) `bind`-after-drop reuse hits
-      EADDRINUSE (SO_REUSEADDR is not set on the lazy socket); (3) the
-      connected send/receive/accept event delivery works via `pollBlockedSockets`
-      for the simple cases but the full `futures::join!` echo interleaving is
-      unverified. Repro: `zwasm run <sockets-*.wasm>` (no preopen needed).
+      `pollBlockedSockets` readiness hook). Of the three structural barriers,
+      (1) getsockname and (2) SO_REUSEADDR are DISSOLVED at unit level
+      (589280108, no libc amendment needed: the pinned stdlib resolves the
+      local sockaddr on every connect path into `Stream.socket.address`, and
+      SO_REUSEADDR-without-REUSEPORT = `reuse_address` + posix.setsockopt
+      clear of the coupled REUSEPORT). REMAINING: (3) the connected
+      send/receive/accept event delivery works via `pollBlockedSockets` for
+      the simple cases but the full `futures::join!` echo interleaving is
+      unverified; 9 official tests un-vendored (tcp bind/connect/listen/
+      receive/send, udp connect/receive/send, echo — `TESTS=` in
+      scripts/vendor_wasip3_official.sh); `sock3ResolveAddresses` is a
+      localhost-only stub (no real DNS; no official test covers it but the
+      coverage claim does). Repro: `zwasm run <sockets-*.wasm>` (no preopen
+      needed).
       **HTTP (phase D)**: `wasi:http@0.3.0` (fields / request / response /
       request-options resources + `client.send` on std.http.Client + the
       `handler` export wiring) is UNIMPLEMENTED — the largest remaining

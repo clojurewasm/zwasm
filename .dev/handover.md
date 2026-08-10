@@ -30,12 +30,11 @@ publish / cut over. No active campaign; no cron self-re-arm.
 
 ## Closed campaigns (residual debt only — details in the cited ADR/CHANGELOG)
 
-- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1, #144-#146). D-522 stage
-  1 shipped (CLI −21% ReleaseSafe), stage 2 demand-driven; **D-521 DISCHARGED,
-  premise refuted by measurement** (lesson `2026-07-16-outlining-…-neutral.md`).
-- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, #136-#142).
-  `test-aot-diff` 63/63. Residual = D-515(2) + D-514. (Prior 2026-07-17
-  WASI-0.3.0 sweep now subsumed by the ADR-0205 campaign below.)
+- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1). D-522 stage 2
+  demand-driven; D-521 discharged (premise refuted by measurement, lesson
+  `2026-07-16-outlining-…-neutral.md`).
+- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0). `test-aot-diff`
+  63/63. Residual = D-515(2) + D-514.
 
 ## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
@@ -51,9 +50,11 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
   generation-aware `WasiGen` dispatch. Official fs corpus 14/14.
 - **C sockets — control plane DONE/green** (this branch): create / bind
   (ephemeral resolution) / all TCP+UDP options / address validation / udp-bind;
-  3 official tests vendored green. Connected DATA plane + getsockname +
-  SO_REUSEADDR = **D-568** (needs libc-boundary getsockname + socket-readiness
-  scheduler work).
+  3 official tests vendored green. D-568 barriers 1+2 dissolved (589280108):
+  connected local/remote endpoints truthful (pinned std resolves getsockname
+  into `Stream.socket.address` — NO libc amendment) + WIT SO_REUSEADDR
+  contract (REUSEPORT cleared post-listen). NEXT: vendor the 9 remaining
+  official sockets tests + verify the `futures::join!` echo data plane.
 - **D http — NOT STARTED** (D-568): `wasi:http@0.3.0` largest remaining surface.
 - **E claims sweep** — pending C/D.
 28 official tests vendored green. 0.3.1 released 2026-08-11 (WIT diff vs 0.3.0
@@ -61,10 +62,8 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
 
 ## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
 
-Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. G1 =
-D-507 (ADR-0202; real gap = optimising tier → **D-513** user-gated). G2 = D-508
-(ADR-0203). G3 = D-510 fuzz-diff gate. Tail: D-314(a), D-509 threads, D-444,
-D-506, D-502/D-475 residual, mac/win rust-host CI.
+Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`; tail
+rows tracked in debt.yaml (D-314(a), D-509, D-444, D-506, D-502/D-475).
 
 ## Operational invariants (keep using)
 
@@ -96,12 +95,9 @@ D-506, D-502/D-475 residual, mac/win rust-host CI.
 - **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
 - D-305 long-tail (niche CM shapes; `component_graph.zig` 1895/2000 split first);
   D-464 async adversarial; D-462 feature-separation (user-gated). blocked-by rows = parked.
-- **D-526** — external-contributor reproducibility / doc-staleness sweep (row has
-  the full gap list: `wasm-tools` prereq, `zwasm_from_scratch` refs, stale
-  `continue/SKILL.md` body, drifted `check_three_host_diff` totals, no
-  Japanese-chat opt-out note). Fresh clone + the 3-OS CI gate reproduce cleanly.
-  Companion: ClojureWasm D-565. Mechanisable parts belong in the CI `doc-truth`
-  job (see #163 above).
+- **D-526** — external-contributor reproducibility / doc-staleness sweep (full
+  gap list in the row; companion ClojureWasm D-565; mechanisable parts → CI
+  `doc-truth` job, see #163 above).
 
 ## State (release = USER-ONLY, ADR-0156)
 
