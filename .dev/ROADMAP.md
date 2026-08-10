@@ -95,7 +95,7 @@ ecosystem bar, not because v1 had it):
 | WASI 0.1                    | Complete                                                                                               |
 | **Component Model**         | **wasmtime-equivalent — SHIPPED** (ADR-0170/0181/0182; default-ON via `-Dwasi>=p2`, `-Dwasi=p1` = lean opt-out per ADR-0193; campaign closed 2026-06-13, corpus 158/0/0) |
 | **WASI 0.2 (preview2)**     | **wasmtime-equivalent native host** (ADR-0170/0180; CLI world + fs + sockets-TCP shipped)              |
-| **WASI 0.3 (preview3)**     | **ratified 2026-06-11; CM-async-based** (async func / stream / future) — now an **actionable front** on the shipped CM substrate (§9.0 Front D / **D-335**), build in progress; NOT a future-bucket lock |
+| **WASI 0.3 (preview3)**     | **released 2026-06-11; CM-async-based** (async func / stream / future) — **full-coverage campaign in progress** (§9.0 Front D / **D-335** / **ADR-0205** phases A–E: substrate → fs → sockets → http → claims); core + cli/clocks/random host SHIPPED |
 | 4-platform JIT              | aarch64-darwin / aarch64-linux / x86_64-linux / x86_64-windows                                         |
 | Spec testsuite              | 100 %, 0 skip                                                                                          |
 | **wasm-c-api conformance**  | **Standard `wasm.h`** (the interface wasmtime/wasmer follow) + minimal `wasi.h` / `zwasm.h` extensions |
@@ -1310,7 +1310,15 @@ loop self-selects the next unit by value and proceeds.
   `~/Documents/OSS/WASI/`; reference impl `~/Documents/OSS/wasmtime/` (43+).
   Work units tracked as **D-335** (CM-async types + canon built-ins + async
   lift/lower + WASI-P3 host interfaces + corpus); the loop drives it as a
-  campaign.
+  campaign. **2026-08-10 — re-scoped to FULL 0.3 coverage (ADR-0205,
+  user-directed)**: official 0.3.0 released 2026-06-11 (six proposals: cli /
+  clocks / filesystem / http / random / sockets; 0.3.x release train every two
+  months). Campaign phases A–E per ADR-0205: A substrate (generation-aware
+  dispatch + timer waitable + official-testsuite harness + clocks
+  `wait-until`/`wait-for` + `exit-with-code`), B filesystem-0.3 via-stream,
+  C sockets-0.3 (async TCP/UDP/name-lookup), D `wasi:http`, E claims sweep.
+  Conformance = vendored official `wasi-testsuite` wasip3 binaries
+  (`prod/testsuite-base`, 45 tests, `=0.3.0`-pinned).
 
 **Genuinely-future bucket** (demand-driven, NO version gate — the §1.3 + §3.3
 set; not a queue):
@@ -1320,8 +1328,9 @@ set; not a queue):
 - **Core** stack-switching continuations (the core-wasm proposal — still
   pre-Phase-4, format evolving as of 2026-06; **D-300**). NOTE: WASI 0.3 does
   NOT need it — see Front D.
-- `wasi:sockets` listeners/UDP/name-lookup; fs `*-via-stream`.
 - RISC-V / s390x backends (separate ADR each).
+  (`wasi:sockets` listeners/UDP/name-lookup + fs `*-via-stream` left this
+  bucket 2026-08-10 → Front D phases B/C, ADR-0205.)
 - The **optimising tier is permanently OUT** (single-pass is the design — §3.2).
 
 > Already-shipped former "v0.2.0 line" items (Component Model + WASI 0.2,

@@ -20,18 +20,13 @@ publish / cut over. No active campaign; no cron self-re-arm.
 
 ## Consumer-reported doc-truth gaps — both CLOSED (reporter `jtakakura`)
 
-- **compiler-rt, 2026-08-03 (#153/#154 + follow-up).** Undefined
-  `__zig_probe_stack` linking `libzwasm.a` from zwasm-rust-sdk: Zig's implicit
-  `bundle_compiler_rt` covers exe + dynamic lib ONLY, so a static `.a` never
-  carries it — docs and D-312 claimed the opposite. Fix = opt-in
-  `-Dcompiler-rt=true`; `test_extlink.sh` now asserts `compiler_rt.o` and runs
-  on `ci_gate.sh` extended. Lesson `2026-08-03-ungated-negative-doc-claim-…`.
-- **Default engine, 2026-08-10 (#163).** "interp is the default" outlived the
-  D-496 ch6 `auto` flip in 5 places — because doc-only PRs skip the whole 3-host
-  gate, so prose had the weakest net. Fix = `check_engine_default_claims.sh`
-  (anchors on the CLI usage string, then sweeps) + a new **always-on CI
-  `doc-truth` job — put any future prose gate there.** Lesson
-  `2026-08-10-doc-only-ci-skip-is-where-prose-claims-rot.md`.
+- **compiler-rt, 2026-08-03 (#153/#154).** Static `.a` never bundles
+  compiler-rt (docs + D-312 claimed opposite) → opt-in `-Dcompiler-rt=true`;
+  `test_extlink.sh` asserts on CI extended. Lesson `2026-08-03-ungated-…`.
+- **Default engine, 2026-08-10 (#163).** "interp is default" outlived the
+  `auto` flip in 5 places (doc-only PRs skip the gate) → new always-on CI
+  **`doc-truth` job — put any future prose gate there** +
+  `check_engine_default_claims.sh`. Lesson `2026-08-10-doc-only-ci-skip-…`.
 
 ## Closed campaigns (residual debt only — details in the cited ADR/CHANGELOG)
 
@@ -44,22 +39,26 @@ publish / cut over. No active campaign; no cron self-re-arm.
   D-525) + `system-clock`/`get-resolution` host support. Fixtures still import
   0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff = proposal_watch.
 
-## Active front — G-senior-gap (2026-07-06, /continue entry point)
+## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
-Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. **G1/G2/G3
-all COMPLETE.**
-- **G1 = D-507** (#131/#132/#133, ADR-0202 guard-page elision). Retrospective:
-  measured scalar-elision perf ≈ NOISE — "biggest tier-free lever" REFUTED; the
-  1.75–3.9x gap vs wasmtime = optimising-tier codegen (**D-513**, user-gated).
-  Elision kept (correct, code-size, base for D-509 threads); ENABLED for AOT at
-  ADR-0203 stage 4 (D-515(1)). Follow-up **D-514** (SIMD elision symmetry).
-- **G3 = D-510** (#135) — committed `zig build fuzz-diff` gate: memory-snapshot
-  compare + dual JIT lanes (`.auto`/`.explicit`) + regression corpus; 2008-module
-  campaign 0 mismatch, D-515(2) partially covered. **G2 = D-508** via AOT (above).
-- Then: D-314(a) epoch-counter · note-class D-509 (threads campaign, own
-  kickoff + ADR) · D-511/D-512 (demand-driven) · **D-513 (user-gated)**.
-- Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
-  residual (spec-harness cross-module register-table), mac/win rust-host CI.
+Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).
+Phases: **A** substrate (generation-aware dispatch + timer waitable + official
+wasi-testsuite harness + `wait-until`/`wait-for` + `exit-with-code`) → **B**
+filesystem via-stream → **C** sockets async → **D** `wasi:http` → **E** claims
+sweep. Conformance = vendored `prod/testsuite-base` wasip3 binaries (45,
+`=0.3.0`-pinned, dual-world 0.2+0.3 imports). D-524 closes at A; D-523
+reframed external-blocked (ADR-0205 D3). 0.3.1 releases 2026-08-11 (WIT diff
+vs 0.3.0 = 3 doc lines; release train = bi-monthly, tracked per ADR-0205 D6).
+
+## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
+
+Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. G1 =
+D-507 guard-page elision (#131-#133, ADR-0202; measured perf ≈ noise, real gap
+= optimising tier → **D-513** user-gated; SIMD symmetry → D-514). G2 = D-508
+via AOT (ADR-0203). G3 = D-510 committed fuzz-diff gate (#135). Next in line:
+D-314(a) epoch counter · D-509 threads (own kickoff + ADR) · D-511/D-512
+demand-driven. Older tail: D-444, D-506, D-502 residual, D-475 residual
+(spec-harness cross-module register-table), mac/win rust-host CI.
 
 ## Operational invariants (keep using)
 
