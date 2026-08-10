@@ -101,8 +101,10 @@ fi
 # its engines, emitting one runtime row each (zwasm-interp / zwasm-jit /
 # zwasm-aot). aot precompiles a temp .cwasm per fixture (the timed command runs
 # the artifact — cold-start compile is a separate metric, see aot_coldstart.md).
-# Flag absent → a single `zwasm` row using ZWASM_RUN_FLAGS (interp, or jit under
-# --simd): unchanged backward-compatible default.
+# Flag absent → a single `zwasm` row using ZWASM_RUN_FLAGS: no `--engine`, i.e.
+# the CLI default `auto` (JIT-preferring, interp fallback) — or forced jit under
+# --simd. Published tables always pass `--engines=`, so no row is ever labelled
+# by an engine the default picked.
 ZW_RUNTIMES=()
 if [ -n "$ENGINES_CSV" ]; then
     IFS=',' read -ra _engs <<< "$ENGINES_CSV"

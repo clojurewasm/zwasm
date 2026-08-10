@@ -476,8 +476,8 @@ test "mapInterpTrap: Wasm 3.0 GC/typed-ref/EH traps surface their precise kind (
 }
 
 test "interrupted (ADR-0179 #3a): interp error + JIT code 16 both surface the same kind+message" {
-    // The default (interp) engine traps `error.Interrupted` on a host
-    // cancel/timeout; it previously fell through to binding_error.
+    // The interp engine traps `error.Interrupted` on a host cancel/timeout;
+    // it previously fell through to binding_error.
     try testing.expectEqual(TrapKind.interrupted, mapInterpTrap(error.Interrupted));
     // JIT stub code 16 maps to the same kind (the prologue/back-edge poll).
     try testing.expectEqual(TrapKind.interrupted, jitTrapCode(16).?);

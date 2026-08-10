@@ -11,51 +11,51 @@ ADR-0156 — consumer-driven patch: a component with 2+ exports failed validatio
 bound) + a capture buffer had no bound (#158/#159, ~64 GB reachable). Both were
 found from ClojureWasm and neither was reachable by zwasm's own fixtures; cljw
 is re-pinned to the tag. v2.4.0 = 2026-08-03 external-consumer release
-(`-Dcompiler-rt` #154 + sub-3.0 GC-cohort DCE #150).
-v2.3.0 = 2026-07-17 WASI-0.3.0 sweep + Homebrew tap
-`brew install clojurewasm/tap/zwasm`; v2.2.1 = binary-size line, v2.2.0 =
-AOT line). v1 frozen at `v1.11.1`. Dev model: cut
-a `develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
+(`-Dcompiler-rt` #154 + sub-3.0 GC-cohort DCE #150); v2.3.0 = 2026-07-17
+WASI-0.3.0 sweep + Homebrew tap `brew install clojurewasm/tap/zwasm`; v2.2.1 =
+binary-size line, v2.2.0 = AOT line). v1 frozen at `v1.11.1`. Dev model: cut a
+`develop/<slug>` branch from `main` → PR → CI `ci-required` 3-OS gate must be
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign; no cron self-re-arm.
 
-## External-consumer compiler-rt gap — CLOSED 2026-08-03 (#153/#154 + follow-up)
+## Consumer-reported doc-truth gaps — both CLOSED (reporter `jtakakura`)
 
-Contributor `jtakakura` hit undefined `__zig_probe_stack` linking `libzwasm.a`
-from zwasm-rust-sdk. Root: Zig's implicit `bundle_compiler_rt` default covers
-exe + dynamic lib ONLY, so a static `.a` never carries it — while docs and the
-D-312 row both claimed the opposite. Fix = opt-in `-Dcompiler-rt=true` (#154,
-merged with contributor authorship). Follow-up corrected docs + D-312, made
-`test_extlink.sh` assert `compiler_rt.o` in the archive, and wired that script
-into `ci_gate.sh` extended (it had never been gated). Lesson
-`2026-08-03-ungated-negative-doc-claim-rotted-into-a-lie.md`.
+- **compiler-rt, 2026-08-03 (#153/#154 + follow-up).** Undefined
+  `__zig_probe_stack` linking `libzwasm.a` from zwasm-rust-sdk: Zig's implicit
+  `bundle_compiler_rt` covers exe + dynamic lib ONLY, so a static `.a` never
+  carries it — docs and D-312 claimed the opposite. Fix = opt-in
+  `-Dcompiler-rt=true`; `test_extlink.sh` now asserts `compiler_rt.o` and runs
+  on `ci_gate.sh` extended. Lesson `2026-08-03-ungated-negative-doc-claim-…`.
+- **Default engine, 2026-08-10 (#163).** "interp is the default" outlived the
+  D-496 ch6 `auto` flip in 5 places — because doc-only PRs skip the whole 3-host
+  gate, so prose had the weakest net. Fix = `check_engine_default_claims.sh`
+  (anchors on the CLI usage string, then sweeps) + a new **always-on CI
+  `doc-truth` job — put any future prose gate there.** Lesson
+  `2026-08-10-doc-only-ci-skip-is-where-prose-claims-rot.md`.
 
 ## Closed campaigns (residual debt only — details in the cited ADR/CHANGELOG)
 
-- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1, PRs #144-#146). D-522
-  stage 1 shipped (CLI −21% ReleaseSafe); stage 2 demand-driven. **D-521
-  DISCHARGED — premise refuted by measurement** (lesson
-  `2026-07-16-outlining-once-called-handlers-size-neutral.md`).
-- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, PRs #136-#142).
+- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1, #144-#146). D-522 stage
+  1 shipped (CLI −21% ReleaseSafe), stage 2 demand-driven; **D-521 DISCHARGED,
+  premise refuted by measurement** (lesson `2026-07-16-outlining-…-neutral.md`).
+- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, #136-#142).
   `test-aot-diff` 63/63. Residual = D-515(2) + D-514.
-- **WASI-0.3.0-official sweep** — 2026-07-17. Docs truth-sweep (`-Dgc` is INERT
-  → D-525) + `system-clock`/`get-resolution` host support. Fixtures still
-  import 0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff =
-  proposal_watch 2026-07-17 entry.
+- **WASI-0.3.0-official sweep** — 2026-07-17. Docs truth-sweep (`-Dgc` INERT →
+  D-525) + `system-clock`/`get-resolution` host support. Fixtures still import
+  0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff = proposal_watch.
 
 ## Active front — G-senior-gap (2026-07-06, /continue entry point)
 
-Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
-- **G1 = D-507 COMPLETE** (#131/#132/#133, ADR-0202 guard-page elision).
-  Retrospective: measured scalar-elision perf ≈ NOISE — "biggest tier-free
-  lever" REFUTED; the 1.75–3.9x gap vs wasmtime = optimising-tier codegen
-  (**D-513**, user-gated). Elision kept (correct, code-size, base for D-509
-  threads). AOT elision ENABLED at ADR-0203 stage 4 (D-515(1)). Follow-up
-  **D-514** (SIMD elision symmetry).
-- **G3 = D-510 COMPLETE** (#135) — committed `zig build fuzz-diff` gate:
-  memory-snapshot compare + dual JIT lanes (`.auto`/`.explicit`) + regression
-  corpus. 2008-module campaign 0 mismatch. D-515(2) partially covered.
-- **G2 = D-508 COMPLETE** via the AOT-full-fidelity campaign (above).
+Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. **G1/G2/G3
+all COMPLETE.**
+- **G1 = D-507** (#131/#132/#133, ADR-0202 guard-page elision). Retrospective:
+  measured scalar-elision perf ≈ NOISE — "biggest tier-free lever" REFUTED; the
+  1.75–3.9x gap vs wasmtime = optimising-tier codegen (**D-513**, user-gated).
+  Elision kept (correct, code-size, base for D-509 threads); ENABLED for AOT at
+  ADR-0203 stage 4 (D-515(1)). Follow-up **D-514** (SIMD elision symmetry).
+- **G3 = D-510** (#135) — committed `zig build fuzz-diff` gate: memory-snapshot
+  compare + dual JIT lanes (`.auto`/`.explicit`) + regression corpus; 2008-module
+  campaign 0 mismatch, D-515(2) partially covered. **G2 = D-508** via AOT (above).
 - Then: D-314(a) epoch-counter · note-class D-509 (threads campaign, own
   kickoff + ADR) · D-511/D-512 (demand-driven) · **D-513 (user-gated)**.
 - Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
@@ -73,17 +73,16 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
   COSMETIC (exit 0); trust `[run_remote_*] OK/FAIL` + `N passed, 0 failed`.
 - CI `ci_gate.sh` runs `zig fmt` + `test-all` + (core) `run-rust-host` on the Linux
   leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check`/`spill_aware_check`
-  (promoted E-段2 + D-505). `file_size_check` is advisory-only (ADR-0099);
-  `spill_aware_check` is also wired into `gate_commit.sh` (BASELINE=0, D-505). NOTE:
+  (promoted E-段2 + D-505). `file_size_check` is advisory-only (ADR-0099). NOTE:
   extended runs only on push-to-main, so `zone_check`/`spill_aware` enforce
-  post-merge, not as a PR blocker (a future refinement could run it once per PR).
+  post-merge, not as a PR blocker. Doc-only PRs skip `gate` entirely — the
+  always-on `doc-truth` job is the only PR-blocking leg they get.
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
-- **D-477 slivers** (partial, build-on-demand; trigger = a real consumer):
-  v128 invoke / Win64 stack-spill / MEMORY-class thunk — recipe in the row +
-  `private/notes/d477-remaining-slices-design.md`. **D-478** = JIT FP
-  host-callback bridge + funcref `Table.set` panic + proc_exit exit-code.
+- **D-477 slivers** (partial, build-on-demand; trigger = a real consumer): v128
+  invoke / Win64 stack-spill / MEMORY-class thunk — recipe in the row. **D-478**
+  = JIT FP host-callback bridge + funcref `Table.set` panic + proc_exit code.
 - **D-475 residual**: spec-harness cross-module register-table wiring only
   (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
   feature itself is COMPLETE on both engines.
@@ -92,12 +91,12 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
 - **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
 - D-305 long-tail (niche CM shapes; `component_graph.zig` 1895/2000 split first);
   D-464 async adversarial; D-462 feature-separation (user-gated). blocked-by rows = parked.
-- **D-526** — external-contributor reproducibility / doc-staleness sweep
-  (fresh-clone onboarding audit, ClojureWasm Discussion #11). Build/test + the
-  3-OS GitHub CI gate reproduce cleanly with zero host setup; gaps are undocumented
-  `wasm-tools` prereq for `test-all` + doc rot (`zwasm_from_scratch` refs, stale
-  `continue/SKILL.md` body under its RETIRED banner, drifted `check_three_host_diff`
-  totals) + no Japanese-chat opt-out note. Companion: ClojureWasm D-565.
+- **D-526** — external-contributor reproducibility / doc-staleness sweep (row has
+  the full gap list: `wasm-tools` prereq, `zwasm_from_scratch` refs, stale
+  `continue/SKILL.md` body, drifted `check_three_host_diff` totals, no
+  Japanese-chat opt-out note). Fresh clone + the 3-OS CI gate reproduce cleanly.
+  Companion: ClojureWasm D-565. Mechanisable parts belong in the CI `doc-truth`
+  job (see #163 above).
 
 ## State (release = USER-ONLY, ADR-0156)
 
@@ -105,17 +104,17 @@ Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`.
   **0.3 core** done. Sandbox triad (fuel / interrupt / memory+table cap) cross-engine.
 - **Surfaces**: C-API · Zig-API (full WASI parity) · lean CLI · memory-safety sound ·
   dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
-- **EH**: cross-instance JIT EH both arches. Interp+JIT EH corpus green. Realworld 56
+- **EH**: cross-instance JIT EH both arches; interp+JIT corpus green. Realworld 56
   fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE: 3 arm64-SIMD bitmask sites
-  spill-aware, bitselect/fma SPILL-EXEMPT, spill_aware promoted to CI+gate_commit;
-  follow-on D-506 = FP spill stage-2, note-class). 完成形 plateau (all dims
-  confirmed, surface audits clean, interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
+- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE; follow-on D-506 = FP spill
+  stage-2, note-class). 完成形 plateau (all dims confirmed, surface audits clean,
+  interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
 - **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
 
 ## Key refs
 
-- [`flake.nix`](../flake.nix) `devShells.gen` / `.#gen-wasip3`. [`docs/zig_api_design.md`](../docs/zig_api_design.md).
-- ADRs: **0156** (NO autonomous release) · **0153** (rework) · **0201** (funcref-table grow) ·
-  **0172** (components=interp) · **0099** (file-size caps) · **0126** (iso-recursive equality).
-  lessons INDEX: `.dev/lessons/INDEX.md`.
+- [`flake.nix`](../flake.nix) `devShells.gen` / `.#gen-wasip3`;
+  [`docs/zig_api_design.md`](../docs/zig_api_design.md); lessons INDEX
+  `.dev/lessons/INDEX.md`. ADRs: **0156** (NO autonomous release) · **0153**
+  (rework) · **0201** (funcref-table grow) · **0172** (components=interp) ·
+  **0099** (file-size caps) · **0126** (iso-recursive equality).

@@ -1880,13 +1880,17 @@ shipped** (ADR-0159): validation is programmatic (C-API
 conversion are `wasm-tools` / `wabt`'s job. A runtime's CLI is run-it +
 compile-it; the surrounding sprawl belongs to the ecosystem.
 
-### 10.2 Engine selection (shipped — ADR-0136)
+### 10.2 Engine selection (shipped — ADR-0136, flipped by ADR-0200 / D-496)
 
 - `.cwasm` input → **AOT-loaded** directly (the `CWAS` magic dictates; no
   parse/compile).
-- `.wasm` input → **interpreter by default** (`--engine interp`, full WASI).
-- `--engine jit` (or `--engine=jit`) → opt into the **JIT** executor. JIT is
-  **compute-only** (SIMD/compute; no WASI I/O yet — D-244); rejects `--dir`.
+- `.wasm` input, no `--engine` → **`auto`** (ADR-0200 §"API shape", flipped in
+  D-496 ch6): the JIT on an arch with a backend, transparent interpreter
+  fallback otherwise.
+- `--engine interp` / `--engine jit` (or `--engine=<k>`) → force one. **Both do
+  the full WASI command set** (D-244 closed the JIT-WASI gap, `--dir` preopens
+  included); `jit` additionally executes SIMD-128, which the interpreter does
+  not.
 
 There is no `--aot` flag (the `.cwasm` extension dictates). The explicit
 `--engine <interp|jit>` (rather than wasmtime's interpreter-less
