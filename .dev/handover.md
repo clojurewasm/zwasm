@@ -34,31 +34,37 @@ publish / cut over. No active campaign; no cron self-re-arm.
   1 shipped (CLI −21% ReleaseSafe), stage 2 demand-driven; **D-521 DISCHARGED,
   premise refuted by measurement** (lesson `2026-07-16-outlining-…-neutral.md`).
 - **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, #136-#142).
-  `test-aot-diff` 63/63. Residual = D-515(2) + D-514.
-- **WASI-0.3.0-official sweep** — 2026-07-17. Docs truth-sweep (`-Dgc` INERT →
-  D-525) + `system-clock`/`get-resolution` host support. Fixtures still import
-  0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff = proposal_watch.
+  `test-aot-diff` 63/63. Residual = D-515(2) + D-514. (Prior 2026-07-17
+  WASI-0.3.0 sweep now subsumed by the ADR-0205 campaign below.)
 
 ## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
 Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).
-Phases: **A** substrate (generation-aware dispatch + timer waitable + official
-wasi-testsuite harness + `wait-until`/`wait-for` + `exit-with-code`) → **B**
-filesystem via-stream → **C** sockets async → **D** `wasi:http` → **E** claims
-sweep. Conformance = vendored `prod/testsuite-base` wasip3 binaries (45,
-`=0.3.0`-pinned, dual-world 0.2+0.3 imports). D-524 closes at A; D-523
-reframed external-blocked (ADR-0205 D3). 0.3.1 releases 2026-08-11 (WIT diff
-vs 0.3.0 = 3 doc lines; release train = bi-monthly, tracked per ADR-0205 D6).
+Conformance = vendored official `prod/testsuite-base` wasip3 binaries
+(`=0.3.0`-pinned, dual-world 0.2+0.3 imports), run by an in-process
+manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
+- **A substrate — DONE/green** (commit 8a793863f): generation-aware dispatch
+  groundwork, timer subtask waitable + `driveScheduler` sleep seam,
+  `wait-until`/`wait-for`, `exit-with-code`. Closes D-524.
+- **B filesystem — DONE/green** (commit 6d95ac124): full `wasi:filesystem@0.3.0`
+  (async-eager metadata family + via-stream data plane + read-directory);
+  generation-aware `WasiGen` dispatch. Official fs corpus 14/14.
+- **C sockets — control plane DONE/green** (this branch): create / bind
+  (ephemeral resolution) / all TCP+UDP options / address validation / udp-bind;
+  3 official tests vendored green. Connected DATA plane + getsockname +
+  SO_REUSEADDR = **D-568** (needs libc-boundary getsockname + socket-readiness
+  scheduler work).
+- **D http — NOT STARTED** (D-568): `wasi:http@0.3.0` largest remaining surface.
+- **E claims sweep** — pending C/D.
+28 official tests vendored green. 0.3.1 released 2026-08-11 (WIT diff vs 0.3.0
+= 3 doc lines; release train bi-monthly, tracked per ADR-0205 D6).
 
 ## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
 
 Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. G1 =
-D-507 guard-page elision (#131-#133, ADR-0202; measured perf ≈ noise, real gap
-= optimising tier → **D-513** user-gated; SIMD symmetry → D-514). G2 = D-508
-via AOT (ADR-0203). G3 = D-510 committed fuzz-diff gate (#135). Next in line:
-D-314(a) epoch counter · D-509 threads (own kickoff + ADR) · D-511/D-512
-demand-driven. Older tail: D-444, D-506, D-502 residual, D-475 residual
-(spec-harness cross-module register-table), mac/win rust-host CI.
+D-507 (ADR-0202; real gap = optimising tier → **D-513** user-gated). G2 = D-508
+(ADR-0203). G3 = D-510 fuzz-diff gate. Tail: D-314(a), D-509 threads, D-444,
+D-506, D-502/D-475 residual, mac/win rust-host CI.
 
 ## Operational invariants (keep using)
 

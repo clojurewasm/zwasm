@@ -73,6 +73,7 @@ const P3CallbackCtx = struct {
         const set = try self.wp2.sets.get(set_index);
         try self.wp2.deliverParkedReads(set);
         _ = try self.wp2.fireDueTimers();
+        _ = try self.wp2.pollBlockedSockets();
         return try set.poll(&self.wp2.streams);
     }
 
@@ -80,6 +81,17 @@ const P3CallbackCtx = struct {
     /// timer subtask is still armed, sleep until the nearest deadline and fire
     /// it (true = the scheduler retries); no armed timer = genuine deadlock.
     pub fn waitForTimer(self: *P3CallbackCtx) !bool {
+        // A ready socket is immediate progress — retry without sleeping.
+        if (try self.wp2.pollBlockedSockets()) return true;
+        // Otherwise, if socket reads are still pending, briefly sleep and
+        // retry (poll(2) has no scheduler-integrated wakeup here).
+        if (self.wp2.blocked_socket_reads.count() > 0) {
+            const io = self.wp2.host.io orelse return error.NoHostIo;
+            std.Io.sleep(io, std.Io.Duration.fromNanoseconds(std.time.ns_per_ms), .awake) catch |err| switch (err) {
+                error.Canceled => {},
+            };
+            return true;
+        }
         const nearest = (try self.wp2.fireDueTimers()) orelse return false;
         const now = try self.wp2.monotonicNowNs();
         if (nearest > now) {
@@ -1031,4 +1043,14 @@ test "wasip3-official: filesystem-set-size" {
 }
 test "wasip3-official: filesystem-unlink-errors" {
     try runOfficialWasip3Test("filesystem-unlink-errors");
+}
+
+test "wasip3-official: sockets-tcp-properties (TCP option store)" {
+    try runOfficialWasip3Test("sockets-tcp-properties");
+}
+test "wasip3-official: sockets-udp-properties (UDP option store)" {
+    try runOfficialWasip3Test("sockets-udp-properties");
+}
+test "wasip3-official: sockets-udp-bind (bind + address validation)" {
+    try runOfficialWasip3Test("sockets-udp-bind");
 }

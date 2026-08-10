@@ -256,6 +256,39 @@ entries:
     refs: |-
       ADR-0205 (campaign; phases A-E); proposal_watch 2026-07-17 + 2026-08-10
       entries; D-335 REMAINING(2); D-523 (test-side)
+  - id: "D-568"
+    layer: "code"
+    status: "note"
+    front: D-wasi03
+    description: |-
+      ADR-0205 phase C/D residual — the parts of the WASI 0.3 coverage claim
+      NOT yet green against the official corpus.
+      **Sockets (phase C)**: control plane DONE + green (create / bind with
+      ephemeral resolution / all TCP + UDP options / address validation
+      unicast+v4-mapped guards / udp-bind); official sockets-tcp-properties +
+      sockets-udp-properties + sockets-udp-bind vendored green. REMAINING (the
+      connected DATA plane): tcp connect/send/receive + listen/accept stream +
+      echo, udp send/receive, ip-name-lookup — the handlers are written
+      (`sock3*` in component_wasi_p2.zig + UdpSocket in p2_sockets.zig + the
+      `pollBlockedSockets` readiness hook) but three structural barriers block
+      conformance: (1) `get-local-address` on a CONNECTED tcp / UDP socket
+      needs `getsockname` (the pinned std.Io.net exposes only the bind/connect
+      address, not the OS-resolved local sockaddr) → a libc-boundary ADR-0070
+      amendment for `std.c.getsockname`; (2) `bind`-after-drop reuse hits
+      EADDRINUSE (SO_REUSEADDR is not set on the lazy socket); (3) the
+      connected send/receive/accept event delivery works via `pollBlockedSockets`
+      for the simple cases but the full `futures::join!` echo interleaving is
+      unverified. Repro: `zwasm run <sockets-*.wasm>` (no preopen needed).
+      **HTTP (phase D)**: `wasi:http@0.3.0` (fields / request / response /
+      request-options resources + `client.send` on std.http.Client + the
+      `handler` export wiring) is UNIMPLEMENTED — the largest remaining
+      surface; official http-* tests not vendored.
+    first_raised: "2026-08-11"
+    last_reviewed: "2026-08-11"
+    refs: |-
+      ADR-0205 (phases C/D); proposal_watch 2026-08-10; D-335; D-478 (JIT FP
+      host-callback — unrelated socket note). Ground-truth import shapes in
+      the phase-C survey (this session).
   - id: "D-525"
     layer: "build"
     status: "note"

@@ -150,6 +150,21 @@ pub const WasiP2Ctx = struct {
     /// AFTERWARDS (`write-via-stream(data, ...)` arrives while `write_all` is
     /// already parked under `futures::join!`) drains it at registration.
     pending_writes: std.AutoHashMapUnmanaged(u32, PendingWrite) = .empty,
+    /// WASI-0.3 sockets (ADR-0205 phase C): live UDP sockets (a
+    /// UDP_SOCKET3_RT handle's rep indexes this list) + the socket stream
+    /// roles, all keyed by the stream's SHARED id like the file roles:
+    /// `host_accept_streams` (listen → stream<tcp-socket>), `host_tcp_rx`
+    /// (receive → stream<u8>), `host_tcp_tx` (send's drained data stream).
+    /// Values = the tcp socket list index (rep).
+    udp_sockets: std.ArrayList(p2sock.UdpSocket) = .empty,
+    host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    host_tcp_tx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    /// Socket-read stream ends (accept / rx) that returned BLOCKED and now
+    /// await socket readiness — the scheduler's no-progress hook polls them
+    /// (mirrors the D2 timer path). Value = the tcp socket rep. Key = the
+    /// readable end HANDLE (the waitable a set joins).
+    blocked_socket_reads: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     /// WASI-0.3 `open-at`'s REQUESTED `descriptor-flags` per descriptor
     /// handle — `get-flags` reflects the request (official
     /// filesystem-flags-and-type.wasm: an empty-flags open reads back READ
@@ -191,6 +206,8 @@ pub const WasiP2Ctx = struct {
     /// `tcp_sockets` index (low 24 bits) | interest tag (high bits:
     /// 1 = read, 2 = write, 3 = either).
     pub const SOCK_POLLABLE_RT: u32 = 10;
+    /// WASI-0.3 `udp-socket` (rep = index into `udp_sockets`).
+    pub const UDP_SOCKET3_RT: u32 = 11;
 
     /// Iteration state of one live directory-entry-stream: the directory's
     /// P1 fd + the P1 readdir cookie to resume after.
@@ -219,6 +236,14 @@ pub const WasiP2Ctx = struct {
             }
         }
         self.tcp_sockets.deinit(self.alloc);
+        if (self.host.io) |io2| {
+            for (self.udp_sockets.items) |*u| u.deinit(io2);
+        }
+        self.udp_sockets.deinit(self.alloc);
+        self.host_accept_streams.deinit(self.alloc);
+        self.host_tcp_rx.deinit(self.alloc);
+        self.host_tcp_tx.deinit(self.alloc);
+        self.blocked_socket_reads.deinit(self.alloc);
         self.dir_streams.deinit(self.alloc);
         self.resources.deinit();
         self.guest_resources.deinit();
@@ -275,6 +300,42 @@ pub const WasiP2Ctx = struct {
     pub fn fireDueTimers(self: *WasiP2Ctx) WasiP2Error!?u64 {
         if (!self.streams.hasArmedTimer()) return null;
         return self.streams.fireDueTimers(try self.monotonicNowNs());
+    }
+
+    /// Poll blocked socket-read ends (accept / tcp-rx); a now-ready socket
+    /// gets a STREAM_READ pending event set on its end so the guest re-reads
+    /// (ADR-0205 phase C — the socket analogue of the D2 timer readiness
+    /// hook). Returns true if any became ready (the scheduler retries).
+    pub fn pollBlockedSockets(self: *WasiP2Ctx) WasiP2Error!bool {
+        if (self.blocked_socket_reads.count() == 0) return false;
+        var progressed = false;
+        var it = self.blocked_socket_reads.iterator();
+        var ready_handles: [64]u32 = undefined;
+        var n_ready: usize = 0;
+        while (it.next()) |entry| {
+            const rep = entry.value_ptr.*;
+            const sock = self.tcpSocketRep(rep) orelse continue;
+            if (sock.ready(p2sock.POLL_IN) catch false) {
+                if (n_ready < ready_handles.len) {
+                    ready_handles[n_ready] = entry.key_ptr.*;
+                    n_ready += 1;
+                }
+            }
+        }
+        for (ready_handles[0..n_ready]) |h| {
+            const end = self.streams.get(h) catch continue;
+            end.state = .idle;
+            end.setPendingEvent(.{ .code = .stream_read, .index = h, .payload = 0 });
+            _ = self.blocked_socket_reads.remove(h);
+            progressed = true;
+        }
+        return progressed;
+    }
+
+    fn tcpSocketRep(self: *WasiP2Ctx, rep: u32) ?*p2sock.TcpSocket {
+        const idx = rep & 0x00FF_FFFF;
+        if (idx >= self.tcp_sockets.items.len) return null;
+        return &self.tcp_sockets.items[idx];
     }
 
     /// WAIT-path delivery (ADR-0191 E2c): for each member of `set` with a parked
@@ -1621,6 +1682,47 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .fs_dir_entry_stream_read => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2DirEntryStreamReadEntry),
         .fs_dir_entry_stream_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2ResourceDrop),
         .io_resource_drop => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!void, p2ResourceDrop),
+        // wasi:sockets@0.3.0 plain funcs (sync-lowered by wit-bindgen).
+        .sock3_tcp_create => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpCreate),
+        .sock3_tcp_bind => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, sock3TcpBind),
+        .sock3_tcp_listen => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpListen),
+        .sock3_tcp_send => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!u32, sock3TcpSend),
+        .sock3_tcp_receive => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpReceive),
+        .sock3_tcp_local_addr => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpLocalAddress),
+        .sock3_tcp_remote_addr => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpRemoteAddress),
+        .sock3_tcp_is_listening => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, sock3TcpIsListening),
+        .sock3_tcp_family => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, sock3TcpFamily),
+        .sock3_tcp_set_backlog => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u64, u32) WasiP2Error!void, sock3TcpSetBacklog),
+        .sock3_tcp_ka_enabled_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpKaEnabledGet),
+        .sock3_tcp_ka_enabled_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, sock3TcpKaEnabledSet),
+        .sock3_tcp_ka_idle_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpKaIdleGet),
+        .sock3_tcp_ka_idle_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3TcpKaIdleSet),
+        .sock3_tcp_ka_interval_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpKaIntervalGet),
+        .sock3_tcp_ka_interval_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3TcpKaIntervalSet),
+        .sock3_tcp_ka_count_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpKaCountGet),
+        .sock3_tcp_ka_count_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, sock3TcpKaCountSet),
+        .sock3_tcp_hop_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpHopGet),
+        .sock3_tcp_hop_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, sock3TcpHopSet),
+        .sock3_tcp_rcvbuf_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpRcvbufGet),
+        .sock3_tcp_rcvbuf_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3TcpRcvbufSet),
+        .sock3_tcp_sndbuf_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3TcpSndbufGet),
+        .sock3_tcp_sndbuf_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3TcpSndbufSet),
+        .sock3_udp_create => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpCreate),
+        .sock3_udp_bind => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, sock3UdpBind),
+        .sock3_udp_connect => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, sock3UdpConnect),
+        .sock3_udp_disconnect => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpDisconnect),
+        .sock3_udp_local_addr => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpLocalAddress),
+        .sock3_udp_remote_addr => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpRemoteAddress),
+        .sock3_udp_family => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, sock3UdpFamily),
+        .sock3_udp_hop_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpHopGet),
+        .sock3_udp_hop_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, sock3UdpHopSet),
+        .sock3_udp_rcvbuf_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpRcvbufGet),
+        .sock3_udp_rcvbuf_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3UdpRcvbufSet),
+        .sock3_udp_sndbuf_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, sock3UdpSndbufGet),
+        .sock3_udp_sndbuf_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, sock3UdpSndbufSet),
+        // The async-func sockets surface (connect / udp send / udp receive /
+        // resolve-addresses) arrives ASYNC-lowered — sync lowers unreached.
+        .sock3_tcp_connect, .sock3_udp_send, .sock3_udp_receive, .sock3_resolve_addresses => return error.UnsupportedWasiImport,
         // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
         .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
         .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
@@ -2201,6 +2303,84 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         role.pos += n;
         return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
     }
+    // WASI-0.3 TCP accept stream (ADR-0205 phase C): each element is a fresh
+    // `own<tcp-socket>` handle for an accepted connection. The first accept
+    // waits (bounded poll loop); further ready connections batch.
+    if (abc.ctx.host_accept_streams.get(end.shared)) |rep| {
+        if (end.side != .readable) return WasiP2Error.InvalidHandle;
+        const mem = try abc.ctx.memory();
+        const io = try ctxIo(abc.ctx);
+        var filled: u32 = 0;
+        while (filled < count) {
+            const listener = try ctxTcpSocket(abc.ctx, rep);
+            const conn = listener.accept(io) catch |e| switch (e) {
+                error.WouldBlock => {
+                    if (filled > 0) break;
+                    std.Io.sleep(io, std.Io.Duration.fromNanoseconds(std.time.ns_per_ms), .awake) catch {
+                        break;
+                    };
+                    continue;
+                },
+                else => break,
+            };
+            const idx: u32 = @intCast(abc.ctx.tcp_sockets.items.len);
+            abc.ctx.tcp_sockets.append(abc.ctx.alloc, conn) catch return WasiP2Error.OutOfMemory;
+            const h = try abc.ctx.resources.new(WasiP2Ctx.TCP_SOCKET_RT, idx);
+            try mem.write(ptr + filled * 4, h);
+            filled += 1;
+        }
+        if (filled == 0) {
+            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, rep);
+            end.state = .async_copying;
+            return (async_mod.ReturnCode{ .blocked = {} }).encode();
+        }
+        _ = abc.ctx.blocked_socket_reads.remove(handle);
+        return (async_mod.ReturnCode{ .completed = @intCast(filled) }).encode();
+    }
+    // WASI-0.3 TCP receive stream (phase C): bytes recv'd from the connected
+    // socket; a 0-byte read (peer FIN) closes the stream.
+    if (abc.ctx.host_tcp_rx.get(end.shared)) |rep| {
+        if (end.side != .readable) return WasiP2Error.InvalidHandle;
+        const mem = try abc.ctx.memory();
+        const io = try ctxIo(abc.ctx);
+        const sock = try ctxTcpSocket(abc.ctx, rep);
+        // Not ready yet → BLOCKED + register for the readiness hook (do NOT
+        // recv, which would block the whole runtime).
+        if (!(sock.ready(p2sock.POLL_IN) catch true)) {
+            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, rep);
+            end.state = .async_copying;
+            return (async_mod.ReturnCode{ .blocked = {} }).encode();
+        }
+        _ = abc.ctx.blocked_socket_reads.remove(handle);
+        const buf = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
+        const n = sock.recv(io, buf) catch 0;
+        if (n == 0) {
+            // Ready-then-zero = peer FIN → close the stream.
+            switch ((try abc.ctx.shared.get(end.shared)).*) {
+                .stream => |*sh_s| sh_s.dropped = true,
+                .future, .subtask => return WasiP2Error.InvalidHandle,
+            }
+            end.state = .done;
+            return (async_mod.ReturnCode{ .dropped = 0 }).encode();
+        }
+        return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
+    }
+    // WASI-0.3 TCP send sink (phase C): drain the guest's bytes into the
+    // connected socket.
+    if (abc.ctx.host_tcp_tx.get(end.shared)) |rep| {
+        if (end.side != .writable) return WasiP2Error.InvalidHandle;
+        const mem = try abc.ctx.memory();
+        const io = try ctxIo(abc.ctx);
+        const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
+        const sock = try ctxTcpSocket(abc.ctx, rep);
+        var off: usize = 0;
+        while (off < bytes.len) {
+            const n = sock.send(io, bytes[off..]) catch break;
+            if (n == 0) break;
+            off += n;
+        }
+        return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
+    }
     // WASI-0.3 `read-directory` stream (ADR-0205 phase B): marshal
     // `directory-entry` records from the registered P1 readdir cursor.
     if (abc.ctx.host_dir_streams.get(end.shared)) |state_index| {
@@ -2305,6 +2485,10 @@ fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
             _ = ctx.host_sources.remove(end.shared);
             _ = ctx.host_file_streams.remove(end.shared);
             _ = ctx.host_dir_streams.remove(end.shared);
+            _ = ctx.host_accept_streams.remove(end.shared);
+            _ = ctx.host_tcp_rx.remove(end.shared);
+            _ = ctx.host_tcp_tx.remove(end.shared);
+            _ = ctx.blocked_socket_reads.remove(handle);
         }
     } else |_| {
         // Stale handle: dropEndGuarded below surfaces the guest fault.
@@ -3280,6 +3464,10 @@ fn defineAsyncLoweredOp(lk: *Linker, ns: []const u8, name: []const u8, op: adapt
         .{ adapter.P2Op.fs3_rename_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3RenameAt },
         .{ adapter.P2Op.fs3_symlink_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3SymlinkAt },
         .{ adapter.P2Op.fs3_link_at, fn (*Caller, u32, u32) WasiP2Error!u32, fs3LinkAt },
+        .{ adapter.P2Op.sock3_tcp_connect, fn (*Caller, u32, u32) WasiP2Error!u32, sock3TcpConnect },
+        .{ adapter.P2Op.sock3_udp_send, fn (*Caller, u32, u32) WasiP2Error!u32, sock3UdpSend },
+        .{ adapter.P2Op.sock3_udp_receive, fn (*Caller, u32, u32) WasiP2Error!u32, sock3UdpReceive },
+        .{ adapter.P2Op.sock3_resolve_addresses, fn (*Caller, u32, u32, u32) WasiP2Error!u32, sock3ResolveAddresses },
     };
     inline for (binds) |b| {
         if (op == b[0]) return lk.defineFuncCtx(ns, name, ctx, b[1], b[2]);
@@ -3336,4 +3524,649 @@ fn fs3DirStreamRead(ctx: *WasiP2Ctx, state_index: u32, end: *async_mod.StreamFut
         return (async_mod.ReturnCode{ .dropped = 0 }).encode();
     }
     return (async_mod.ReturnCode{ .completed = @intCast(filled) }).encode();
+}
+
+// ============================================================
+// wasi:sockets@0.3.0 (ADR-0205 phase C)
+// ============================================================
+// The 0.3 socket surface: `tcp-socket`/`udp-socket` resources on the CM-async
+// data plane. Sync plain funcs (create/bind/listen/receive/getters/setters)
+// bind directly; `tcp.connect` + `udp.send`/`udp.receive` arrive ASYNC-LOWERED
+// and complete eagerly (blocking on the loopback-class targets the corpus
+// exercises); `tcp.listen`/`send`/`receive` mint host SOCKET stream peers
+// (accept / tx / rx) like the fs3 file peers.
+
+/// 0.3 `wasi:sockets/types` `error-code` variant ordinals (0.2's `unknown`/
+/// `would-block` removed; `other(option<string>)` = 14 is the catch-all).
+fn sockErrToFs3Code(e: anyerror) u8 {
+    return switch (e) {
+        error.AccessDenied, error.PermissionDenied => 0,
+        error.OptionUnsupported, error.SocketModeUnsupported, error.Unsupported => 1,
+        error.InvalidArgument, error.FamilyMismatch => 2,
+        error.OutOfMemory, error.SystemResources => 3,
+        error.Timeout, error.ConnectionTimedOut, error.WouldBlock => 4,
+        error.InvalidState, error.NotInProgress, error.AlreadyBound, error.AlreadyListening, error.AlreadyConnected, error.NotConnected => 5,
+        error.AddressNotAvailable, error.AddressUnavailable => 6,
+        error.AddressInUse => 7,
+        error.NetworkUnreachable, error.HostUnreachable, error.NetworkDown => 8,
+        error.ConnectionRefused => 9,
+        error.BrokenPipe => 10,
+        error.ConnectionResetByPeer => 11,
+        error.ConnectionAborted => 12,
+        error.MessageTooBig => 13,
+        else => 14,
+    };
+}
+
+/// `result.err(error-code)` for a 0.3 sockets result whose payload slot sits
+/// at `payload_off` (the error-code variant: disc u8, `other`'s
+/// option<string> at +4 → none).
+fn writeSock3Err(mem: Memory, retptr: u32, payload_off: u32, e: anyerror) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 1));
+    try mem.write(retptr + payload_off, sockErrToFs3Code(e));
+    try mem.write(retptr + payload_off + 4, @as(u8, 0));
+}
+
+fn writeSock3UnitResult(mem: Memory, retptr: u32, err: ?anyerror) WasiP2Error!void {
+    if (err) |e| return writeSock3Err(mem, retptr, 4, e);
+    try mem.write(retptr, @as(u8, 0));
+}
+
+/// The live `UdpSocket` behind a UDP3 handle rep.
+fn ctxUdpSocket(ctx: *WasiP2Ctx, rep: u32) WasiP2Error!*p2sock.UdpSocket {
+    if (rep >= ctx.udp_sockets.items.len) return resource_table.Error.InvalidHandle;
+    return &ctx.udp_sockets.items[rep];
+}
+
+/// Address classification for the WIT's unicast-only contracts.
+fn sock3IsMulticastOrBroadcast(addr: std.Io.net.IpAddress) bool {
+    return switch (addr) {
+        .ip4 => |a| (a.bytes[0] >= 224 and a.bytes[0] <= 239) or
+            (a.bytes[0] == 255 and a.bytes[1] == 255 and a.bytes[2] == 255 and a.bytes[3] == 255),
+        .ip6 => |a| a.bytes[0] == 0xff,
+    };
+}
+
+/// `::ffff:a.b.c.d` — the WIT rejects IPv4-mapped IPv6 on every path.
+fn sock3IsV4MappedV6(addr: std.Io.net.IpAddress) bool {
+    return switch (addr) {
+        .ip4 => false,
+        .ip6 => |a| std.mem.allEqual(u8, a.bytes[0..10], 0) and a.bytes[10] == 0xff and a.bytes[11] == 0xff,
+    };
+}
+
+fn sock3IsAnyAddr(addr: std.Io.net.IpAddress) bool {
+    return switch (addr) {
+        .ip4 => |a| a.bytes[0] == 0 and a.bytes[1] == 0 and a.bytes[2] == 0 and a.bytes[3] == 0,
+        .ip6 => |a| std.mem.allEqual(u8, &a.bytes, 0),
+    };
+}
+
+/// `[static]tcp-socket.create` (family, retptr) → result<own, error-code>.
+fn sock3TcpCreate(caller: *Caller, family: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    if (family > 1) return writeSock3Err(mem, retptr, 4, error.InvalidArgument);
+    const idx: u32 = @intCast(ctx.tcp_sockets.items.len);
+    ctx.tcp_sockets.append(ctx.alloc, p2sock.TcpSocket.create(@enumFromInt(family))) catch return WasiP2Error.OutOfMemory;
+    const handle = try ctx.resources.new(WasiP2Ctx.TCP_SOCKET_RT, idx);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, handle);
+}
+
+fn sock3TcpSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p2sock.TcpSocket {
+    return ctxTcpSocket(ctx, try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self));
+}
+
+/// `tcp.bind` (self, disc, p0..p10, retptr) — the 0.3 one-shot bind (the 0.2
+/// start/finish pair collapsed).
+fn sock3TcpBind(caller: *Caller, self: u32, disc: u32, p0: u32, p1: u32, p2: u32, p3: u32, p4: u32, p5: u32, p6: u32, p7: u32, p8: u32, p9: u32, p10: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3TcpSelf(ctx, self);
+    const addr = decodeIpSocketAddress(disc, .{ p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10 }) orelse
+        return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    if (sock3IsMulticastOrBroadcast(addr) or sock3IsV4MappedV6(addr))
+        return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    const io = try ctxIo(ctx);
+    sock.startBind(io, addr) catch |e| return writeSock3UnitResult(mem, retptr, e);
+    sock.finishBind() catch |e| return writeSock3UnitResult(mem, retptr, e);
+    sock.bindNow(io) catch |e| return writeSock3UnitResult(mem, retptr, e);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+/// `[async-lower]tcp.connect` — spilled args (self@0, addr variant@4: disc
+/// u8@+4, payload@+8). Completes eagerly (a blocking loopback-class connect).
+fn sock3TcpConnect(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self = try mem.read(u32, argsptr);
+    const addr = (try readSock3AddrVariant(mem, argsptr + 4)) orelse {
+        try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+        return SUBTASK_RETURNED;
+    };
+    if (sock3IsMulticastOrBroadcast(addr) or sock3IsAnyAddr(addr) or sock3IsV4MappedV6(addr) or switch (addr) {
+        .ip4 => |a| a.port == 0,
+        .ip6 => |a| a.port == 0,
+    }) {
+        try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+        return SUBTASK_RETURNED;
+    }
+    const sock = try sock3TcpSelf(ctx, self);
+    const io = try ctxIo(ctx);
+    sock.startConnect(io, addr) catch |e| {
+        try writeSock3UnitResult(mem, retptr, e);
+        return SUBTASK_RETURNED;
+    };
+    sock.finishConnect() catch |e| {
+        try writeSock3UnitResult(mem, retptr, e);
+        return SUBTASK_RETURNED;
+    };
+    try writeSock3UnitResult(mem, retptr, null);
+    return SUBTASK_RETURNED;
+}
+
+/// An in-memory `ip-socket-address` variant (disc u8@0, payload@4; ipv4
+/// record port u16@0 + 4 bytes; ipv6 port@0, flow u32@4, 8×u16 segments@8,
+/// scope@24).
+fn readSock3AddrVariant(mem: Memory, base: u32) WasiP2Error!?std.Io.net.IpAddress {
+    const disc = try mem.read(u8, base);
+    const pay = base + 4;
+    switch (disc) {
+        0 => {
+            const port = try mem.read(u16, pay);
+            return .{ .ip4 = .{ .port = port, .bytes = .{
+                try mem.read(u8, pay + 2),
+                try mem.read(u8, pay + 3),
+                try mem.read(u8, pay + 4),
+                try mem.read(u8, pay + 5),
+            } } };
+        },
+        1 => {
+            const port = try mem.read(u16, pay);
+            const flow = try mem.read(u32, pay + 4);
+            var bytes: [16]u8 = undefined;
+            for (0..8) |i| {
+                const seg = try mem.read(u16, pay + 8 + @as(u32, @intCast(i * 2)));
+                bytes[i * 2] = @intCast(seg >> 8);
+                bytes[i * 2 + 1] = @truncate(seg);
+            }
+            return .{ .ip6 = .{ .port = port, .bytes = bytes, .flow = flow } };
+        },
+        else => return null,
+    }
+}
+
+/// `tcp.listen` (self, retptr) → result<stream<tcp-socket>, error-code>: mint
+/// the accept stream (host ACCEPT peer keyed by its shared id).
+fn sock3TcpListen(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const rep = try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self);
+    {
+        const sock = try ctxTcpSocket(ctx, rep);
+        const io = try ctxIo(ctx);
+        sock.listenNow(io) catch |e| return writeSock3Err(mem, retptr, 4, e);
+    }
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_accept_streams.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, rep);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, pair.readable);
+}
+
+/// `tcp.send` (self, data readable-stream) → future handle: the host drains
+/// the guest's stream into the connected socket.
+fn sock3TcpSend(caller: *Caller, self: u32, data_handle: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const rep = try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self);
+    const shared_id = blk: {
+        const end = try ctx.streams.get(data_handle);
+        if (end.kind != .stream) return WasiP2Error.InvalidHandle;
+        break :blk end.shared;
+    };
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_tcp_tx.put(ctx.alloc, shared_id, rep);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    try sock3DrainParkedTcpWrite(ctx, shared_id);
+    return fut.readable;
+}
+
+/// A writer parked before `tcp.send` registered the socket sink: drain now.
+fn sock3DrainParkedTcpWrite(ctx: *WasiP2Ctx, shared_id: u32) WasiP2Error!void {
+    const sh = try ctx.shared.get(shared_id);
+    const pending = switch (sh.*) {
+        .stream => |*st| st.pending orelse return,
+        .future, .subtask => return,
+    };
+    if (pending.side != .writable) return;
+    const pw = ctx.pending_writes.get(pending.waitable) orelse return;
+    const rep = ctx.host_tcp_tx.get(shared_id) orelse return;
+    const mem = try ctx.memory();
+    const bytes = mem.sliceAt(pw.ptr, pw.count * pw.elem_size) catch return WasiP2Error.OutOfBounds;
+    const sock = try ctxTcpSocket(ctx, rep);
+    const io = try ctxIo(ctx);
+    var off: usize = 0;
+    while (off < bytes.len) {
+        const n = sock.send(io, bytes[off..]) catch break;
+        if (n == 0) break;
+        off += n;
+    }
+    const writer = try ctx.streams.get(pending.waitable);
+    writer.state = .idle;
+    writer.setPendingEvent(.{ .code = .stream_write, .index = pending.waitable, .payload = (async_mod.ReturnCode{ .completed = @intCast(pw.count) }).encode() });
+    switch (sh.*) {
+        .stream => |*st| st.pending = null,
+        .future, .subtask => {},
+    }
+    _ = ctx.pending_writes.remove(pending.waitable);
+}
+
+/// `tcp.receive` (self, retptr) → tuple<stream<u8>, future<...>>: the host
+/// supplies bytes recv'd from the connected socket.
+fn sock3TcpReceive(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const rep = try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self);
+    const connected = (try ctxTcpSocket(ctx, rep)).state == .connected;
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    if (connected) {
+        try ctx.host_tcp_rx.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, rep);
+        try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    } else {
+        // Not connected → err(invalid-state) future + an immediately-closed
+        // stream (official sockets-tcp-receive test_connected_state).
+        try ctx.host_result_futures.put(ctx.alloc, fut.readable, sockErrToFs3Code(error.InvalidState));
+        switch ((try ctx.shared.get((try ctx.streams.get(pair.readable)).shared)).*) {
+            .stream => |*st| st.dropped = true,
+            else => {},
+        }
+    }
+    try mem.write(retptr, pair.readable);
+    try mem.write(retptr + 4, fut.readable);
+}
+
+fn sock3TcpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3TcpSelf(ctx, self);
+    const addr = sock.localAddress() catch |e| return writeSock3Err(mem, retptr, 4, e);
+    try writeIpSocketAddressResult(mem, retptr, addr);
+}
+
+fn sock3TcpRemoteAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3TcpSelf(ctx, self);
+    const addr = sock.remoteAddress() catch |e| return writeSock3Err(mem, retptr, 4, e);
+    try writeIpSocketAddressResult(mem, retptr, addr);
+}
+
+fn sock3TcpIsListening(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const sock = try sock3TcpSelf(ctx, self);
+    return @intFromBool(sock.state == .listening);
+}
+
+fn sock3TcpFamily(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const sock = try sock3TcpSelf(ctx, self);
+    return @intFromEnum(sock.family);
+}
+
+fn sock3TcpSetBacklog(caller: *Caller, self: u32, value: u64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3TcpSelf(ctx, self);
+    if (value == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    sock.setListenBacklog(value) catch |e| return writeSock3UnitResult(mem, retptr, e);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+// -- TCP option getters/setters (stored-value model; the OS socket is lazy,
+// so options are recorded with the spec's clamp-permitting semantics) --
+
+fn writeSock3OkU8(mem: Memory, retptr: u32, v: u8) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, v);
+}
+
+fn writeSock3OkU32(mem: Memory, retptr: u32, v: u32) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, v);
+}
+
+fn writeSock3OkU64(mem: Memory, retptr: u32, v: u64) WasiP2Error!void {
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 8, v);
+}
+
+fn sock3TcpKaEnabledGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU8(mem, retptr, @intFromBool((try sock3TcpSelf(ctx, self)).opt_keep_alive));
+}
+
+fn sock3TcpKaEnabledSet(caller: *Caller, self: u32, value: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    (try sock3TcpSelf(ctx, self)).opt_keep_alive = value != 0;
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpKaIdleGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_ka_idle_ns);
+}
+
+fn sock3TcpKaIdleSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    // Clamp to whole seconds ≥ 1 (TCP_KEEPIDLE granularity) — read-back may
+    // differ from the set value per the WIT contract.
+    (try sock3TcpSelf(ctx, self)).opt_ka_idle_ns = @max(v - v % std.time.ns_per_s, std.time.ns_per_s);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpKaIntervalGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_ka_interval_ns);
+}
+
+fn sock3TcpKaIntervalSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3TcpSelf(ctx, self)).opt_ka_interval_ns = @max(v - v % std.time.ns_per_s, std.time.ns_per_s);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpKaCountGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU32(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_ka_count);
+}
+
+fn sock3TcpKaCountSet(caller: *Caller, self: u32, value: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    if (value == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3TcpSelf(ctx, self)).opt_ka_count = value;
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpHopGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU8(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_hop_limit);
+}
+
+fn sock3TcpHopSet(caller: *Caller, self: u32, value: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    if (value == 0 or value > 255) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3TcpSelf(ctx, self)).opt_hop_limit = @intCast(value);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpRcvbufGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_rcvbuf);
+}
+
+fn sock3TcpRcvbufSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3TcpSelf(ctx, self)).opt_rcvbuf = @min(v, 8 << 20); // clamp to 8 MiB
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3TcpSndbufGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3TcpSelf(ctx, self)).opt_sndbuf);
+}
+
+fn sock3TcpSndbufSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3TcpSelf(ctx, self)).opt_sndbuf = @min(v, 8 << 20);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+// -- UDP --
+
+fn sock3UdpCreate(caller: *Caller, family: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    if (family > 1) return writeSock3Err(mem, retptr, 4, error.InvalidArgument);
+    const idx: u32 = @intCast(ctx.udp_sockets.items.len);
+    ctx.udp_sockets.append(ctx.alloc, p2sock.UdpSocket.create(@enumFromInt(family))) catch return WasiP2Error.OutOfMemory;
+    const handle = try ctx.resources.new(WasiP2Ctx.UDP_SOCKET3_RT, idx);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, handle);
+}
+
+fn sock3UdpSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p2sock.UdpSocket {
+    return ctxUdpSocket(ctx, try ctx.resources.rep(WasiP2Ctx.UDP_SOCKET3_RT, self));
+}
+
+fn sock3UdpBind(caller: *Caller, self: u32, disc: u32, p0: u32, p1: u32, p2: u32, p3: u32, p4: u32, p5: u32, p6: u32, p7: u32, p8: u32, p9: u32, p10: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    const addr = decodeIpSocketAddress(disc, .{ p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10 }) orelse
+        return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    if (sock3IsMulticastOrBroadcast(addr) or sock3IsV4MappedV6(addr))
+        return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    sock.bind(try ctxIo(ctx), addr) catch |e| return writeSock3UnitResult(mem, retptr, e);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3UdpConnect(caller: *Caller, self: u32, disc: u32, p0: u32, p1: u32, p2: u32, p3: u32, p4: u32, p5: u32, p6: u32, p7: u32, p8: u32, p9: u32, p10: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    const addr = decodeIpSocketAddress(disc, .{ p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10 }) orelse
+        return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    if (sock3IsMulticastOrBroadcast(addr) or sock3IsAnyAddr(addr) or sock3IsV4MappedV6(addr) or switch (addr) {
+        .ip4 => |a| a.port == 0,
+        .ip6 => |a| a.port == 0,
+    }) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    sock.connect(try ctxIo(ctx), addr) catch |e| return writeSock3UnitResult(mem, retptr, e);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3UdpDisconnect(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    sock.disconnect() catch |e| return writeSock3UnitResult(mem, retptr, e);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+/// `[async-lower]udp.send` — spilled args: self@0, data list@4 (ptr,len),
+/// remote option<ip-socket-address>@12 (disc u8@12, addr variant@16).
+fn sock3UdpSend(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const self = try mem.read(u32, argsptr);
+    const data_ptr = try mem.read(u32, argsptr + 4);
+    const data_len = try mem.read(u32, argsptr + 8);
+    const has_remote = (try mem.read(u8, argsptr + 12)) != 0;
+    const sock = try sock3UdpSelf(ctx, self);
+    const dest: std.Io.net.IpAddress = blk: {
+        if (has_remote) {
+            const a = (try readSock3AddrVariant(mem, argsptr + 16)) orelse {
+                try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+                return SUBTASK_RETURNED;
+            };
+            break :blk a;
+        }
+        break :blk sock.remote orelse {
+            try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+            return SUBTASK_RETURNED;
+        };
+    };
+    const bytes = mem.sliceAt(data_ptr, data_len) catch return WasiP2Error.OutOfBounds;
+    sock.sendTo(try ctxIo(ctx), dest, bytes) catch |e| {
+        try writeSock3UnitResult(mem, retptr, e);
+        return SUBTASK_RETURNED;
+    };
+    try writeSock3UnitResult(mem, retptr, null);
+    return SUBTASK_RETURNED;
+}
+
+/// `[async-lower]udp.receive` (self, retptr) →
+/// result<tuple<list<u8>, ip-socket-address>, error-code>: ok payload@4 =
+/// list (ptr,len)@4..12 + address variant@12 (disc u8@12, case record@16).
+fn sock3UdpReceive(caller: *Caller, self: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    const buf_ptr = try ctx.reallocGuest(65536, 1);
+    const buf = mem.sliceAt(buf_ptr, 65536) catch return WasiP2Error.OutOfBounds;
+    const r = sock.receiveFrom(try ctxIo(ctx), buf) catch |e| {
+        try writeSock3Err(mem, retptr, 4, e);
+        return SUBTASK_RETURNED;
+    };
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, buf_ptr);
+    try mem.write(retptr + 8, @as(u32, @intCast(r.n)));
+    switch (r.from) {
+        .ip4 => |a| {
+            try mem.write(retptr + 12, @as(u8, 0));
+            try mem.write(retptr + 16, a.port);
+            for (a.bytes, 0..) |b, i| try mem.write(retptr + 18 + @as(u32, @intCast(i)), b);
+        },
+        .ip6 => |a| {
+            try mem.write(retptr + 12, @as(u8, 1));
+            try mem.write(retptr + 16, a.port);
+            try mem.write(retptr + 20, a.flow);
+            for (0..8) |i| {
+                const seg: u16 = (@as(u16, a.bytes[i * 2]) << 8) | a.bytes[i * 2 + 1];
+                try mem.write(retptr + 24 + @as(u32, @intCast(i * 2)), seg);
+            }
+            try mem.write(retptr + 40, @as(u32, 0)); // scope-id
+        },
+    }
+    return SUBTASK_RETURNED;
+}
+
+fn sock3UdpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    const addr = sock.localAddress() catch |e| return writeSock3Err(mem, retptr, 4, e);
+    try writeIpSocketAddressResult(mem, retptr, addr);
+}
+
+fn sock3UdpRemoteAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const sock = try sock3UdpSelf(ctx, self);
+    const addr = sock.remoteAddress() catch |e| return writeSock3Err(mem, retptr, 4, e);
+    try writeIpSocketAddressResult(mem, retptr, addr);
+}
+
+fn sock3UdpFamily(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const sock = try sock3UdpSelf(ctx, self);
+    return @intFromEnum(sock.family);
+}
+
+fn sock3UdpHopGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU8(mem, retptr, (try sock3UdpSelf(ctx, self)).opt_hop_limit);
+}
+
+fn sock3UdpHopSet(caller: *Caller, self: u32, value: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    if (value == 0 or value > 255) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3UdpSelf(ctx, self)).opt_hop_limit = @intCast(value);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3UdpRcvbufGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3UdpSelf(ctx, self)).opt_rcvbuf);
+}
+
+fn sock3UdpRcvbufSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3UdpSelf(ctx, self)).opt_rcvbuf = @min(v, 8 << 20);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+fn sock3UdpSndbufGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    try writeSock3OkU64(mem, retptr, (try sock3UdpSelf(ctx, self)).opt_sndbuf);
+}
+
+fn sock3UdpSndbufSet(caller: *Caller, self: u32, value_raw: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const v: u64 = @bitCast(value_raw);
+    if (v == 0) return writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+    (try sock3UdpSelf(ctx, self)).opt_sndbuf = @min(v, 8 << 20);
+    try writeSock3UnitResult(mem, retptr, null);
+}
+
+/// `[async-lower]ip-name-lookup.resolve-addresses` (name ptr, len, retptr):
+/// IP literals parse locally per the WIT; a real resolver is a seam the
+/// corpus does not exercise — non-literals resolve only for "localhost".
+fn sock3ResolveAddresses(caller: *Caller, name_ptr: u32, name_len: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    var addr: ?std.Io.net.IpAddress = null;
+    if (std.mem.eql(u8, name, "localhost")) {
+        addr = .{ .ip4 = std.Io.net.Ip4Address.loopback(0) };
+    } else {
+        addr = std.Io.net.IpAddress.parse(name, 0) catch null;
+    }
+    const a = addr orelse {
+        // ip-name-lookup has its OWN error-code variant: name-unresolvable = 2.
+        try mem.write(retptr, @as(u8, 1));
+        try mem.write(retptr + 4, @as(u8, 2));
+        try mem.write(retptr + 8, @as(u8, 0));
+        return SUBTASK_RETURNED;
+    };
+    // ok: list<ip-address> with 1 element; ip-address variant = disc u8@0,
+    // payload@2 (ipv4 4×u8 / ipv6 8×u16-le) → elem size 18 align 2.
+    const elem_ptr = try ctx.reallocGuest(18, 2);
+    switch (a) {
+        .ip4 => |v| {
+            try mem.write(elem_ptr, @as(u8, 0));
+            for (v.bytes, 0..) |b, i| try mem.write(elem_ptr + 2 + @as(u32, @intCast(i)), b);
+        },
+        .ip6 => |v| {
+            try mem.write(elem_ptr, @as(u8, 1));
+            for (0..8) |i| {
+                const seg: u16 = (@as(u16, v.bytes[i * 2]) << 8) | v.bytes[i * 2 + 1];
+                try mem.write(elem_ptr + 2 + @as(u32, @intCast(i * 2)), seg);
+            }
+        },
+    }
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, elem_ptr);
+    try mem.write(retptr + 8, @as(u32, 1));
+    return SUBTASK_RETURNED;
 }

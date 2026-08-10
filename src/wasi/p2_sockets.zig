@@ -122,6 +122,16 @@ pub const TcpSocket = struct {
     listen_err: ?anyerror = null,
     /// `set-listen-backlog-size` before listen; applied at the OS listen.
     backlog: ?u31 = null,
+    /// WASI-0.3 socket-option store (ADR-0205 phase C): the OS socket is
+    /// lazy, so options are recorded (with the spec's clamp-permitting
+    /// semantics) and read back from here; defaults per common OS defaults.
+    opt_keep_alive: bool = false,
+    opt_ka_idle_ns: u64 = 7200 * std.time.ns_per_s,
+    opt_ka_interval_ns: u64 = 75 * std.time.ns_per_s,
+    opt_ka_count: u32 = 9,
+    opt_hop_limit: u8 = 64,
+    opt_rcvbuf: u64 = 64 * 1024,
+    opt_sndbuf: u64 = 64 * 1024,
 
     /// `tcp-create-socket.create-tcp-socket` — records the family; the OS
     /// socket is created by the first connect/listen.
@@ -175,6 +185,40 @@ pub const TcpSocket = struct {
             self.state = .closed;
             return err;
         }
+        self.state = .listening;
+    }
+
+    /// WASI-0.3 one-shot `bind` (ADR-0205 phase C): the OS bind executes NOW
+    /// so `get-local-address` reports the resolved ephemeral port (the 0.2
+    /// path defers to listen). Implemented as an immediate listen-capable
+    /// socket held in the `.bound` state; `listenNow` is then a pure state
+    /// transition.
+    pub fn bindNow(self: *TcpSocket, io: std.Io) !void {
+        if (self.state != .bound) return error.InvalidState;
+        const addr = self.bound_addr.?;
+        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp };
+        if (self.backlog) |b| opts.kernel_backlog = b;
+        self.server = addr.listen(io, opts) catch |err| {
+            self.state = .closed;
+            return err;
+        };
+        self.bound_addr = self.server.?.socket.address;
+    }
+
+    /// WASI-0.3 `listen` on a `bindNow`-bound socket (or an unbound one via
+    /// an implicit any-address bind).
+    pub fn listenNow(self: *TcpSocket, io: std.Io) !void {
+        if (self.state == .listening) return error.AlreadyListening;
+        if (self.state == .unbound) {
+            const any: net.IpAddress = switch (self.family) {
+                .ipv4 => .{ .ip4 = net.Ip4Address.parse("0.0.0.0", 0) catch unreachable },
+                .ipv6 => .{ .ip6 = net.Ip6Address.parse("::", 0) catch unreachable },
+            };
+            try self.startBind(io, any);
+            try self.finishBind();
+            try self.bindNow(io);
+        }
+        if (self.state != .bound or self.server == null) return error.InvalidState;
         self.state = .listening;
     }
 
@@ -282,6 +326,80 @@ pub const TcpSocket = struct {
     fn connectedStream(self: *TcpSocket) ?net.Stream {
         if (self.state != .connected) return null;
         return self.stream;
+    }
+};
+
+/// One live UDP socket (WASI-0.3 `wasi:sockets` `udp-socket`, ADR-0205 phase
+/// C): `IpAddress.bind(mode=.dgram)` backs it; "connect" is a local filter
+/// per the WIT ("only changes the local socket configuration").
+pub const UdpSocket = struct {
+    family: AddressFamily,
+    socket: ?net.Socket = null,
+    bound_addr: ?net.IpAddress = null,
+    remote: ?net.IpAddress = null,
+    opt_hop_limit: u8 = 64,
+    opt_rcvbuf: u64 = 64 * 1024,
+    opt_sndbuf: u64 = 64 * 1024,
+
+    pub fn create(family: AddressFamily) UdpSocket {
+        return .{ .family = family };
+    }
+
+    pub fn deinit(self: *UdpSocket, io: std.Io) void {
+        if (self.socket) |*sock| sock.close(io);
+        self.socket = null;
+    }
+
+    pub fn bind(self: *UdpSocket, io: std.Io, addr: net.IpAddress) !void {
+        if (self.socket != null) return error.InvalidState;
+        if (!familyMatches(self.family, addr)) return error.InvalidArgument;
+        var a = addr;
+        self.socket = a.bind(io, .{ .mode = .dgram }) catch |e| return e;
+        self.bound_addr = a;
+    }
+
+    /// The WIT's implicit bind (send/connect on an unbound socket).
+    pub fn ensureBound(self: *UdpSocket, io: std.Io) !void {
+        if (self.socket != null) return;
+        var any: net.IpAddress = switch (self.family) {
+            .ipv4 => .{ .ip4 = net.Ip4Address.parse("0.0.0.0", 0) catch unreachable },
+            .ipv6 => .{ .ip6 = net.Ip6Address.parse("::", 0) catch unreachable },
+        };
+        self.socket = any.bind(io, .{ .mode = .dgram }) catch |e| return e;
+        self.bound_addr = any;
+    }
+
+    pub fn connect(self: *UdpSocket, io: std.Io, addr: net.IpAddress) !void {
+        if (!familyMatches(self.family, addr)) return error.InvalidArgument;
+        try self.ensureBound(io);
+        self.remote = addr;
+    }
+
+    pub fn disconnect(self: *UdpSocket) !void {
+        if (self.remote == null) return error.InvalidState;
+        self.remote = null;
+    }
+
+    pub fn sendTo(self: *UdpSocket, io: std.Io, dest: net.IpAddress, bytes: []const u8) !void {
+        try self.ensureBound(io);
+        try self.socket.?.send(io, &dest, bytes);
+    }
+
+    pub fn receiveFrom(self: *UdpSocket, io: std.Io, buf: []u8) !struct { n: usize, from: net.IpAddress } {
+        const sock = self.socket orelse return error.InvalidState;
+        const msg = try sock.receive(io, buf);
+        return .{ .n = msg.data.len, .from = msg.from };
+    }
+
+    pub fn localAddress(self: *UdpSocket) !net.IpAddress {
+        const sock = self.socket orelse return error.InvalidState;
+        // The bind-resolved address (ephemeral `:0` becomes the real port —
+        // `Socket.address` carries the OS-resolved sockaddr).
+        return sock.address;
+    }
+
+    pub fn remoteAddress(self: *UdpSocket) !net.IpAddress {
+        return self.remote orelse error.InvalidState;
     }
 };
 

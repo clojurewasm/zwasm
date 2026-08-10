@@ -95,7 +95,11 @@ certification meanwhile.
 - **C — sockets 0.3**: `tcp-socket.create/bind/connect/listen/send/receive`
   (listen returns `stream<tcp-socket>`), UDP, `ip-name-lookup` — lifts the
   former future-bucket entry (user-directed). Exit: official sockets tests
-  green.
+  green. *(Status 2026-08-11: control plane DONE + green — create / bind with
+  ephemeral resolution / all TCP+UDP options / address validation / udp-bind;
+  the connected DATA plane + `getsockname`-dependent local-address +
+  SO_REUSEADDR are **D-568**, blocked on a libc-boundary getsockname
+  amendment + socket-readiness scheduler integration.)*
 - **D — http 0.3**: `types` resources (fields/request/response/
   request-options), `client.send` on `std.http.Client`, `handler` wiring
   (guest↔guest chaining + host-side invoke API). A `zwasm serve`-style CLI
