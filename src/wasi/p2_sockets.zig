@@ -119,13 +119,13 @@ const default_backlog: u31 = 128;
 /// (confirmed in `private/spikes/linux-reuseport-bind`). Raw composition never
 /// sets SO_REUSEPORT, giving exactly the WIT semantics.
 ///
-/// Windows keeps the stdlib path with `reuse_address = false`: its default
-/// bind already covers TIME_WAIT, and enabling reuse there would instead
-/// permit binding over a live listener (the inverse of what the spec wants).
+/// Windows composes its own AFD bind+listen (`winListen`): the stdlib's
+/// listen path binds with the AFD REUSE share type even when
+/// `reuse_address = false`, which lets a second bind on a live listener
+/// wrongly succeed (see the AFD section below).
 fn listenReuseAddr(io: std.Io, addr: net.IpAddress, backlog: u31) !net.Server {
-    if (builtin.os.tag == .windows) {
-        return addr.listen(io, .{ .mode = .stream, .protocol = .tcp, .reuse_address = false, .kernel_backlog = backlog });
-    }
+    _ = io;
+    if (builtin.os.tag == .windows) return winListen(addr, backlog);
     return posixListen(addr, backlog);
 }
 
@@ -462,6 +462,13 @@ pub const UdpSocket = struct {
     pub fn bind(self: *UdpSocket, io: std.Io, addr: net.IpAddress) !void {
         if (self.socket != null) return error.InvalidState;
         if (!familyMatches(self.family, addr)) return error.InvalidArgument;
+        if (builtin.os.tag == .windows) {
+            // Own AFD bind: the stdlib swallows the NT address statuses
+            // (doc-address bind must surface AddressUnavailable, not io).
+            self.socket = try winUdpBind(self.family, addr);
+            self.bound_addr = self.socket.?.address;
+            return;
+        }
         var a = addr;
         self.socket = a.bind(io, .{ .mode = .dgram }) catch |e| return e;
         self.bound_addr = a;
@@ -474,12 +481,32 @@ pub const UdpSocket = struct {
             .ipv4 => .{ .ip4 = net.Ip4Address.parse("0.0.0.0", 0) catch unreachable },
             .ipv6 => .{ .ip6 = net.Ip6Address.parse("::", 0) catch unreachable },
         };
+        if (builtin.os.tag == .windows) {
+            self.socket = try winUdpBind(self.family, any);
+            self.bound_addr = self.socket.?.address;
+            return;
+        }
         self.socket = any.bind(io, .{ .mode = .dgram }) catch |e| return e;
         self.bound_addr = any;
     }
 
     pub fn connect(self: *UdpSocket, io: std.Io, addr: net.IpAddress) !void {
         if (!familyMatches(self.family, addr)) return error.InvalidArgument;
+        if (builtin.os.tag == .windows) {
+            // AFD dgram connect on the (implicitly) bound handle. The stdlib
+            // connect path is unusable here: it sets SO_REUSE_UNICASTPORT,
+            // which AFD rejects with INVALID_PARAMETER on datagram sockets.
+            try self.ensureBound(io);
+            try winAfdConnect(self.socket.?.handle, addr);
+            // The connect rewrites the local endpoint to the route source
+            // (the same getsockname truth the POSIX path observes) — the
+            // received-datagram `sender` must equal it.
+            self.socket.?.address = try winAfdGetSockName(self.socket.?.handle);
+            self.bound_addr = self.socket.?.address;
+            self.os_connected = true;
+            self.remote = addr;
+            return;
+        }
         if (self.socket != null and !self.os_connected) {
             // Explicitly bound: the local endpoint is already resolved, so
             // connect stays the WIT's "local socket configuration" filter.
@@ -512,6 +539,15 @@ pub const UdpSocket = struct {
     }
 
     pub fn sendTo(self: *UdpSocket, io: std.Io, dest: net.IpAddress, bytes: []const u8) !void {
+        // The UDP length field is 16-bit including its 8-byte header, so a
+        // payload over 65507 (v4, incl. the 20-byte IP header) / 65527 (v6)
+        // can never be sent — pre-checked because the windows AFD status for
+        // it is unmapped (POSIX would say EMSGSIZE, the same error).
+        const max_payload: usize = switch (self.family) {
+            .ipv4 => 65507,
+            .ipv6 => 65527,
+        };
+        if (bytes.len > max_payload) return error.MessageOversize;
         if (self.os_connected) {
             const data = [_][]const u8{bytes};
             _ = try io.vtable.netWrite(io.userdata, self.socket.?.handle, "", &data, 1);
@@ -741,6 +777,206 @@ fn afdPollOnce(handle: net.Socket.Handle, interest: i16) !bool {
     }
     if (info.number_of_handles == 0) return false;
     return (info.handles[0].events & want) != 0;
+}
+
+// ---- Windows AFD control plane (bind / listen / dgram connect) ----
+//
+// Why not the pinned stdlib here: `netListenIpWindows` binds with AFD
+// ShareType 1, whose NT semantics are SHARE-REUSE (the zig enum names
+// {Unix,Passive,Active} mislead — the numeric values mean
+// UNIQUE/REUSE/WILDCARD), so a second bind on a live listener wrongly
+// succeeds — breaking the WIT address-in-use contract. And
+// `netConnectIpWindows` sets SO_REUSE_UNICASTPORT unconditionally, which
+// AFD rejects with INVALID_PARAMETER on datagram sockets. These helpers
+// compose the same NT ioctls with a UNIQUE-share bind, no unicast-port
+// option, and the address-status mapping the stdlib swallows
+// (INVALID_ADDRESS_COMPONENT → AddressUnavailable, the WIT
+// address-not-bindable). The produced handles plug into the stdlib data
+// plane unchanged (netSend / netReceive / netAccept take the raw handle).
+
+/// AFD BIND ShareType UNIQUE (0): the plain no-REUSEADDR winsock bind —
+/// live-port rebind rejected, TIME_WAIT rebind allowed (windows default).
+const AFD_SHARE_UNIQUE: win.AFD.BIND_INFO.MODE = @enumFromInt(0);
+
+/// Issue one AFD ioctl, waiting on an NT event when the asynchronous
+/// endpoint returns PENDING (the D-319 poll path never PENDs because of its
+/// zero timeout; bind/listen/connect can).
+fn winAfdControl(handle: win.HANDLE, code: win.CTL_CODE, in_buf: []const u8, out_buf: []u8) !win.NTSTATUS {
+    var event: win.HANDLE = undefined;
+    if (win.ntdll.NtCreateEvent(
+        &event,
+        .{ .STANDARD = .{ .SYNCHRONIZE = true }, .SPECIFIC = .{ .bits = 0x3 } },
+        null,
+        .Notification,
+        .FALSE,
+    ) != .SUCCESS) return error.Unexpected;
+    defer win.CloseHandle(event);
+    var iosb: win.IO_STATUS_BLOCK = undefined;
+    var status = win.ntdll.NtDeviceIoControlFile(
+        handle,
+        event,
+        null,
+        null,
+        &iosb,
+        code,
+        if (in_buf.len > 0) in_buf.ptr else null,
+        @intCast(in_buf.len),
+        if (out_buf.len > 0) out_buf.ptr else null,
+        @intCast(out_buf.len),
+    );
+    if (status == .PENDING) {
+        _ = win.ntdll.NtWaitForSingleObject(event, .FALSE, null);
+        status = iosb.u.Status;
+    }
+    return status;
+}
+
+/// NtCreateFile on \Device\Afd\Endpoint with the socket open-packet EA —
+/// the same endpoint shape the stdlib data plane drives.
+fn winOpenSocketAfd(family: AddressFamily, mode: net.Socket.Mode) !win.HANDLE {
+    const af: win.LONG = switch (family) {
+        .ipv4 => 2, // AF_INET
+        .ipv6 => 23, // AF_INET6
+    };
+    const sock_type: win.LONG = switch (mode) {
+        .stream => 1, // SOCK_STREAM
+        .dgram => 2, // SOCK_DGRAM
+        .seqpacket, .raw, .rdm => return error.Unexpected,
+    };
+    const proto: win.LONG = switch (mode) {
+        .stream => 6, // IPPROTO_TCP
+        .dgram => 17, // IPPROTO_UDP
+        .seqpacket, .raw, .rdm => return error.Unexpected,
+    };
+    var handle: win.HANDLE = undefined;
+    var iosb: win.IO_STATUS_BLOCK = undefined;
+    return switch (win.ntdll.NtCreateFile(
+        &handle,
+        .{
+            .STANDARD = .{ .RIGHTS = .{ .WRITE_DAC = true }, .SYNCHRONIZE = true },
+            .GENERIC = .{ .WRITE = true, .READ = true },
+        },
+        &.{
+            .ObjectName = @constCast(&win.UNICODE_STRING.init(
+                win.AFD.DEVICE_NAME ++ .{ '\\', 'E', 'n', 'd', 'p', 'o', 'i', 'n', 't' },
+            )),
+        },
+        &iosb,
+        null,
+        .{},
+        .{ .READ = true, .WRITE = true },
+        .OPEN_IF,
+        .{ .IO = .ASYNCHRONOUS },
+        &win.AFD.OPEN_PACKET.FULL_EA_INFORMATION{ .Value = .{
+            .EndpointType = .{
+                .CONNECTIONLESS = mode == .dgram,
+                .MESSAGEMODE = mode == .dgram,
+                .RAW = false,
+            },
+            .GroupID = 0,
+            .AddressFamily = af,
+            .SocketType = sock_type,
+            .Protocol = proto,
+            .TransportDeviceNameLength = 0,
+            .TransportDeviceName = undefined,
+        } },
+        @sizeOf(win.AFD.OPEN_PACKET.FULL_EA_INFORMATION),
+    )) {
+        .SUCCESS => handle,
+        .PROTOCOL_NOT_SUPPORTED, .NO_SUCH_FILE => error.Unexpected,
+        else => error.Unexpected,
+    };
+}
+
+/// IOCTL_AFD_BIND with UNIQUE share, mapping the address statuses to the
+/// WIT bind contract. Returns the OS-resolved local address (ephemeral
+/// ports resolve here).
+fn winAfdBind(handle: win.HANDLE, addr: net.IpAddress) !net.IpAddress {
+    const Storage = extern struct { Info: win.AFD.BIND_INFO, Address: std.Io.Threaded.PosixAddress };
+    var storage: Storage = .{ .Info = .{ .Mode = AFD_SHARE_UNIQUE }, .Address = undefined };
+    const addr_len = std.Io.Threaded.addressToPosix(&addr, &storage.Address);
+    const in_bytes = @as([]const u8, @ptrCast(&storage))[0 .. @offsetOf(Storage, "Address") + addr_len];
+    const out_bytes = @as([]u8, @ptrCast(&storage.Address))[0..addr_len];
+    switch (try winAfdControl(handle, win.IOCTL.AFD.BIND, in_bytes, out_bytes)) {
+        .SUCCESS => {},
+        .SHARING_VIOLATION, .ADDRESS_ALREADY_EXISTS => return error.AddressInUse,
+        .INVALID_ADDRESS_COMPONENT, .INVALID_ADDRESS => return error.AddressUnavailable,
+        .ACCESS_DENIED => return error.AccessDenied,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => return error.Unexpected,
+    }
+    return std.Io.Threaded.addressFromPosix(&storage.Address);
+}
+
+/// IOCTL_AFD_START_LISTEN (the stdlib shape, minus its REUSE-share bind).
+fn winAfdListen(handle: win.HANDLE, backlog: u31) !void {
+    const info: win.AFD.LISTEN_INFO = .{
+        .UseSAN = .FALSE,
+        .MaximumConnectionQueue = backlog,
+        .UseDelayedAcceptance = .FALSE,
+    };
+    switch (try winAfdControl(handle, win.IOCTL.AFD.START_LISTEN, std.mem.asBytes(&info), &.{})) {
+        .SUCCESS => {},
+        .SHARING_VIOLATION, .ADDRESS_ALREADY_EXISTS => return error.AddressInUse,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => return error.Unexpected,
+    }
+}
+
+/// IOCTL_AFD_CONNECT for datagram sockets (sets the default peer). The
+/// stream path stays on the stdlib (its SO_REUSE_UNICASTPORT is valid
+/// there); dgram must avoid it.
+fn winAfdConnect(handle: win.HANDLE, addr: net.IpAddress) !void {
+    const Storage = extern struct { Reserved0: [3]usize = @splat(0), Address: std.Io.Threaded.PosixAddress };
+    var storage: Storage = .{ .Address = undefined };
+    const addr_len = std.Io.Threaded.addressToPosix(&addr, &storage.Address);
+    const in_bytes = @as([]const u8, @ptrCast(&storage))[0 .. @offsetOf(Storage, "Address") + addr_len];
+    switch (try winAfdControl(handle, win.IOCTL.AFD.CONNECT, in_bytes, &.{})) {
+        .SUCCESS => {},
+        .INVALID_ADDRESS_COMPONENT, .INVALID_ADDRESS => return error.AddressUnavailable,
+        .CONNECTION_REFUSED => return error.ConnectionRefused,
+        .NETWORK_UNREACHABLE => return error.NetworkUnreachable,
+        .HOST_UNREACHABLE => return error.HostUnreachable,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => return error.Unexpected,
+    }
+}
+
+/// IOCTL_AFD_GET_ADDRESS (getsockname): the OS-truth local endpoint. The
+/// output is a plain sockaddr at offset 0 (NOT the TDI_ADDRESS_INFO shape
+/// documentation suggests — verified by byte dump on real Windows:
+/// `0200 <port> 7f000001…` for v4, `1700 <port> …` for v6).
+fn winAfdGetSockName(handle: win.HANDLE) !net.IpAddress {
+    var storage: std.Io.Threaded.PosixAddress = undefined;
+    @memset(@as([]u8, @ptrCast(&storage))[0..@sizeOf(std.Io.Threaded.PosixAddress)], 0);
+    switch (try winAfdControl(handle, win.IOCTL.AFD.GET_ADDRESS, &.{}, @as([]u8, @ptrCast(&storage))[0..@sizeOf(std.Io.Threaded.PosixAddress)])) {
+        .SUCCESS => {},
+        else => return error.Unexpected,
+    }
+    return std.Io.Threaded.addressFromPosix(&storage);
+}
+
+/// Windows TCP listen with the WIT bind contract (UNIQUE share).
+fn winListen(addr: net.IpAddress, backlog: u31) !net.Server {
+    const handle = try winOpenSocketAfd(switch (addr) {
+        .ip4 => .ipv4,
+        .ip6 => .ipv6,
+    }, .stream);
+    errdefer win.CloseHandle(handle);
+    const resolved = try winAfdBind(handle, addr);
+    try winAfdListen(handle, backlog);
+    return .{
+        .socket = .{ .handle = handle, .address = resolved },
+        .options = .{ .mode = .stream, .protocol = .tcp },
+    };
+}
+
+/// Windows UDP bind with UNIQUE share + WIT status mapping.
+fn winUdpBind(family: AddressFamily, addr: net.IpAddress) !net.Socket {
+    const handle = try winOpenSocketAfd(family, .dgram);
+    errdefer win.CloseHandle(handle);
+    const resolved = try winAfdBind(handle, addr);
+    return .{ .handle = handle, .address = resolved };
 }
 
 // ============================================================

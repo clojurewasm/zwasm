@@ -641,7 +641,10 @@ fn pathHasParentEscape(path: []const u8) bool {
 fn mapOpenError(err: anyerror) p1.Errno {
     return switch (err) {
         error.FileNotFound => .noent,
-        error.AccessDenied => .acces,
+        // NT invalid object names ("" / reserved chars) have no WASI errno of
+        // their own; POSIX would have said ENOENT.
+        error.BadPathName => .noent,
+        error.AccessDenied, error.PermissionDenied => .acces,
         error.IsDir => .isdir,
         error.NotDir => .notdir,
         error.SymLinkLoop => .loop,
@@ -877,6 +880,9 @@ pub fn pathOpen(
     const path_end = @as(usize, path_ptr) + @as(usize, path_len);
     if (path_end > mem.len) return .fault;
     const path = mem[path_ptr..path_end];
+    // POSIX: the empty path is ENOENT. Must be pre-OS: NT resolves "" against
+    // a RootDirectory handle as the directory itself.
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
 
     // Resolve dirfd.
@@ -1026,6 +1032,9 @@ pub fn fdFilestatGet(host: *Host, mem: []u8, fd: p1.Fd, filestat_ptr: u32) p1.Er
 /// `notdir`; absolute / `..`-escaping path → `notcapable`.
 pub fn pathUnlinkFile(host: *Host, mem: []u8, dirfd: p1.Fd, path_ptr: u32, path_len: u32) p1.Errno {
     const path = sliceMemConst(mem, path_ptr, path_len) orelse return .fault;
+    // POSIX: the empty path is ENOENT. Must be pre-OS: NT resolves "" against
+    // a RootDirectory handle as the directory itself (delete would hit the dir).
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
     const dir_slot = host.translateFd(dirfd) orelse return .badf;
     if (dir_slot.kind != .dir) return .notdir;
