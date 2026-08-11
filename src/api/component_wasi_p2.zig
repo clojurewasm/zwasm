@@ -174,6 +174,9 @@ pub const WasiP2Ctx = struct {
     /// a HTTP_FIELDS_RT handle's rep indexes this list. Dropped entries are
     /// deinit'ed in place (slot stays; reps are never reused).
     http_fields: std.ArrayList(p3http.HttpFields) = .empty,
+    http_requests: std.ArrayList(p3http.HttpRequest) = .empty,
+    http_responses: std.ArrayList(p3http.HttpResponse) = .empty,
+    http_reqopts: std.ArrayList(p3http.HttpRequestOptions) = .empty,
     host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_tx: std.AutoHashMapUnmanaged(u32, TcpTxRole) = .empty,
@@ -237,6 +240,18 @@ pub const WasiP2Ctx = struct {
     /// WASI-0.3 `wasi:http/types` `fields` (rep = index into `http_fields`;
     /// drop frees the entry's pair storage — no OS handle).
     pub const HTTP_FIELDS_RT: u32 = 12;
+    /// A BORROWED view onto a fields rep (minted by `request.get-headers` /
+    /// `response.get-headers`): drop releases only the handle — the parent
+    /// request/response owns the storage.
+    pub const HTTP_FIELDS_VIEW_RT: u32 = 13;
+    /// `request` (rep = index into `http_requests`).
+    pub const HTTP_REQUEST_RT: u32 = 14;
+    /// `response` (rep = index into `http_responses`).
+    pub const HTTP_RESPONSE_RT: u32 = 15;
+    /// `request-options` (rep = index into `http_reqopts`; plain values, no
+    /// heap) and its borrowed view (`request.get-options`).
+    pub const HTTP_REQOPTS_RT: u32 = 16;
+    pub const HTTP_REQOPTS_VIEW_RT: u32 = 17;
 
     /// Iteration state of one live directory-entry-stream: the directory's
     /// P1 fd + the P1 readdir cookie to resume after.
@@ -271,6 +286,10 @@ pub const WasiP2Ctx = struct {
         self.udp_sockets.deinit(self.alloc);
         for (self.http_fields.items) |*f| f.deinit(self.alloc);
         self.http_fields.deinit(self.alloc);
+        for (self.http_requests.items) |*r| r.deinit(self.alloc);
+        self.http_requests.deinit(self.alloc);
+        self.http_responses.deinit(self.alloc);
+        self.http_reqopts.deinit(self.alloc);
         self.host_accept_streams.deinit(self.alloc);
         self.host_tcp_rx.deinit(self.alloc);
         self.host_tcp_tx.deinit(self.alloc);
@@ -789,6 +808,33 @@ fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
             WasiP2Ctx.HTTP_FIELDS_RT => {
                 if (h.rep < ctx.http_fields.items.len)
                     ctx.http_fields.items[h.rep].deinit(ctx.alloc);
+            },
+            // Borrowed views / plain-value resources: handle slot only.
+            WasiP2Ctx.HTTP_FIELDS_VIEW_RT, WasiP2Ctx.HTTP_REQOPTS_RT, WasiP2Ctx.HTTP_REQOPTS_VIEW_RT => {},
+            // The response owns its headers fields storage + transferred
+            // body ends (same writer-task unblock as the request).
+            WasiP2Ctx.HTTP_RESPONSE_RT => {
+                if (h.rep < ctx.http_responses.items.len) {
+                    const resp = &ctx.http_responses.items[h.rep];
+                    if (resp.headers_rep < ctx.http_fields.items.len)
+                        ctx.http_fields.items[resp.headers_rep].deinit(ctx.alloc);
+                    http3DropTransferredEnd(ctx, resp.trailers_future);
+                    if (resp.contents_stream) |s| http3DropTransferredEnd(ctx, s);
+                }
+            },
+            // The request owns its uri strings, its headers fields storage,
+            // and the TRANSFERRED body ends — dropping the trailers-future
+            // readable unblocks the guest's writer task (else its
+            // wit_future closure waits forever → AsyncDeadlock).
+            WasiP2Ctx.HTTP_REQUEST_RT => {
+                if (h.rep < ctx.http_requests.items.len) {
+                    const req = &ctx.http_requests.items[h.rep];
+                    if (req.headers_rep < ctx.http_fields.items.len)
+                        ctx.http_fields.items[req.headers_rep].deinit(ctx.alloc);
+                    http3DropTransferredEnd(ctx, req.trailers_future);
+                    if (req.contents_stream) |s| http3DropTransferredEnd(ctx, s);
+                    req.deinit(ctx.alloc);
+                }
             },
             else => _ = wasi_fd.fdClose(ctx.host, @intCast(h.rep)),
         }
@@ -1846,6 +1892,29 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .http3_fields_append => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32) WasiP2Error!void, http3FieldsAppend),
         .http3_fields_copy_all => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3FieldsCopyAll),
         .http3_fields_clone => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3FieldsClone),
+        .http3_request_new => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32, u32) WasiP2Error!void, http3RequestNew),
+        .http3_request_get_method => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3RequestGetMethod),
+        .http3_request_set_method => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, http3RequestSetMethod),
+        .http3_request_get_pwq => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3RequestGetPwq),
+        .http3_request_set_pwq => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, http3RequestSetPwq),
+        .http3_request_get_scheme => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3RequestGetScheme),
+        .http3_request_set_scheme => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32) WasiP2Error!u32, http3RequestSetScheme),
+        .http3_request_get_authority => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3RequestGetAuthority),
+        .http3_request_set_authority => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!u32, http3RequestSetAuthority),
+        .http3_request_get_options => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3RequestGetOptions),
+        .http3_request_get_headers => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3RequestGetHeaders),
+        .http3_response_new => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32) WasiP2Error!void, http3ResponseNew),
+        .http3_response_get_status => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3ResponseGetStatus),
+        .http3_response_set_status => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!u32, http3ResponseSetStatus),
+        .http3_response_get_headers => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3ResponseGetHeaders),
+        .http3_reqopts_new => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!u32, http3ReqoptsNew),
+        .http3_reqopts_connect_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3ReqoptsConnectGet),
+        .http3_reqopts_connect_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64, u32) WasiP2Error!void, http3ReqoptsConnectSet),
+        .http3_reqopts_first_byte_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3ReqoptsFirstByteGet),
+        .http3_reqopts_first_byte_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64, u32) WasiP2Error!void, http3ReqoptsFirstByteSet),
+        .http3_reqopts_between_bytes_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3ReqoptsBetweenBytesGet),
+        .http3_reqopts_between_bytes_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64, u32) WasiP2Error!void, http3ReqoptsBetweenBytesSet),
+        .http3_reqopts_clone => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3ReqoptsClone),
         // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
         .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
         .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
@@ -4352,7 +4421,9 @@ fn ctxHttpFields(ctx: *WasiP2Ctx, rep: u32) WasiP2Error!*p3http.HttpFields {
 }
 
 fn http3FieldsSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p3http.HttpFields {
-    return ctxHttpFields(ctx, try ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_RT, self));
+    const rep = ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_RT, self) catch
+        try ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_VIEW_RT, self);
+    return ctxHttpFields(ctx, rep);
 }
 
 fn http3MintFields(ctx: *WasiP2Ctx, fields: p3http.HttpFields) WasiP2Error!u32 {
@@ -4533,6 +4604,372 @@ fn http3FieldsClone(caller: *Caller, self: u32) WasiP2Error!u32 {
         return WasiP2Error.OutOfMemory;
     };
     return http3MintFields(ctx, copy);
+}
+
+// -- request / response / request-options (ADR-0205 phase D-2) --
+
+/// Release a stream/future end TRANSFERRED into a request/response at
+/// `new` time (the guest's own handle moved to the host): the peer must
+/// observe DROPPED or its writer task never completes.
+fn http3DropTransferredEnd(ctx: *WasiP2Ctx, handle: u32) void {
+    if (handle == 0) return;
+    _ = ctx.host_result_futures.remove(handle);
+    _ = ctx.pending_reads.remove(handle);
+    // EXEMPT-FALLBACK: destructor — a stale/already-dropped end is benign (D-568)
+    async_mod.dropEndGuarded(&ctx.streams, &ctx.shared, handle) catch {};
+}
+
+fn http3RequestSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p3http.HttpRequest {
+    const rep = try ctx.resources.rep(WasiP2Ctx.HTTP_REQUEST_RT, self);
+    if (rep >= ctx.http_requests.items.len) return WasiP2Error.InvalidHandle;
+    return &ctx.http_requests.items[rep];
+}
+
+fn http3ReqoptsSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p3http.HttpRequestOptions {
+    const rep = ctx.resources.rep(WasiP2Ctx.HTTP_REQOPTS_RT, self) catch
+        try ctx.resources.rep(WasiP2Ctx.HTTP_REQOPTS_VIEW_RT, self);
+    if (rep >= ctx.http_reqopts.items.len) return WasiP2Error.InvalidHandle;
+    return &ctx.http_reqopts.items[rep];
+}
+
+fn http3ResponseSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p3http.HttpResponse {
+    const rep = try ctx.resources.rep(WasiP2Ctx.HTTP_RESPONSE_RT, self);
+    if (rep >= ctx.http_responses.items.len) return WasiP2Error.InvalidHandle;
+    return &ctx.http_responses.items[rep];
+}
+
+/// `request.new` (headers, option<stream<u8>>, trailers future,
+/// option<own<request-options>>, retptr) — consumes the headers (and
+/// options) own handles: their storage now belongs to the request and both
+/// become immutable. Returns tuple<request, future<result<_, error-code>>>
+/// at retptr; the transmission future stays unresolved until a send.
+fn http3RequestNew(caller: *Caller, headers: u32, contents_disc: u32, contents: u32, trailers_fut: u32, opts_disc: u32, opts: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const headers_rep = try ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_RT, headers);
+    (try ctxHttpFields(ctx, headers_rep)).immutable = true;
+    _ = try ctx.resources.drop(WasiP2Ctx.HTTP_FIELDS_RT, headers);
+    var options_rep: ?u32 = null;
+    if (opts_disc != 0) {
+        const orep = try ctx.resources.rep(WasiP2Ctx.HTTP_REQOPTS_RT, opts);
+        (try http3ReqoptsSelf(ctx, opts)).immutable = true;
+        _ = try ctx.resources.drop(WasiP2Ctx.HTTP_REQOPTS_RT, opts);
+        options_rep = orep;
+    }
+    const idx: u32 = @intCast(ctx.http_requests.items.len);
+    ctx.http_requests.append(ctx.alloc, .{
+        .headers_rep = headers_rep,
+        .options_rep = options_rep,
+        .contents_stream = if (contents_disc != 0) contents else null,
+        .trailers_future = trailers_fut,
+    }) catch return WasiP2Error.OutOfMemory;
+    const handle = try ctx.resources.new(WasiP2Ctx.HTTP_REQUEST_RT, idx);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try mem.write(retptr, handle);
+    try mem.write(retptr + 4, fut.readable);
+}
+
+fn http3RequestGetMethod(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    switch (req.method) {
+        .other => |s| {
+            try mem.write(retptr, @as(u8, 9));
+            const p = try http3AllocBlob(ctx, mem, s);
+            try mem.write(retptr + 4, p);
+            try mem.write(retptr + 8, @as(u32, @intCast(s.len)));
+        },
+        else => try mem.write(retptr, @as(u8, @intFromEnum(std.meta.activeTag(req.method)))),
+    }
+}
+
+fn http3RequestSetMethod(caller: *Caller, self: u32, disc: u32, ptr: u32, len: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    if (disc < 9) {
+        req.method.deinit(ctx.alloc);
+        req.method = switch (disc) {
+            0 => .get,
+            1 => .head,
+            2 => .post,
+            3 => .put,
+            4 => .delete,
+            5 => .connect,
+            6 => .options,
+            7 => .trace,
+            8 => .patch,
+            else => unreachable,
+        };
+        return 0;
+    }
+    const name = mem.sliceAt(ptr, len) catch return WasiP2Error.OutOfBounds;
+    if (!p3http.validMethod(name)) return 1;
+    // other("GET") etc. normalizes to the enum case (wasi-http#194).
+    inline for (p3http.Method.known_names) |k| {
+        if (std.mem.eql(u8, name, k.name)) {
+            req.method.deinit(ctx.alloc);
+            req.method = @unionInit(p3http.Method, @tagName(k.tag), {});
+            return 0;
+        }
+    }
+    const copy = ctx.alloc.dupe(u8, name) catch return WasiP2Error.OutOfMemory;
+    req.method.deinit(ctx.alloc);
+    req.method = .{ .other = copy };
+    return 0;
+}
+
+/// Write `option<string>` (disc u8@0, ptr@4, len@8) from an optional slice.
+fn http3WriteOptString(ctx: *WasiP2Ctx, mem: Memory, retptr: u32, s: ?[]const u8) WasiP2Error!void {
+    if (s) |str| {
+        try mem.write(retptr, @as(u8, 1));
+        const p = try http3AllocBlob(ctx, mem, str);
+        try mem.write(retptr + 4, p);
+        try mem.write(retptr + 8, @as(u32, @intCast(str.len)));
+    } else {
+        try mem.write(retptr, @as(u8, 0));
+    }
+}
+
+/// Store an optional validated string field (dupe + free old).
+fn http3SetOptString(ctx: *WasiP2Ctx, slot: *?[]u8, s: ?[]const u8) WasiP2Error!void {
+    if (slot.*) |old| ctx.alloc.free(old);
+    slot.* = if (s) |str| ctx.alloc.dupe(u8, str) catch return WasiP2Error.OutOfMemory else null;
+}
+
+fn http3RequestGetPwq(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    try http3WriteOptString(ctx, mem, retptr, req.path_with_query);
+}
+
+fn http3RequestSetPwq(caller: *Caller, self: u32, disc: u32, ptr: u32, len: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    if (disc == 0) {
+        try http3SetOptString(ctx, &req.path_with_query, null);
+        return 0;
+    }
+    const s = mem.sliceAt(ptr, len) catch return WasiP2Error.OutOfBounds;
+    if (!p3http.validPathWithQuery(s)) return 1;
+    // The corpus pins "" → "/" (an empty path serializes as "/").
+    try http3SetOptString(ctx, &req.path_with_query, if (s.len == 0) "/" else s);
+    return 0;
+}
+
+fn http3RequestGetScheme(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    const sc = req.scheme orelse {
+        try mem.write(retptr, @as(u8, 0));
+        return;
+    };
+    try mem.write(retptr, @as(u8, 1));
+    switch (sc) {
+        .http => try mem.write(retptr + 4, @as(u8, 0)),
+        .https => try mem.write(retptr + 4, @as(u8, 1)),
+        .other => |s| {
+            try mem.write(retptr + 4, @as(u8, 2));
+            const p = try http3AllocBlob(ctx, mem, s);
+            try mem.write(retptr + 8, p);
+            try mem.write(retptr + 12, @as(u32, @intCast(s.len)));
+        },
+    }
+}
+
+fn http3RequestSetScheme(caller: *Caller, self: u32, opt_disc: u32, scheme_disc: u32, ptr: u32, len: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    if (opt_disc == 0) {
+        if (req.scheme) |*old| old.deinit(ctx.alloc);
+        req.scheme = null;
+        return 0;
+    }
+    var next: p3http.Scheme = undefined;
+    switch (scheme_disc) {
+        0 => next = .http,
+        1 => next = .https,
+        else => {
+            const s = mem.sliceAt(ptr, len) catch return WasiP2Error.OutOfBounds;
+            if (!p3http.validScheme(s)) return 1;
+            // other("http"/"https") normalizes to the enum case (#194).
+            if (std.mem.eql(u8, s, "http")) {
+                next = .http;
+            } else if (std.mem.eql(u8, s, "https")) {
+                next = .https;
+            } else {
+                next = .{ .other = ctx.alloc.dupe(u8, s) catch return WasiP2Error.OutOfMemory };
+            }
+        },
+    }
+    if (req.scheme) |*old| old.deinit(ctx.alloc);
+    req.scheme = next;
+    return 0;
+}
+
+fn http3RequestGetAuthority(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    try http3WriteOptString(ctx, mem, retptr, req.authority);
+}
+
+fn http3RequestSetAuthority(caller: *Caller, self: u32, disc: u32, ptr: u32, len: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    if (disc == 0) {
+        try http3SetOptString(ctx, &req.authority, null);
+        return 0;
+    }
+    const s = mem.sliceAt(ptr, len) catch return WasiP2Error.OutOfBounds;
+    if (!p3http.validAuthority(s)) return 1;
+    try http3SetOptString(ctx, &req.authority, s);
+    return 0;
+}
+
+fn http3RequestGetOptions(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, self);
+    if (req.options_rep) |orep| {
+        const h = try ctx.resources.new(WasiP2Ctx.HTTP_REQOPTS_VIEW_RT, orep);
+        try mem.write(retptr, @as(u8, 1));
+        try mem.write(retptr + 4, h);
+    } else {
+        try mem.write(retptr, @as(u8, 0));
+    }
+}
+
+fn http3RequestGetHeaders(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const req = try http3RequestSelf(ctx, self);
+    return ctx.resources.new(WasiP2Ctx.HTTP_FIELDS_VIEW_RT, req.headers_rep);
+}
+
+/// `response.new` (headers, option<stream<u8>>, trailers future, retptr) →
+/// tuple<response, future<result<_, error-code>>>.
+fn http3ResponseNew(caller: *Caller, headers: u32, contents_disc: u32, contents: u32, trailers_fut: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const headers_rep = try ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_RT, headers);
+    (try ctxHttpFields(ctx, headers_rep)).immutable = true;
+    _ = try ctx.resources.drop(WasiP2Ctx.HTTP_FIELDS_RT, headers);
+    const idx: u32 = @intCast(ctx.http_responses.items.len);
+    ctx.http_responses.append(ctx.alloc, .{
+        .headers_rep = headers_rep,
+        .contents_stream = if (contents_disc != 0) contents else null,
+        .trailers_future = trailers_fut,
+    }) catch return WasiP2Error.OutOfMemory;
+    const handle = try ctx.resources.new(WasiP2Ctx.HTTP_RESPONSE_RT, idx);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try mem.write(retptr, handle);
+    try mem.write(retptr + 4, fut.readable);
+}
+
+fn http3ResponseGetStatus(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return (try http3ResponseSelf(ctx, self)).status;
+}
+
+fn http3ResponseSetStatus(caller: *Caller, self: u32, status: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const resp = try http3ResponseSelf(ctx, self);
+    // A valid HTTP status code is 100..=599.
+    if (status < 100 or status > 599) return 1;
+    resp.status = @intCast(status);
+    return 0;
+}
+
+fn http3ResponseGetHeaders(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const resp = try http3ResponseSelf(ctx, self);
+    return ctx.resources.new(WasiP2Ctx.HTTP_FIELDS_VIEW_RT, resp.headers_rep);
+}
+
+fn http3ReqoptsNew(caller: *Caller) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const idx: u32 = @intCast(ctx.http_reqopts.items.len);
+    ctx.http_reqopts.append(ctx.alloc, .{}) catch return WasiP2Error.OutOfMemory;
+    return ctx.resources.new(WasiP2Ctx.HTTP_REQOPTS_RT, idx);
+}
+
+/// `option<duration>`: disc u8@0, u64 value@8 (align 8).
+fn http3WriteOptDuration(mem: Memory, retptr: u32, v: ?u64) WasiP2Error!void {
+    if (v) |ns| {
+        try mem.write(retptr, @as(u8, 1));
+        try mem.write(retptr + 8, ns);
+    } else {
+        try mem.write(retptr, @as(u8, 0));
+    }
+}
+
+/// `result<_, request-options-error>`: disc@0; err variant disc@4 (0 =
+/// not-supported, 1 = immutable, 2 = other), other's option none@8.
+fn http3WriteReqoptsSetResult(mem: Memory, retptr: u32, immutable: bool) WasiP2Error!void {
+    if (immutable) {
+        try mem.write(retptr, @as(u8, 1));
+        try mem.write(retptr + 4, @as(u8, 1));
+        try mem.write(retptr + 8, @as(u8, 0));
+    } else {
+        try mem.write(retptr, @as(u8, 0));
+    }
+}
+
+fn http3ReqoptsConnectGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    try http3WriteOptDuration(try ctxMemory(caller), retptr, (try http3ReqoptsSelf(ctx, self)).connect_timeout_ns);
+}
+
+fn http3ReqoptsConnectSet(caller: *Caller, self: u32, disc: u32, val: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const o = try http3ReqoptsSelf(ctx, self);
+    if (!o.immutable) o.connect_timeout_ns = if (disc != 0) @bitCast(val) else null;
+    try http3WriteReqoptsSetResult(mem, retptr, o.immutable);
+}
+
+fn http3ReqoptsFirstByteGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    try http3WriteOptDuration(try ctxMemory(caller), retptr, (try http3ReqoptsSelf(ctx, self)).first_byte_timeout_ns);
+}
+
+fn http3ReqoptsFirstByteSet(caller: *Caller, self: u32, disc: u32, val: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const o = try http3ReqoptsSelf(ctx, self);
+    if (!o.immutable) o.first_byte_timeout_ns = if (disc != 0) @bitCast(val) else null;
+    try http3WriteReqoptsSetResult(mem, retptr, o.immutable);
+}
+
+fn http3ReqoptsBetweenBytesGet(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    try http3WriteOptDuration(try ctxMemory(caller), retptr, (try http3ReqoptsSelf(ctx, self)).between_bytes_timeout_ns);
+}
+
+fn http3ReqoptsBetweenBytesSet(caller: *Caller, self: u32, disc: u32, val: i64, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const o = try http3ReqoptsSelf(ctx, self);
+    if (!o.immutable) o.between_bytes_timeout_ns = if (disc != 0) @bitCast(val) else null;
+    try http3WriteReqoptsSetResult(mem, retptr, o.immutable);
+}
+
+fn http3ReqoptsClone(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const src = (try http3ReqoptsSelf(ctx, self)).*;
+    const idx: u32 = @intCast(ctx.http_reqopts.items.len);
+    ctx.http_reqopts.append(ctx.alloc, .{
+        .connect_timeout_ns = src.connect_timeout_ns,
+        .first_byte_timeout_ns = src.first_byte_timeout_ns,
+        .between_bytes_timeout_ns = src.between_bytes_timeout_ns,
+    }) catch return WasiP2Error.OutOfMemory;
+    return ctx.resources.new(WasiP2Ctx.HTTP_REQOPTS_RT, idx);
 }
 
 fn sock3UdpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {

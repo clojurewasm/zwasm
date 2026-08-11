@@ -181,6 +181,151 @@ pub const HttpFields = struct {
     }
 };
 
+/// `method` / `scheme` variants: a small tag + an owned `other` string.
+/// `set-method(other("GET"))` NORMALIZES to the enum case (and lowercase
+/// scheme names likewise) — wasi-http#194, asserted by the official
+/// http-request test.
+pub const Method = union(enum) {
+    get,
+    head,
+    post,
+    put,
+    delete,
+    connect,
+    options,
+    trace,
+    patch,
+    other: []u8,
+
+    pub const known_names = [_]struct { name: []const u8, tag: std.meta.Tag(Method) }{
+        .{ .name = "GET", .tag = .get },         .{ .name = "HEAD", .tag = .head },
+        .{ .name = "POST", .tag = .post },       .{ .name = "PUT", .tag = .put },
+        .{ .name = "DELETE", .tag = .delete },   .{ .name = "CONNECT", .tag = .connect },
+        .{ .name = "OPTIONS", .tag = .options }, .{ .name = "TRACE", .tag = .trace },
+        .{ .name = "PATCH", .tag = .patch },
+    };
+
+    pub fn deinit(self: *Method, alloc: std.mem.Allocator) void {
+        switch (self.*) {
+            .other => |s| alloc.free(s),
+            else => {},
+        }
+        self.* = .get;
+    }
+};
+
+pub const Scheme = union(enum) {
+    http,
+    https,
+    other: []u8,
+
+    pub fn deinit(self: *Scheme, alloc: std.mem.Allocator) void {
+        switch (self.*) {
+            .other => |s| alloc.free(s),
+            else => {},
+        }
+        self.* = .http;
+    }
+};
+
+/// RFC 9110 method = token (the same tchar alphabet as field names).
+pub fn validMethod(name: []const u8) bool {
+    return validFieldName(name);
+}
+
+/// RFC 3986 scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+pub fn validScheme(s: []const u8) bool {
+    if (s.len == 0 or !std.ascii.isAlphabetic(s[0])) return false;
+    for (s[1..]) |c| {
+        const ok = std.ascii.isAlphanumeric(c) or c == '+' or c == '-' or c == '.';
+        if (!ok) return false;
+    }
+    return true;
+}
+
+/// RFC 3986 path+query alphabet (pchar + "/" + "?"; raw UTF-8 ≥ 0x80
+/// accepted per the official corpus). DEL (0x7F) rejected.
+pub fn validPathWithQuery(s: []const u8) bool {
+    for (s) |c| {
+        const ok = std.ascii.isAlphanumeric(c) or c >= 0x80 or switch (c) {
+            '-', '.', '_', '~', '%', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=', ':', '@', '/', '?' => true,
+            else => false,
+        };
+        if (!ok) return false;
+    }
+    return true;
+}
+
+fn validAuthorityChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or switch (c) {
+        '-', '.', '_', '~', '%', '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
+        else => false,
+    };
+}
+
+/// RFC 3986 authority = [ userinfo "@" ] host [ ":" port ] — reg-name host
+/// (IP-literals are out of the corpus per wasi-http#196), digit-only port.
+pub fn validAuthority(s: []const u8) bool {
+    if (s.len == 0) return false;
+    var rest = s;
+    if (std.mem.findScalarLast(u8, rest, '@')) |at| {
+        for (rest[0..at]) |c| {
+            if (!(validAuthorityChar(c) or c == ':')) return false;
+        }
+        rest = rest[at + 1 ..];
+    }
+    if (std.mem.findScalarLast(u8, rest, ':')) |colon| {
+        const port = rest[colon + 1 ..];
+        if (port.len == 0) return false;
+        for (port) |c| if (!std.ascii.isDigit(c)) return false;
+        rest = rest[0..colon];
+    }
+    if (rest.len == 0) return false;
+    for (rest) |c| if (!validAuthorityChar(c)) return false;
+    return true;
+}
+
+/// The `request-options` resource: three optional transport timeouts.
+pub const HttpRequestOptions = struct {
+    connect_timeout_ns: ?u64 = null,
+    first_byte_timeout_ns: ?u64 = null,
+    between_bytes_timeout_ns: ?u64 = null,
+    /// A child view minted by `request.get-options` rejects sets.
+    immutable: bool = false,
+};
+
+/// The `request` resource (data half; the body stream/future handles are
+/// carried opaquely for the consume-body leg).
+pub const HttpRequest = struct {
+    method: Method = .get,
+    path_with_query: ?[]u8 = null,
+    scheme: ?Scheme = null,
+    authority: ?[]u8 = null,
+    /// Owned children (reps into the ctx tables; immutable once attached).
+    headers_rep: u32,
+    options_rep: ?u32 = null,
+    contents_stream: ?u32 = null,
+    trailers_future: u32 = 0,
+
+    pub fn deinit(self: *HttpRequest, alloc: std.mem.Allocator) void {
+        self.method.deinit(alloc);
+        if (self.path_with_query) |s| alloc.free(s);
+        if (self.scheme) |*sc| sc.deinit(alloc);
+        if (self.authority) |s| alloc.free(s);
+        self.path_with_query = null;
+        self.scheme = null;
+        self.authority = null;
+    }
+};
+
+/// The `response` resource (data half).
+pub const HttpResponse = struct {
+    status: u16 = 200,
+    headers_rep: u32,
+    contents_stream: ?u32 = null,
+    trailers_future: u32 = 0,
+};
+
 // ============================================================
 // Tests
 // ============================================================
@@ -245,6 +390,36 @@ test "fields: ordered storage, case-insensitive access, lowercased copy-all" {
     try testing.expectError(error.Immutable, f.delete(alloc, "foo"));
     try testing.expect(f.has("foo"));
     f.immutable = false;
+}
+
+test "request validators pin the official corpus alphabets" {
+    // method = token; empty rejected.
+    try testing.expect(validMethod("coucou"));
+    try testing.expect(validMethod("GET"));
+    try testing.expect(!validMethod(""));
+    try testing.expect(!validMethod("hey ho"));
+    // scheme: first char alpha, then alnum/+/-/.
+    try testing.expect(validScheme("http"));
+    try testing.expect(validScheme("a+b-c.d2"));
+    try testing.expect(!validScheme("1http"));
+    try testing.expect(!validScheme(""));
+    try testing.expect(!validScheme("ht tp"));
+    // path-with-query: pchar + / + ? + raw UTF-8; DEL and space rejected.
+    try testing.expect(validPathWithQuery("/a/../../bar"));
+    try testing.expect(validPathWithQuery("?foo"));
+    try testing.expect(validPathWithQuery(""));
+    try testing.expect(validPathWithQuery("/caf\xc3\xa9"));
+    try testing.expect(!validPathWithQuery("/a b"));
+    try testing.expect(!validPathWithQuery("/\x7f"));
+    // authority.
+    try testing.expect(validAuthority("user:pass%20@localhost:80"));
+    try testing.expect(validAuthority("1.2.3.4"));
+    try testing.expect(!validAuthority("localhost:what"));
+    try testing.expect(!validAuthority("::"));
+    try testing.expect(!validAuthority(":@"));
+    try testing.expect(!validAuthority("@@"));
+    try testing.expect(!validAuthority(""));
+    try testing.expect(!validAuthority("#"));
 }
 
 test "fields: get-and-delete transfers values out in order" {

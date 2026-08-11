@@ -1168,6 +1168,15 @@ test "wasip3-official: sockets-tcp-connect (incl. explicit-bind connect)" {
 test "wasip3-official: http-fields (fields resource, RFC 9110 validation)" {
     try runOfficialWasip3Test("http-fields");
 }
+test "wasip3-official: http-request (method/scheme/path/authority validation)" {
+    try runOfficialWasip3Test("http-request");
+}
+test "wasip3-official: http-response (status code + immutable headers)" {
+    try runOfficialWasip3Test("http-response");
+}
+test "wasip3-official: http-request-options (timeouts + immutable child)" {
+    try runOfficialWasip3Test("http-request-options");
+}
 test "wasip3-official: sockets-udp-connect" {
     try runOfficialWasip3Test("sockets-udp-connect");
 }

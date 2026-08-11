@@ -966,6 +966,18 @@ pub fn dropEndGuarded(ends: *StreamFutureTable, shared: *SharedTable, handle: u3
             .future => |*f| {
                 if (end.side == .writable) try f.guardWritableDrop();
                 try end.drop(f);
+                // Wake a PARKED WRITER on a reader-drop: its pending write
+                // can never rendezvous, so deliver the DROPPED completion
+                // directly (a request/response owning a transferred
+                // trailers future drops the readable at destruction —
+                // ADR-0205 phase D; without this the guest's wit_future
+                // writer task waits forever → AsyncDeadlock).
+                if (f.pending) |p| {
+                    const peer = try ends.get(p.waitable);
+                    peer.setPendingEvent(.{ .code = futureEventFor(p.side), .index = p.waitable, .payload = (ReturnCode{ .dropped = 0 }).encode() });
+                    peer.state = .idle;
+                    f.pending = null;
+                }
             },
             .subtask => unreachable, // SharedTable never stores .subtask (subtask ends stay unlinked)
         }
