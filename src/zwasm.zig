@@ -426,6 +426,7 @@ test {
     _ = @import("feature/component/async.zig");
     _ = @import("feature/component/value.zig");
     _ = @import("api/component.zig");
+    _ = @import("api/component_wasi_p2.zig");
     _ = @import("api/component_tests.zig");
     _ = @import("api/component_async_tests.zig");
     // ADR-0193 P3: the P3 driver + its 28 async tests compile only at

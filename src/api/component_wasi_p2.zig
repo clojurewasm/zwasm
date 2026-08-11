@@ -884,6 +884,55 @@ fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
     }
 }
 
+test "D-444 II: p2ResourceDrop(HTTP_REQUEST_RT) — releases transferred ends + owned storage" {
+    const Runtime = @import("../runtime/runtime.zig").Runtime;
+    const testing = std.testing;
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+    var rt = Runtime.init(testing.allocator);
+    defer rt.deinit();
+    var caller: Caller = .{ .rt = &rt, .host_data = &ctx };
+
+    // A request carrying transferred body ends + owned headers/uri storage,
+    // exactly the state a guest hands over before dropping the resource.
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    const strm = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    try ctx.pending_reads.put(ctx.alloc, strm.readable, .{ .ptr = 0, .cap = 0 });
+    var flds: p3http.HttpFields = .{};
+    try flds.entries.append(ctx.alloc, .{
+        .name = try ctx.alloc.dupe(u8, "x"),
+        .value = try ctx.alloc.dupe(u8, "y"),
+    });
+    try ctx.http_fields.append(ctx.alloc, flds);
+    try ctx.http_requests.append(ctx.alloc, .{
+        .path_with_query = try ctx.alloc.dupe(u8, "/probe?q=1"),
+        .headers_rep = 0,
+        .contents_stream = strm.readable,
+        .trailers_future = fut.readable,
+    });
+    const h = try ctx.resources.new(WasiP2Ctx.HTTP_REQUEST_RT, 0);
+
+    try p2ResourceDrop(&caller, h);
+
+    // The trailers-future / contents-stream ends are gone from every side
+    // table (the writer-task unblock invariant) and the handle slot is freed.
+    try testing.expect(ctx.host_result_futures.get(fut.readable) == null);
+    try testing.expect(ctx.pending_reads.get(strm.readable) == null);
+    try testing.expectError(async_mod.Error.InvalidHandle, ctx.streams.get(fut.readable));
+    try testing.expectError(async_mod.Error.InvalidHandle, ctx.streams.get(strm.readable));
+    try testing.expectError(resource_table.Error.InvalidHandle, ctx.resources.rep(WasiP2Ctx.HTTP_REQUEST_RT, h));
+    // Owned storage (headers pair + uri string) is freed — enforced by the
+    // testing allocator's leak check at ctx.deinit.
+
+    // A request with NO transferred ends (trailers_future = 0) drops benignly.
+    try ctx.http_requests.append(ctx.alloc, .{ .headers_rep = 99 });
+    const h2 = try ctx.resources.new(WasiP2Ctx.HTTP_REQUEST_RT, 1);
+    try p2ResourceDrop(&caller, h2);
+}
+
 /// True if `inst` exports a function named `name`.
 fn instanceExportsFunc(inst: *Instance, name: []const u8) bool {
     for (inst.handle.exports_storage) |e| {
