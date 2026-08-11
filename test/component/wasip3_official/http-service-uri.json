@@ -1,0 +1,13 @@
+{
+  "proposals": ["http"],
+  "world": "wasi:http/service",
+  "operations": [
+    { "type": "run" },
+    { "type": "request",
+      "method": "GET",
+      "path": "/whoami",
+      "response": { "status": 200 } },
+    { "type": "kill", "signal": "SIGINT" },
+    { "type": "wait" }
+  ]
+}

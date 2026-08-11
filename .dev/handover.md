@@ -36,6 +36,28 @@ publish / cut over. No active campaign; no cron self-re-arm.
 - **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0). `test-aot-diff`
   63/63. Residual = D-515(2) + D-514.
 
+## Active bundle
+
+- **Bundle-ID**: ADR-0205-D3-handler-export
+- **Cycles-remaining**: ~3
+- **Continuity-memo**: http-service/-echo/-uri need (1) `[static]request.consume-body`
+  returning stored contents stream (None → fresh CLOSED stream) + trailers future
+  (harness-minted futures need an ok(none) resolved kind: result disc@0=0 AND
+  option disc@4=0 — plain host_result_futures writes only @0); (2) task-return
+  for `handle` = 8 core params (result<own<response>, error-code> flatten:
+  disc i32 + payload i32 + 6 junk) — current p2TaskReturn is fixed
+  fn(*Caller,i32); canon `task_return.result: ?ValType` (types.zig:347) can
+  select the variant; capture (disc, payload-handle) into ctx; (3) harness
+  drives the `[async-lift]wasi:http/handler@0.3.0#handle` export (entry sig
+  (i32 request)->i32 packed state; driveAsyncMain currently invokes with 0
+  args — needs an args variant + per-request task) with a host-built request
+  (headers+method+path set via existing http3 model), then reads response
+  status/headers + drains its contents stream while driving the scheduler;
+  (4) manifest ops: run / request{method,path,response{status,headers,body}} /
+  kill(SIGINT = just stop) / wait.
+- **Exit-condition**: official http-service + http-service-echo +
+  http-service-uri green in test-wasi-p3.
+
 ## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
 Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).

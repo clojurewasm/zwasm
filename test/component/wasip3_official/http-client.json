@@ -1,0 +1,16 @@
+{
+  "proposals": ["http"],
+  "world": "wasi:http/service",
+  "endpoints": [
+    { "method": "POST", "path": "/echo" }
+  ],
+  "operations": [
+    { "type": "run" },
+    { "type": "request",
+      "method": "GET",
+      "path": "/",
+      "response": { "status": 200 } },
+    { "type": "kill", "signal": "SIGINT" },
+    { "type": "wait" }
+  ]
+}
