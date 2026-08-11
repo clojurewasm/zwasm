@@ -3863,6 +3863,29 @@ fn fs3FailFileStream(ctx: *WasiP2Ctx, end: *async_mod.StreamFutureEnd, role: *Wa
     return (async_mod.ReturnCode{ .dropped = 0 }).encode();
 }
 
+test "D-444 II: fs3FailFileStream — drops the shared stream + resolves the role future" {
+    const testing = std.testing;
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+
+    const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    const end = try ctx.streams.get(pair.readable);
+    var role: WasiP2Ctx.FileStreamRole = .{ .fd = 3, .pos = 0, .result_future = fut.readable };
+
+    const rc = try fs3FailFileStream(&ctx, end, &role, .badf);
+    try testing.expectEqual((async_mod.ReturnCode{ .dropped = 0 }).encode(), rc);
+    try testing.expectEqual(@as(?u8, 2), ctx.host_result_futures.get(fut.readable).?); // badf → ordinal 2
+    try testing.expectEqual(async_mod.CopyState.done, end.state);
+    try testing.expect((try ctx.shared.get(end.shared)).stream.dropped);
+    // A future-kind end is a caller bug, not a stream failure.
+    const fut_end = try ctx.streams.get(fut.readable);
+    try testing.expectError(WasiP2Error.InvalidHandle, fs3FailFileStream(&ctx, fut_end, &role, .badf));
+}
+
 /// `read-directory` (self, retptr) → tuple<stream<directory-entry>, future>:
 /// register a P1 readdir cursor under the stream's shared id; the stream-read
 /// path marshals `directory-entry` records (24 B, align 4: %type@0 (16),
@@ -3923,6 +3946,23 @@ fn defineAsyncLoweredOp(lk: *Linker, ns: []const u8, name: []const u8, op: adapt
         if (op == b[0]) return lk.defineFuncCtx(ns, name, ctx, b[1], b[2]);
     }
     return error.UnsupportedWasiImport;
+}
+
+test "D-444 II: defineAsyncLoweredOp — binds table ops, rejects async-lowering a sync-only op" {
+    const testing = std.testing;
+    var eng = try Engine.init(testing.allocator, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+    var lk = eng.linker();
+    defer lk.deinit();
+
+    try defineAsyncLoweredOp(&lk, "wasi:clocks/monotonic-clock@0.3.0", "wait-until", .clocks_wait_until, &ctx);
+    // An op outside the async table must be rejected, not silently sync-bound
+    // (the fallthrough the classifier's negative path relies on).
+    try testing.expectError(error.UnsupportedWasiImport, defineAsyncLoweredOp(&lk, "wasi:random/random@0.2.3", "get-random-bytes", .random_get_bytes, &ctx));
 }
 
 /// Read up to `count` `directory-entry` records from the P1 readdir cursor at
@@ -4250,6 +4290,24 @@ fn sock3ResolveSendFuture(ctx: *WasiP2Ctx, fut_handle: u32, outcome: ?u8) WasiP2
     end.state = .done;
     end.setPendingEvent(.{ .code = .future_read, .index = fut_handle, .payload = (async_mod.ReturnCode{ .completed = 0 }).encode() });
     _ = ctx.pending_reads.remove(fut_handle);
+}
+
+test "D-444 II: sock3ResolveSendFuture — first outcome wins; no parked read = record only" {
+    const testing = std.testing;
+    var host = try wasi_host.Host.init(testing.allocator);
+    defer host.deinit();
+    var ctx = try WasiP2Ctx.init(testing.allocator, &host);
+    defer ctx.deinit();
+
+    const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+    // No parked read: the outcome is recorded for the later future-read...
+    try sock3ResolveSendFuture(&ctx, fut.readable, 9); // connection-refused
+    try std.testing.expectEqual(@as(?u8, 9), ctx.host_result_futures.get(fut.readable).?);
+    try testing.expectEqual(async_mod.CopyState.idle, (try ctx.streams.get(fut.readable)).state);
+    // ...and a second resolution never overwrites the first (drain-error vs
+    // late-success races collapse to first-wins).
+    try sock3ResolveSendFuture(&ctx, fut.readable, null);
+    try testing.expectEqual(@as(?u8, 9), ctx.host_result_futures.get(fut.readable).?);
 }
 
 /// A writer parked before `tcp.send` registered the socket sink: drain now.
