@@ -8,7 +8,7 @@ zwasm v2 is a ground-up redesign of v1. **v1 ABI compatibility is out of
 scope** — see [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md).
 SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
-## [Unreleased]
+## [2.5.0] - 2026-08-11
 
 ### Added
 
