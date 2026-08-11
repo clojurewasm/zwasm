@@ -42,29 +42,25 @@ Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).
 Conformance = vendored official `prod/testsuite-base` wasip3 binaries
 (`=0.3.0`-pinned, dual-world 0.2+0.3 imports), run by an in-process
 manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
-- **A substrate — DONE/green** (commit 8a793863f): generation-aware dispatch
-  groundwork, timer subtask waitable + `driveScheduler` sleep seam,
-  `wait-until`/`wait-for`, `exit-with-code`. Closes D-524.
-- **B filesystem — DONE/green** (commit 6d95ac124): full `wasi:filesystem@0.3.0`
-  (async-eager metadata family + via-stream data plane + read-directory);
-  generation-aware `WasiGen` dispatch. Official fs corpus 14/14.
+- **A substrate — DONE/green** (8a793863f): timer waitables + scheduler seam +
+  `wait-until`/`wait-for` + `exit-with-code`. Closes D-524.
+- **B filesystem — DONE/green** (6d95ac124): full `wasi:filesystem@0.3.0`;
+  official fs corpus 14/14; generation-aware `WasiGen` dispatch.
 - **C sockets — COMPLETE/green**: official 12/12 on POSIX (control + TCP/UDP
   data planes + ip-name-lookup real DNS). Keys: parked reads EXECUTE at
   readiness, tcp.send future non-eager, stream-drop = SHUT_WR/SHUT_RD,
   udp connect = OS dgram connect, explicit-bind connect = raw posix
   (ADR-0070 amendment; windows carve-out = D-569 skip).
-- **D http IN PROGRESS** (D-568): D-1+D-2 DONE/green — the full
-  `wasi:http/types` surface (fields / request / response / request-options;
-  official http-fields/-request/-response/-request-options 4/4). Model =
-  src/wasi/p3_http.zig; ownership: `new` consumes headers/options owns
-  (immutable after), get-headers/get-options mint VIEW RTs (no-op drop);
-  request/response drop releases transferred body ends; dropEndGuarded now
-  wakes a parked future WRITER on reader-drop (was AsyncDeadlock). Nested
-  lists marshal per-blob (`http3AllocBlob`). NEXT: D-3 handler EXPORT
-  invocation (http-service / -echo / -uri: harness "request" manifest ops →
-  call guest's exported handler.handle with a request resource, verify
-  response; service world has NO cli/run export) → D-5 client.send on
-  std.http.Client (http-client; harness serves `HTTP_ENDPOINT` echo). WIT =
+- **D http IN PROGRESS** (D-568): D-1+D-2 DONE/green — full `wasi:http/types`
+  (official http 4/4). Model = src/wasi/p3_http.zig; `new` consumes
+  headers/options owns (immutable after); get-headers/-options mint VIEW RTs
+  (no-op drop); request/response drop releases transferred body ends;
+  dropEndGuarded wakes a parked future WRITER on reader-drop (was
+  AsyncDeadlock); nested lists marshal per-blob (`http3AllocBlob`).
+  NEXT: D-3 handler EXPORT invocation (http-service / -echo / -uri: manifest
+  "request" ops → call the guest's exported handler.handle; service world has
+  NO cli/run export) → D-5 client.send on std.http.Client (http-client;
+  harness serves `HTTP_ENDPOINT` echo). WIT =
   ~/Documents/OSS/wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit.
 - **E claims sweep** — pending D.
 Official corpus: 41/45 vendored, all green (tcp-connect POSIX-only). 0.3.1
