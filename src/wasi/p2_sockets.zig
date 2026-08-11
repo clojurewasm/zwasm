@@ -426,6 +426,7 @@ pub const TcpSocket = struct {
     /// Socket-backed output-stream `write` (one-shot).
     pub fn send(self: *TcpSocket, io: std.Io, bytes: []const u8) !usize {
         const stream = self.connectedStream() orelse return error.InvalidState;
+        if (builtin.os.tag == .windows) return winAfdSend(stream.socket.handle, bytes);
         const data = [_][]const u8{bytes};
         return io.vtable.netWrite(io.userdata, stream.socket.handle, "", &data, 1);
     }
@@ -818,10 +819,12 @@ fn afdPollOnce(handle: net.Socket.Handle, interest: i16) !bool {
 /// live-port rebind rejected, TIME_WAIT rebind allowed (windows default).
 const AFD_SHARE_UNIQUE: win.AFD.BIND_INFO.MODE = @enumFromInt(0);
 
+const WinAfdResult = struct { status: win.NTSTATUS, information: usize };
+
 /// Issue one AFD ioctl, waiting on an NT event when the asynchronous
 /// endpoint returns PENDING (the D-319 poll path never PENDs because of its
-/// zero timeout; bind/listen/connect can).
-fn winAfdControl(handle: win.HANDLE, code: win.CTL_CODE, in_buf: []const u8, out_buf: []u8) !win.NTSTATUS {
+/// zero timeout; bind/listen/connect/send can).
+fn winAfdControl(handle: win.HANDLE, code: win.CTL_CODE, in_buf: []const u8, out_buf: []u8) !WinAfdResult {
     var event: win.HANDLE = undefined;
     if (win.ntdll.NtCreateEvent(
         &event,
@@ -848,7 +851,7 @@ fn winAfdControl(handle: win.HANDLE, code: win.CTL_CODE, in_buf: []const u8, out
         _ = win.ntdll.NtWaitForSingleObject(event, .FALSE, null);
         status = iosb.u.Status;
     }
-    return status;
+    return .{ .status = status, .information = iosb.Information };
 }
 
 /// NtCreateFile on \Device\Afd\Endpoint with the socket open-packet EA —
@@ -917,7 +920,7 @@ fn winAfdBind(handle: win.HANDLE, addr: net.IpAddress) !net.IpAddress {
     const addr_len = std.Io.Threaded.addressToPosix(&addr, &storage.Address);
     const in_bytes = @as([]const u8, @ptrCast(&storage))[0 .. @offsetOf(Storage, "Address") + addr_len];
     const out_bytes = @as([]u8, @ptrCast(&storage.Address))[0..addr_len];
-    switch (try winAfdControl(handle, win.IOCTL.AFD.BIND, in_bytes, out_bytes)) {
+    switch ((try winAfdControl(handle, win.IOCTL.AFD.BIND, in_bytes, out_bytes)).status) {
         .SUCCESS => {},
         .SHARING_VIOLATION, .ADDRESS_ALREADY_EXISTS => return error.AddressInUse,
         .INVALID_ADDRESS_COMPONENT, .INVALID_ADDRESS => return error.AddressUnavailable,
@@ -935,7 +938,7 @@ fn winAfdListen(handle: win.HANDLE, backlog: u31) !void {
         .MaximumConnectionQueue = backlog,
         .UseDelayedAcceptance = .FALSE,
     };
-    switch (try winAfdControl(handle, win.IOCTL.AFD.START_LISTEN, std.mem.asBytes(&info), &.{})) {
+    switch ((try winAfdControl(handle, win.IOCTL.AFD.START_LISTEN, std.mem.asBytes(&info), &.{})).status) {
         .SUCCESS => {},
         .SHARING_VIOLATION, .ADDRESS_ALREADY_EXISTS => return error.AddressInUse,
         .INSUFFICIENT_RESOURCES => return error.SystemResources,
@@ -951,7 +954,7 @@ fn winAfdConnect(handle: win.HANDLE, addr: net.IpAddress) !void {
     var storage: Storage = .{ .Address = undefined };
     const addr_len = std.Io.Threaded.addressToPosix(&addr, &storage.Address);
     const in_bytes = @as([]const u8, @ptrCast(&storage))[0 .. @offsetOf(Storage, "Address") + addr_len];
-    switch (try winAfdControl(handle, win.IOCTL.AFD.CONNECT, in_bytes, &.{})) {
+    switch ((try winAfdControl(handle, win.IOCTL.AFD.CONNECT, in_bytes, &.{})).status) {
         .SUCCESS => {},
         .INVALID_ADDRESS_COMPONENT, .INVALID_ADDRESS => return error.AddressUnavailable,
         .CONNECTION_REFUSED => return error.ConnectionRefused,
@@ -969,11 +972,35 @@ fn winAfdConnect(handle: win.HANDLE, addr: net.IpAddress) !void {
 fn winAfdGetSockName(handle: win.HANDLE) !net.IpAddress {
     var storage: std.Io.Threaded.PosixAddress = undefined;
     @memset(@as([]u8, @ptrCast(&storage))[0..@sizeOf(std.Io.Threaded.PosixAddress)], 0);
-    switch (try winAfdControl(handle, win.IOCTL.AFD.GET_ADDRESS, &.{}, @as([]u8, @ptrCast(&storage))[0..@sizeOf(std.Io.Threaded.PosixAddress)])) {
+    switch ((try winAfdControl(handle, win.IOCTL.AFD.GET_ADDRESS, &.{}, @as([]u8, @ptrCast(&storage))[0..@sizeOf(std.Io.Threaded.PosixAddress)])).status) {
         .SUCCESS => {},
         else => return error.Unexpected,
     }
     return std.Io.Threaded.addressFromPosix(&storage);
+}
+
+/// IOCTL_AFD_SEND for a connected TCP socket. Why not the stdlib netWrite:
+/// its windows path maps NO failure statuses, so a send racing the peer's
+/// close (STATUS_PIPE_DISCONNECTED etc.) surfaces as error.Unexpected and
+/// the guest sees `other` instead of connection-reset (flaked the official
+/// sockets-tcp-receive under full-suite load).
+fn winAfdSend(handle: win.HANDLE, bytes: []const u8) !usize {
+    const wsabuf = [1]win.AFD.WSABUF(.@"const"){.{ .len = @intCast(bytes.len), .buf = bytes.ptr }};
+    const info: win.AFD.SEND_INFO = .{
+        .BufferArray = &wsabuf,
+        .BufferCount = 1,
+        .AfdFlags = .{ .NO_FAST_IO = true, .OVERLAPPED = true },
+        .TdiFlags = .{},
+    };
+    const r = try winAfdControl(handle, win.IOCTL.AFD.SEND, std.mem.asBytes(&info), &.{});
+    return switch (r.status) {
+        .SUCCESS => r.information,
+        .PIPE_DISCONNECTED, .CONNECTION_RESET, .REMOTE_DISCONNECT => error.ConnectionResetByPeer,
+        .CONNECTION_ABORTED, .LOCAL_DISCONNECT => error.ConnectionAborted,
+        .GRACEFUL_DISCONNECT => error.BrokenPipe,
+        .INSUFFICIENT_RESOURCES => error.SystemResources,
+        else => error.Unexpected,
+    };
 }
 
 /// Windows connect-from-a-bound-address (the stream analogue of
