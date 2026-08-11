@@ -1562,6 +1562,21 @@ fn decodeIpSocketAddress(disc: u32, p: [11]u32) ?std.Io.net.IpAddress {
     }
 }
 
+test "D-444 II: decodeIpSocketAddress — ipv4/ipv6 flat decode, u16 truncation, invalid disc" {
+    // ipv4: p0=port (u16 truncation is the CABI i32→u16 lowering), p1..p4=octets.
+    const v4 = decodeIpSocketAddress(0, .{ 0x0001_2345, 192, 168, 1, 2, 0, 0, 0, 0, 0, 0 }).?;
+    try std.testing.expectEqual(@as(u16, 0x2345), v4.ip4.port);
+    try std.testing.expectEqualSlices(u8, &.{ 192, 168, 1, 2 }, &v4.ip4.bytes);
+    // ipv6: p0=port, p1=flow, p2..p9=segments packed big-endian into bytes.
+    const v6 = decodeIpSocketAddress(1, .{ 0xBEEF, 0x1122_3344, 0x2001, 0x0DB8, 0, 0, 0, 0, 0, 1, 0 }).?;
+    try std.testing.expectEqual(@as(u16, 0xBEEF), v6.ip6.port);
+    try std.testing.expectEqual(@as(u32, 0x1122_3344), v6.ip6.flow);
+    try std.testing.expectEqualSlices(u8, &.{ 0x20, 0x01, 0x0D, 0xB8 }, v6.ip6.bytes[0..4]);
+    try std.testing.expectEqualSlices(u8, &.{ 0x00, 0x01 }, v6.ip6.bytes[14..16]);
+    // Variant has exactly 2 cases; anything else is a decode failure, not a trap.
+    try std.testing.expectEqual(@as(?std.Io.net.IpAddress, null), decodeIpSocketAddress(2, @splat(0)));
+}
+
 /// Write the err-arm of a sockets `result<_, error-code>`: disc 1 at `retptr`,
 /// then the `wasi:sockets/network` error-code ordinal at `retptr + off` (the
 /// payload offset varies with the result's alignment across the tcp methods).
@@ -1731,6 +1746,36 @@ fn writeIpSocketAddressResult(mem: Memory, retptr: u32, addr: std.Io.net.IpAddre
             try mem.write(retptr + 32, @as(u32, 0)); // scope-id (not modeled)
         },
     }
+}
+
+test "D-444 II: writeIpSocketAddressResult — CABI in-memory layout for both address cases" {
+    const Runtime = @import("../runtime/runtime.zig").Runtime;
+    var rt = Runtime.init(std.testing.allocator);
+    defer rt.deinit();
+    rt.memory = try std.testing.allocator.alloc(u8, 64);
+    @memset(rt.memory, 0xAA); // poison so untouched bytes are visible
+    const mem: Memory = .{ .backing = .{ .interp = &rt } };
+
+    try writeIpSocketAddressResult(mem, 0, .{ .ip4 = .{ .port = 0x1234, .bytes = .{ 192, 168, 1, 2 } } });
+    try std.testing.expectEqual(@as(u8, 0), try mem.read(u8, 0)); // result disc = ok
+    try std.testing.expectEqual(@as(u8, 0), try mem.read(u8, 4)); // variant disc = ipv4
+    try std.testing.expectEqual(@as(u16, 0x1234), try mem.read(u16, 8));
+    try std.testing.expectEqualSlices(u8, &.{ 192, 168, 1, 2 }, mem.slice()[10..14]);
+
+    var b16: [16]u8 = undefined;
+    for (0..16) |i| b16[i] = @intCast(i + 1);
+    try writeIpSocketAddressResult(mem, 0, .{ .ip6 = .{ .port = 0xBEEF, .bytes = b16, .flow = 0x1122_3344 } });
+    try std.testing.expectEqual(@as(u8, 1), try mem.read(u8, 4)); // variant disc = ipv6
+    try std.testing.expectEqual(@as(u16, 0xBEEF), try mem.read(u16, 8));
+    try std.testing.expectEqual(@as(u32, 0x1122_3344), try mem.read(u32, 12));
+    // Segments re-compose big-endian from byte pairs: seg0 = 0x0102, seg7 = 0x0F10.
+    try std.testing.expectEqual(@as(u16, 0x0102), try mem.read(u16, 16));
+    try std.testing.expectEqual(@as(u16, 0x0F10), try mem.read(u16, 30));
+    try std.testing.expectEqual(@as(u32, 0), try mem.read(u32, 32)); // scope-id fixed 0
+
+    // Decode/write agree on the big-endian segment convention (round-trip).
+    const back = decodeIpSocketAddress(1, .{ 0xBEEF, 0x1122_3344, 0x0102, 0x0304, 0x0506, 0x0708, 0x090A, 0x0B0C, 0x0D0E, 0x0F10, 0 }).?;
+    try std.testing.expectEqualSlices(u8, &b16, &back.ip6.bytes);
 }
 
 /// `tcp.local-address` (self, retptr) -> result<ip-socket-address, error-code>.
@@ -3912,6 +3957,33 @@ fn sockErrToFs3Code(e: anyerror) u8 {
         error.MessageTooBig, error.MessageOversize => 13,
         else => 14,
     };
+}
+
+test "D-444 II: sockErrToFs3Code — every 0.3 error-code ordinal, incl. the catch-all" {
+    const cases = [_]struct { e: anyerror, code: u8 }{
+        .{ .e = error.AccessDenied, .code = 0 },
+        .{ .e = error.PermissionDenied, .code = 0 },
+        .{ .e = error.Unsupported, .code = 1 },
+        .{ .e = error.InvalidArgument, .code = 2 },
+        .{ .e = error.FamilyMismatch, .code = 2 },
+        .{ .e = error.OutOfMemory, .code = 3 },
+        .{ .e = error.Timeout, .code = 4 },
+        .{ .e = error.WouldBlock, .code = 4 },
+        .{ .e = error.InvalidState, .code = 5 },
+        .{ .e = error.AlreadyBound, .code = 5 },
+        .{ .e = error.NotConnected, .code = 5 },
+        .{ .e = error.AddressNotAvailable, .code = 6 },
+        .{ .e = error.AddressInUse, .code = 7 },
+        .{ .e = error.NetworkUnreachable, .code = 8 },
+        .{ .e = error.HostUnreachable, .code = 8 },
+        .{ .e = error.ConnectionRefused, .code = 9 },
+        .{ .e = error.BrokenPipe, .code = 10 },
+        .{ .e = error.ConnectionResetByPeer, .code = 11 },
+        .{ .e = error.ConnectionAborted, .code = 12 },
+        .{ .e = error.MessageTooBig, .code = 13 },
+        .{ .e = error.Unexpected, .code = 14 }, // catch-all `other`
+    };
+    for (cases) |c| try std.testing.expectEqual(c.code, sockErrToFs3Code(c.e));
 }
 
 /// `result.err(error-code)` for a 0.3 sockets result whose payload slot sits
