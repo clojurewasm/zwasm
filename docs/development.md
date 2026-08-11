@@ -6,9 +6,9 @@ the development environment, this one wins (design/architecture questions are
 owned by [`.dev/ROADMAP.md`](../.dev/ROADMAP.md)).
 
 **The short version: you need Zig 0.16.0. Nothing else.** The authoritative
-test gate is GitHub CI, which runs the full 3-OS matrix on every pull
-request — you do not need multiple machines, SSH hosts, Nix, or any
-maintainer-specific setup to contribute.
+test gate is GitHub CI, which runs the 3-OS matrix on every pull request
+(macOS + Linux blocking, Windows advisory) — you do not need multiple
+machines, SSH hosts, Nix, or any maintainer-specific setup to contribute.
 
 ## Quick start
 
@@ -60,11 +60,15 @@ shells — contributors never need it; the `.wasm` files are committed.
 required **`ci-required`** status check. CI runs
 [`scripts/ci_gate.sh`](../scripts/ci_gate.sh) (fmt + `test-all`, plus
 extended static/build checks) on **all three supported OSes** — macOS
-aarch64, Linux x86_64, Windows x86_64. Green CI is the complete verification
-story; there is no additional hidden gate.
+aarch64, Linux x86_64, Windows x86_64. The macOS and Linux legs are
+blocking; the Windows leg currently runs **advisory** (reported on every PR,
+not merge-blocking — see the `advisory` flag in
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). There is no
+additional hidden gate beyond CI.
 
-Doc-only PRs (Markdown, `docs/`, `.dev/`, `.claude/`) skip the heavy 3-OS
-legs automatically and are gated by the fast `doc-truth` job instead.
+Doc-only PRs (Markdown, `docs/`, `.dev/`, `.claude/`, `LICENSE`) skip the
+heavy 3-OS legs automatically and are gated by the fast `doc-truth` job
+instead.
 
 To run exactly what CI runs, locally, on your own machine:
 

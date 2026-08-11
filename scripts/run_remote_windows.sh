@@ -29,11 +29,17 @@
 # run before `set -e` so the reap's empty-pgrep exits don't abort. A
 # wedged windows test-all (debt D-028 >120 min) is exactly what the
 # bound + next-launch reap defeat; override with REMOTE_GATE_TIMEOUT.
-_og="$(dirname "$0")/orphan_guard.sh"
-[ -f "$_og" ] && source "$_og" && orphan_guard "$0" windowsmini "$@"
+# Per-machine host config FIRST (see dev_hosts.env.example) — resolved
+# via an absolute script dir so any invocation cwd works, and before the
+# orphan guard so the guard reaps SSH clients of the CONFIGURED host.
+_sd="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$_sd/dev_hosts.env" ] && source "$_sd/dev_hosts.env"
+
+_og="$_sd/orphan_guard.sh"
+[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "${ZWASM_WINDOWS_HOST:-windowsmini}" "$@"
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$_sd/.."
 
 # SSH keepalive: a dead local client makes the remote sshd drop the
 # channel — and the remote `zig build` — within ~2 min (the "timeout
@@ -44,8 +50,7 @@ SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 # Maintainer SSH gate — the Windows x86_64 host and its clone path are
 # env-configurable (defaults are the project maintainer's hosts). Point
 # ZWASM_WINDOWS_HOST at your own SSH alias, or set it once in the
-# per-machine scripts/dev_hosts.env (see dev_hosts.env.example).
-[ -f "$(dirname "$0")/dev_hosts.env" ] && source "$(dirname "$0")/dev_hosts.env"
+# per-machine scripts/dev_hosts.env (sourced above).
 HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
 REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
 REMOTE_BRANCH="main"
@@ -59,8 +64,11 @@ if [ "${1:-}" = "--branch" ]; then
 fi
 STEP="${1:-test-all}"
 
-echo "[run_remote_windows] sync windowsmini:~/$REMOTE_DIR to origin/$REMOTE_BRANCH ..."
-ssh $SSH_OPTS "$HOST" bash -lc "'cd $REMOTE_DIR && git fetch origin $REMOTE_BRANCH && git checkout $REMOTE_BRANCH && git reset --hard origin/$REMOTE_BRANCH'"
+echo "[run_remote_windows] sync $HOST:~/$REMOTE_DIR to origin/$REMOTE_BRANCH ..."
+if ! ssh $SSH_OPTS "$HOST" bash -lc "'cd $REMOTE_DIR && git fetch origin $REMOTE_BRANCH && git checkout $REMOTE_BRANCH && git reset --hard origin/$REMOTE_BRANCH'"; then
+    echo "[run_remote_windows] FAIL: sync — could not reach/sync '$HOST'. NOTE: this local fan-out is OPTIONAL (CI runs the 3-OS gate on every PR); to use your own host, configure scripts/dev_hosts.env (see dev_hosts.env.example)" >&2
+    exit 1
+fi
 
 # `build` is the implicit (default) step in build.zig — invoking
 # `zig build build` errors. Map the human-friendly arg to no step.

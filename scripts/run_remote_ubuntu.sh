@@ -41,14 +41,20 @@
 # line on stderr before exiting, so the autonomous loop's log
 # scan localises which phase broke without re-running.
 
+# Per-machine host config FIRST (see dev_hosts.env.example) — resolved
+# via an absolute script dir so any invocation cwd works, and before the
+# orphan guard so the guard reaps SSH clients of the CONFIGURED host.
+_sd="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$_sd/dev_hosts.env" ] && source "$_sd/dev_hosts.env"
+
 # Orphan guard — reap prior orphans + self-bound under timeout before
 # any work (see scripts/orphan_guard.sh + orphan_prevention.md). Must
 # run before `set -e` so the reap's empty-pgrep exits don't abort.
-_og="$(dirname "$0")/orphan_guard.sh"
-[ -f "$_og" ] && source "$_og" && orphan_guard "$0" ubuntunote "$@"
+_og="$_sd/orphan_guard.sh"
+[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "${ZWASM_UBUNTU_HOST:-ubuntunote}" "$@"
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$_sd/.."
 
 # SSH keepalive: a dead local client (parent-session kill / timeout)
 # makes the remote sshd drop the channel — and the remote `zig build` —
@@ -59,8 +65,7 @@ SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 # Maintainer SSH gate — the Linux x86_64 host and its clone path are
 # env-configurable (defaults are the project maintainer's hosts). Point
 # ZWASM_UBUNTU_HOST at your own SSH alias, or set it once in the
-# per-machine scripts/dev_hosts.env (see dev_hosts.env.example).
-[ -f "$(dirname "$0")/dev_hosts.env" ] && source "$(dirname "$0")/dev_hosts.env"
+# per-machine scripts/dev_hosts.env (sourced above).
 HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
 REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
 REMOTE_BRANCH="main"
@@ -94,7 +99,7 @@ ssh $SSH_OPTS "$HOST" bash -lc "'
     case "$rc" in
         11) die_step "preflight — remote clone $REMOTE_DIR missing (see .dev/ubuntunote_setup.md)" ;;
         12) die_step "preflight — nix not in remote PATH (Determinate Nix install / profile missing)" ;;
-        *)  die_step "preflight — ssh exit $rc (host unreachable, key auth, …)" ;;
+        *)  die_step "preflight — ssh exit $rc reaching '$HOST' (host unreachable, key auth, …). NOTE: this local fan-out is OPTIONAL (CI runs the 3-OS gate on every PR); to use your own host, configure scripts/dev_hosts.env (see dev_hosts.env.example)" ;;
     esac
 }
 

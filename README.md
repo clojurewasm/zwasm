@@ -218,7 +218,7 @@ docs/        Migration guide + design docs
 scripts/     gate_commit, zone_check, file_size_check, bench, run_remote_*
 test/        per-layer suites; unified `zig build test-all`
 bench/       benchmark history (append-only)
-private/     gitignored agent scratch
+private/     gitignored maintainer scratch (never required; docs/development.md)
 ```
 
 ## Documentation
