@@ -62,40 +62,17 @@ SO_REUSEPORT and Linux caches `fastreuseport` at first bind; spike
 - **Bundle-ID**: wasi03-win-port
 - **Cycles-remaining**: ~1 (code DONE — remaining: 3-OS full-gate pass + PR)
 - **Continuity-memo**: windowsmini p3off.log "All 48 tests passed." (0 skip —
-  D-569 discharged too) + `[run_remote_*] OK` on all 3 hosts
-- **Goal**: official corpus green on windows (user: 全部実装しきる → PR →
-  CI 3-OS green → user merge). ACHIEVED at source level: baseline 10 fails
-  all fixed + the D-569 explicit-bind connect implemented via the own AFD
-  layer (winOpenSocketAfd/winAfdBind UNIQUE-share/winAfdConnect/
-  winAfdGetSockName — GET_ADDRESS returns a plain sockaddr at offset 0);
-  NT hardlink via FILE_LINK_INFORMATION (FileName at its field offset 20,
-  NOT @sizeOf — a misplace silently creates a garbage-named link);
-  empty-path→noent pre-OS; stream connect owns AFD too (stdlib maps no
-  failure statuses → ConnectionRefused was Other). Docs/claims flipped to
-  3-OS; D-568+D-569 discharged.
-- **Root causes (surveyed — wasmtime digest + official test sources)**:
-  (1) pinned stdlib `dirHardLink` = windows `OperationUnsupported` → implement
-  NT `FILE_LINK_INFORMATION` via `NtSetInformationFile` (dirfd-relative;
-  dir-source → Access; is-same-object/metadata-hash unblock via hardlink since
-  windows stat already fills real `inode`); (2) empty-path `""` must be
-  `.noent` PRE-OS (NT resolves `""` to the dir handle itself → wrong
-  Io/IsDirectory; POSIX kernel returned ENOENT for us) — fixes open-errors +
-  unlink-errors; (3) stdlib `netListenIpWindows` binds AFD ShareType=1
-  (=SHARE_REUSE → squatter bind on live listener wrongly succeeds; zig enum
-  names {Unix,Passive,Active} mislead — real semantics UNIQUE/REUSE/WILDCARD)
-  and `netConnectIpWindows` sets SO_REUSE_UNICASTPORT which AFD rejects
-  INVALID_PARAMETER on dgram → own AFD layer (winOpenSocketAfd/winAfdBind
-  share-UNIQUE/winAfdConnect/winAfdListen) reusing the D-319 afdPollOnce ioctl
-  machinery + event-wait on PENDING (NtCreateEvent/NtWaitForSingleObject);
-  bind status INVALID_ADDRESS_COMPONENT → AddressUnavailable
-  (→ address-not-bindable, official sockets-udp-bind doc-addr).
+  D-568 AND D-569 discharged) + `[run_remote_*] OK` on all 3 hosts
+- **Goal**: official corpus green on windows (user: 全部実装しきる → PR → CI
+  3-OS green → user merge). ACHIEVED at source level (d5b81f7e3): all 10
+  baseline fails fixed + explicit-bind/stream connect via the own AFD layer.
+  Full root-cause record = ADR-0205 phase F; mechanism notes live as code
+  comments in `p2_sockets.zig` (AFD section) + `path.zig` (winPathLink).
 - **Iteration loop**: Mac cross-build
   `zig build test-wasi-p3 -Dtarget=x86_64-windows-gnu -Dtest-filter=wasip3-official`
-  (run-step fails on mac = expected; exe under .zig-cache) → scp to
-  windowsmini:Documents/MyProducts/zwasm/p3off.exe → ssh run from repo root →
-  read p3off.log. wasmtime refs: filesystem.rs:429-457 win err table,
-  filesystem/windows.rs:73-106 identity, sockets/mod.rs:315-393 errno table.
-- **Exit-condition**: windowsmini official corpus 47/48 (only D-569 skip) +
+  (run-step fails on mac = expected) → scp exe → windowsmini p3off.exe →
+  read p3off.log.
+- **Exit-condition**: official corpus 0-fail 0-skip on windowsmini (MET) +
   test-all green on all 3 hosts → PR to main.
 
 ## Operational invariants (keep using)
