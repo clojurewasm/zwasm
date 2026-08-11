@@ -64,7 +64,9 @@ echo "[gate_merge] AOT cross-compile portability (§12.3) ..."
 bash scripts/check_aot_cross_compile.sh
 
 # The Linux/Windows SSH hosts default to the maintainer's aliases; override
-# with ZWASM_UBUNTU_HOST / ZWASM_WINDOWS_HOST to run the gate on your own hosts.
+# with ZWASM_UBUNTU_HOST / ZWASM_WINDOWS_HOST, or set them once in the
+# per-machine scripts/dev_hosts.env (see dev_hosts.env.example).
+[ -f "$(dirname "$0")/dev_hosts.env" ] && source "$(dirname "$0")/dev_hosts.env"
 UBUNTU_HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
 WINDOWS_HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
 

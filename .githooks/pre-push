@@ -19,13 +19,11 @@
 # - check_skip_taxonomy_pairing validates Paired-artifact resolution
 #   (catches missing ADR file refs).
 #
-# The full 3-host merge gate (Mac + ubuntunote + windowsmini
-# test-all) lives in `scripts/gate_merge.sh` and is invoked
-# **manually** for `main` pushes (A13 merge gate), and by CI on the
-# pull_request from a `develop/*` feature branch. Per-push to a
-# feature branch does NOT run the merge gate — per-chunk
-# Mac + ubuntunote (background, ADR-0076 D3) is the autonomous
-# discipline.
+# The authoritative merge gate is GitHub CI's `ci-required` (3-OS,
+# every PR). `scripts/gate_merge.sh` is an OPTIONAL local pre-flight
+# mirroring it across a personal SSH host farm (hosts configurable via
+# scripts/dev_hosts.env — see dev_hosts.env.example / ADR-0206); this
+# hook never invokes it.
 #
 # Skipping the hook with `git push --no-verify` is forbidden by
 # ROADMAP §14.
@@ -34,10 +32,6 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
-
-# (check_subrow_exit --gate retired: it was a §9.12-X campaign chunk-close
-# ratchet that misfired on the v1→v2 merge and normal `main` pushes; the
-# campaign is complete, so the gate is dormant/obsolete.)
 
 if [ -x scripts/check_skip_impl_ratchet.sh ]; then
     echo "[pre-push] check_skip_impl_ratchet --gate ..."

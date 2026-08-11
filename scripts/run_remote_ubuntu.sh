@@ -58,7 +58,9 @@ SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 
 # Maintainer SSH gate — the Linux x86_64 host and its clone path are
 # env-configurable (defaults are the project maintainer's hosts). Point
-# ZWASM_UBUNTU_HOST at your own SSH alias to run the gate elsewhere.
+# ZWASM_UBUNTU_HOST at your own SSH alias, or set it once in the
+# per-machine scripts/dev_hosts.env (see dev_hosts.env.example).
+[ -f "$(dirname "$0")/dev_hosts.env" ] && source "$(dirname "$0")/dev_hosts.env"
 HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
 REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
 REMOTE_BRANCH="main"

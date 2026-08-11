@@ -13,7 +13,10 @@ set -euo pipefail
 
 LOCAL_DIR="${1:-test/private/d-165}"
 WAIT_SEC="${2:-3}"
-REMOTE_DIR="Documents/MyProducts/zwasm/test/private/d-165"
+[ -f "$(dirname "$0")/../dev_hosts.env" ] && source "$(dirname "$0")/../dev_hosts.env"
+WIN_HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
+WIN_REPO="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+REMOTE_DIR="$WIN_REPO/test/private/d-165"
 LOG="/tmp/d165-attach.log"
 
 if [ ! -d "$LOCAL_DIR/fac" ]; then
@@ -22,7 +25,7 @@ if [ ! -d "$LOCAL_DIR/fac" ]; then
 fi
 
 # Sync the manifest dir contents to windowsmini.
-scp -q -r "$LOCAL_DIR/fac/" "windowsmini:$REMOTE_DIR/" >&2
+scp -q -r "$LOCAL_DIR/fac/" "$WIN_HOST:$REMOTE_DIR/" >&2
 
 # Build a remote bash script (single-quoted heredoc so $vars resolve on remote).
 # 1. Find newest runner exe
@@ -31,9 +34,9 @@ scp -q -r "$LOCAL_DIR/fac/" "windowsmini:$REMOTE_DIR/" >&2
 # 4. tasklist → Win-native PID
 # 5. lldb -b -p WPID with dump commands
 # 6. taskkill
-ssh windowsmini bash -lc "'
+ssh "$WIN_HOST" bash -lc "'
   set +e
-  cd ~/Documents/MyProducts/zwasm
+  cd ~/$WIN_REPO
   EXE=\$(ls -t .zig-cache/o/*/zwasm-spec-wasm-2-0-assert.exe | head -1)
   echo === Runner: \$EXE ===
   rm -f /tmp/d165-run.log

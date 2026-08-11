@@ -12,6 +12,13 @@
 #
 # Discipline reference: .claude/rules/yaml_ssot_yq.md.
 set -euo pipefail
+
+# yq (mikefarah v4) is not part of the base toolchain (Zig-only clones lack
+# it). Absent -> SKIP with a pointer, never a bash stack trace (ADR-0206).
+if ! command -v yq >/dev/null 2>&1; then
+  echo "[check_debt_yaml] SKIP — yq (mikefarah v4) not found; install it (https://github.com/mikefarah/yq) or use 'nix develop'" >&2
+  exit 0
+fi
 cd "$(dirname "$0")/.."
 
 GATE=0

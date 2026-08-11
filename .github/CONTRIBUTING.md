@@ -42,7 +42,8 @@ Releases (tags / published artifacts) are cut manually by the maintainer only.
 
 ## Building and testing (for trying it locally / forking)
 
-zwasm targets **Zig 0.16.0** (pinned). With Zig on your `PATH`:
+zwasm targets **Zig 0.16.0** (pinned) and needs nothing else. With Zig on
+your `PATH`:
 
 ```sh
 zig build              # compile the zwasm CLI + library
@@ -51,15 +52,12 @@ zig build test-all     # all enabled test layers
 zig fmt src/           # format
 ```
 
-The differential and spec suites additionally use
-[`wasmtime`](https://wasmtime.dev/) as a reference oracle when it is present;
-without it those comparisons are skipped, not failed. The committed test
-corpus (spec suite + real-world `.wasm` fixtures) runs with **no extra
-toolchain** — only Zig (and optionally wasmtime). Regenerating the fixtures
-from source needs the Nix `gen` shell and is a maintainer task.
-
-A reproducible dev shell is provided via [`flake.nix`](../flake.nix)
-(`nix develop`), pinned to the same Zig version.
+**[`docs/development.md`](../docs/development.md) is the full development
+reference** — test layers, optional tools (wasmtime oracle, Nix shells,
+`yq`), git-hook activation, and an explicit list of the maintainer-only
+things you do NOT need (SSH gate hosts, `private/`, fixture-regeneration
+toolchains). CI runs the complete 3-OS gate on every PR, so a single
+machine of any supported OS is enough to contribute.
 
 See [`docs/tutorial.md`](../docs/tutorial.md) to build, run, and embed zwasm.
 

@@ -13,7 +13,7 @@ Project-level design and operational metadata. Tracked in git. English.
 > files also carry maintainer-workflow bookkeeping (gate hosts, session
 > handover) that only concerns day-to-day development.
 
-## Always present (load-bearing)
+## Always present (load-bearing project record)
 
 - [`ROADMAP.md`](./ROADMAP.md) — **the** authoritative mission, principles,
   architecture, phase plan, success criteria, and quality-gate timeline.
@@ -25,18 +25,23 @@ Project-level design and operational metadata. Tracked in git. English.
   tracking. Reviewed quarterly. v2 implements Phase 5 (= Wasm 3.0)
   proposals; lower phases are watched but not implemented unless
   promoted.
-- [`ubuntunote_setup.md`](./ubuntunote_setup.md) — canonical
-  per-chunk Linux x86_64 gate-host setup (native via SSH, per
-  ADR-0067).
-- [`windows_ssh_setup.md`](./windows_ssh_setup.md) —
-  phase-boundary Windows x86_64 reconcile host setup.
-- [`orbstack_setup.md`](./orbstack_setup.md) — retained for
-  Mac-local interactive dev-scratch use only (NOT in the
-  per-chunk gate post-ADR-0067).
 - [`decisions/`](./decisions/) — Architectural Decision Records.
   - `README.md` — convention.
   - `0000_template.md` — copy this when adding a new ADR.
   - `NNNN_<slug>.md` — accumulated decisions.
+
+## Maintainer-host setup (OPTIONAL — GitHub CI is the merge gate)
+
+These document the maintainer's private multi-OS host farm, a pre-PR mirror
+of what CI runs anyway (ADR-0076 D9, ADR-0206). A contributor never needs
+them; see [`docs/development.md`](../docs/development.md).
+
+- [`ubuntunote_setup.md`](./ubuntunote_setup.md) — Linux x86_64 SSH gate
+  host (host alias overridable via `ZWASM_UBUNTU_HOST`).
+- [`windows_ssh_setup.md`](./windows_ssh_setup.md) — Windows x86_64 SSH gate
+  host (`ZWASM_WINDOWS_HOST`).
+- [`orbstack_setup.md`](./orbstack_setup.md) — ARCHIVED (Mac-local scratch
+  only, retired from the gate per ADR-0067).
 
 ## Created on demand (do NOT pre-create as empty stubs)
 
