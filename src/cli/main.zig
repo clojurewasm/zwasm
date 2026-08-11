@@ -1,3 +1,4 @@
+// TEST-DISCOVERY-EXEMPT: tested as its own root module by build.zig's cli_tests (exe_mod addTest) — outside the core_p3 listing that check_test_discovery.sh compares against.
 //! `zwasm` CLI exe entry.
 //!
 //! Per ADR-0024 D-4: lives at `src/cli/main.zig` (not at the

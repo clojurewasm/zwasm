@@ -102,6 +102,9 @@ jobs:
       - name: WASI 0.3 coverage claims
         shell: bash
         run: bash scripts/check_wasi03_coverage_claims.sh --gate
+      - name: Doc fossils (prerelease pins + dead script refs)
+        shell: bash
+        run: bash scripts/check_doc_fossils.sh --gate
 
   gate:
     name: gate (${{ matrix.name }})

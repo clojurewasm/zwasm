@@ -158,6 +158,8 @@ else
 
     echo "[gate_commit] file_size_check --gate ..."
     bash scripts/file_size_check.sh --gate
+    echo "[gate_commit] file_growth_ratchet --gate ..."
+    bash scripts/file_growth_ratchet.sh --gate
 
     # D-505: spill-aware op-handler convention (bare resolveGpr/Fp on a spilled
     # vreg → UnsupportedOp JIT-reject). Cheap pure-awk walk of the codegen
