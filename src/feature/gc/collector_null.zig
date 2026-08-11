@@ -9,9 +9,9 @@
 //! per ADR-0115 §10) reuses the same vtable shape in subsequent
 //! bundle cycles.
 //!
-//! Selection: `-Dgc-collector=null` build-option (cycle 5+
-//! adds the build-option dispatch). For cycle 4 the null
-//! collector is the only impl; tests construct it directly.
+//! Selection is programmatic (construct the impl directly);
+//! the once-planned `-Dgc-collector` build option was never
+//! introduced (cf. ADR-0115 revision note).
 //!
 //! Zone 1 (`src/feature/gc/`).
 

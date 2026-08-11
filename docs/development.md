@@ -26,6 +26,25 @@ zig fmt src/             # format before committing
 [ziglang.org/download](https://ziglang.org/download/) or via the Nix shell
 below.
 
+## Build options
+
+The complete `-D` surface (`zig build --help` is always authoritative):
+
+| Option | Values (default first) | Effect |
+|---|---|---|
+| `-Dwasm` | `v3_0` / `v2_0` / `v1_0` | Wasm spec level; lower levels strip later proposals (incl. GC/EH at `v1_0`/`v2_0`) via compile-time DCE |
+| `-Dwasi` | `p2` / `p3` / `p1` / `none` | Ordered WASI tier. `p2` = Component Model + WASI-P2 host; `p3` adds Preview-3 native async; `p1` is the lean opt-out (strips the whole component subsystem) |
+| `-Dengine` | `both` / `jit` / `interp` | Engine selection compiled in |
+| `-Dstrip` | `false` / `true` | Strip debug info from the CLI binary |
+| `-Dsanitize` | `off` / `address` / `thread` | ASan+UBSan / TSan (Mac + Linux only — a Windows target rejects a non-`off` value at configure time rather than silently building unsanitized) |
+| `-Dcompiler-rt` | `false` / `true` | Bundle Zig compiler-rt into `libzwasm.a` for non-Zig linkers (`__zig_probe_stack` etc.) |
+| `-Dtrace-ringbuffer` | `false` / `true` | Compile in the diagnostic trace ringbuffer |
+| `-Dtrace-stackprobe` | `false` / `true` | Compile in the JIT stack-probe diagnostic prints |
+| `-Dtest-filter` | (string) | Run only matching tests in `zig build test-wasi-p3` |
+
+There is no separate GC flag: WasmGC ships with `-Dwasm=v3_0` (the default),
+and the wasm level is the strip lever.
+
 ## Tools: required vs optional
 
 | Tool | Status | Used for |

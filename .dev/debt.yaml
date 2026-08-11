@@ -258,8 +258,12 @@ entries:
       entries; D-335 REMAINING(2); D-523 (test-side)
   - id: "D-525"
     layer: "build"
-    status: "note"
+    status: "resolved"
     description: |-
+      RESOLVED 2026-08-12 (sweep S2): option (b) — the -Dgc flag, its
+      build_options.enable_gc threading, and the register.zig re-export are
+      retired; ADR-0115 carries the revision note. The strip lever is and
+      stays -Dwasm (wasm-level DCE). Original row:
       The `-Dgc` build option is INERT: `build.zig` threads it to
       `build_options.enable_gc`, whose only reader is the
       `src/feature/gc/register.zig` re-export that nothing consumes —
