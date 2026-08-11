@@ -57,11 +57,15 @@ vtable pattern applied at file level; all files stay Zone 3 `src/api/`):
 
 ### Migration sequence (each step lands green: `test` + `test-wasi-p3` + corpus)
 
-- **M1**: extract (a); introduce `P3Hooks` at the three reverse-dep sites;
-  (b) (still holding P2+P3 trampolines) installs hooks at build time.
-- **M2**: extract (c) + `installP3Hooks`; classifier gains the P3 registration
-  fn; compat re-exports land in (b).
-- **M3**: measure; sub-split (b)'s P2 fs / sockets clusters ONLY on a positive
+- **M1**: introduce `P3Hooks` IN-FILE — route the three reverse-dep call sites
+  through `ctx.p3_hooks`; `WasiP2Ctx.init` self-installs while co-located, so
+  every existing test exercises the indirection with zero call-site churn.
+- **M2**: extract (c) + move hook installation to its `installP3Hooks`
+  (called by `buildWasiP2Component`); classifier gains the P3 registration fn;
+  compat re-exports land in (b). Direct P3 calls remaining in substrate code
+  surface as compile errors here and are hook-routed on the spot.
+- **M3**: extract (a); (b) keeps P2 trampolines + orchestration.
+- **M4**: measure; sub-split (b)'s P2 fs / sockets clusters ONLY on a positive
   ADR-0099 condition, else honest `FILE-SIZE-EXEMPT` markers.
 
 ### Invariants (anti-regression)
