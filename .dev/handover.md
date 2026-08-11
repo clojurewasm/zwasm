@@ -87,7 +87,7 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 - **D-477/D-478** JIT slivers (build-on-demand); **D-475 residual**
   spec-harness register-table wiring; **D-502** CM string encodings;
   **D-444** split `component_wasi_p2.zig` (grew again in wasi03);
-  **D-526** doc-staleness sweep; D-305/D-464/D-462 long-tail.
+  **D-526** doc-staleness sweep; D-464 long-tail.
 - G-senior-gap G1/G2/G3 COMPLETE
   (`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`).
 
