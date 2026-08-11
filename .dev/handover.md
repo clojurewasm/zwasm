@@ -81,8 +81,8 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 - **Done**: coverage map (12 pub symbols to preserve); II-1+II-2a pinned
   (`3c935b12a`, `6fc672a30` — the latter also FIXED dead test discovery:
   component_wasi_p2.zig in-file tests never ran; S5 gains a discovery-guard axis)
-- **Next**: IV-M1 — P3Hooks struct + route the ~10 reverse-dep call sites
-  (p2ResourceDrop×4, engine×5, pollBlockedUdpReceives×1); init self-installs
+- **Next**: IV-M2 — git mv → component_wasi_ctx.zig + recreate p2 as facade
+  (M1 hooks landed `86a2381e5`; then M3 per-cluster moves, straddlers stay pub in ctx)
 
 ## Operational invariants (keep using)
 

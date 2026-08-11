@@ -60,13 +60,21 @@ vtable pattern applied at file level; all files stay Zone 3 `src/api/`):
 - **M1**: introduce `P3Hooks` IN-FILE — route the three reverse-dep call sites
   through `ctx.p3_hooks`; `WasiP2Ctx.init` self-installs while co-located, so
   every existing test exercises the indirection with zero call-site churn.
-- **M2**: extract (c) + move hook installation to its `installP3Hooks`
-  (called by `buildWasiP2Component`); classifier gains the P3 registration fn;
-  compat re-exports land in (b). Direct P3 calls remaining in substrate code
-  surface as compile errors here and are hook-routed on the spot.
-- **M3**: extract (a); (b) keeps P2 trampolines + orchestration.
+- **M2**: `git mv component_wasi_p2.zig component_wasi_ctx.zig` (blame-
+  preserving) + recreate `component_wasi_p2.zig` as a pure re-export facade —
+  zero decl motion, all external importers untouched, net green.
+- **M3**: move decls OUT of (a) in per-cluster chunks, each chunk green:
+  P2 trampoline clusters + classifier/orchestration → (b); fs3 / sock3 /
+  http3 + `defineAsyncLoweredOp` + `installP3Hooks` (hook installation
+  leaves `init` here) → (c). Straddling helpers (`descriptorFilestat` /
+  `pathFilestat`, `decode`/`writeIpSocketAddress`, ctx accessors) STAY in
+  (a) as `pub` — that is what makes the import graph acyclic:
+  (b)→(a),(c); (c)→(a); (a)→neither (hooks cover a→P3).
 - **M4**: measure; sub-split (b)'s P2 fs / sockets clusters ONLY on a positive
   ADR-0099 condition, else honest `FILE-SIZE-EXEMPT` markers.
+  (`defineSynth`'s home is decided by its references at move time: if it
+  names trampoline fns it goes to (b) with the binding layer, Context §1's
+  substrate listing notwithstanding.)
 
 ### Invariants (anti-regression)
 
