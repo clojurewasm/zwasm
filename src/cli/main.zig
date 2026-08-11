@@ -16,7 +16,7 @@
 //!                             export; exit with the guest's
 //!                             `proc_exit` code.
 //!   run --invoke <name>       Invoke the named func export (zero-args)
-//!   run --engine <interp|jit> Engine: default (omitted) = auto, prefers JIT
+//!   run --engine <auto|interp|jit> Engine: default auto, prefers JIT
 //!                             with interp fallback; interp|jit force one — BOTH do full
 //!                             WASI (D-244); jit additionally executes SIMD
 //!                             (the interp does not). `--engine=jit` accepted.
@@ -157,10 +157,15 @@ pub fn main(init: std.process.Init) !void {
                         a[eq.len..]
                     else
                         arg_it.next() orelse {
-                            try printlnErr(io, "usage: zwasm run --engine <interp|jit> <path.wasm> [args...]");
+                            try printlnErr(io, "usage: zwasm run --engine <auto|interp|jit> <path.wasm> [args...]");
                             std.process.exit(2);
                         };
-                    if (std.mem.eql(u8, mode, "jit")) {
+                    if (std.mem.eql(u8, mode, "auto")) {
+                        // Explicit spelling of the default: JIT-preferring
+                        // with interp fallback (last flag wins).
+                        engine_jit = false;
+                        limits.engine = .auto;
+                    } else if (std.mem.eql(u8, mode, "jit")) {
                         engine_jit = true;
                         // Last flag wins: undo a preceding `--engine interp`'s
                         // sticky force (read by the cache + .cwasm gates).
@@ -171,7 +176,7 @@ pub fn main(init: std.process.Init) !void {
                         // JIT, so an EXPLICIT `--engine interp` must force interp.
                         limits.engine = .interp;
                     } else {
-                        try printlnErr(io, "zwasm run: --engine must be 'interp' or 'jit'");
+                        try printlnErr(io, "zwasm run: --engine must be 'auto', 'interp' or 'jit'");
                         std.process.exit(2);
                     }
                     next_arg = arg_it.next();
@@ -258,7 +263,7 @@ pub fn main(init: std.process.Init) !void {
                 } else break;
             }
             const path_arg = next_arg orelse {
-                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] [--max-table-elements <N>] [--cache[=DIR]] [--cache-clear] <path.wasm> [args...]");
+                try printlnErr(io, "usage: zwasm run [--invoke <name>] [--engine <auto|interp|jit>] [--dir <host>[:<guest>]] [--env KEY=VAL] [--fuel <N>] [--timeout <ms>] [--max-memory <bytes>] [--max-table-elements <N>] [--cache[=DIR]] [--cache-clear] <path.wasm> [args...]");
                 std.process.exit(2);
             };
             const path = try gpa.dupe(u8, path_arg);
@@ -399,6 +404,12 @@ pub fn main(init: std.process.Init) !void {
         }
         if (std.mem.eql(u8, subcmd, "compile")) {
             const code = cli_compile.run(gpa, io, &arg_it) catch |err| {
+                if (err == error.UsageError) {
+                    // Usage errors exit 2 uniformly across subcommands.
+                    // EXEMPT-FALLBACK: ADR-0016 phase 1 — usage-line stderr report is last-resort; the process exits 2 regardless.
+                    printlnErr(io, "usage: zwasm compile <file.wasm> -o <out.cwasm>") catch {};
+                    std.process.exit(2);
+                }
                 var buf: [256]u8 = undefined;
                 const msg = std.fmt.bufPrint(&buf, "zwasm compile: {s}", .{@errorName(err)}) catch "zwasm compile: failed";
                 // EXEMPT-FALLBACK: ADR-0016 phase 1 — compile-error stderr report is last-resort; the process exits 1 regardless.

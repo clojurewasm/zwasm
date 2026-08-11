@@ -47,7 +47,7 @@ pub const usage =
     \\Usage:
     \\  zwasm run <file.wasm|file.cwasm> [args...]   Run a module (WASI _start / main)
     \\    [--invoke <name>[=a,b,...]]                Invoke a named export (optional call args)
-    \\    [--engine <interp|jit>]                    Engine: default auto (prefers JIT, interp fallback); interp|jit force one (both full WASI; jit adds SIMD)
+    \\    [--engine <auto|interp|jit>]                    Engine: default auto (prefers JIT, interp fallback); interp|jit force one (both full WASI; jit adds SIMD)
     \\    [--dir <host>[:<guest>]]                   Preopen a host directory for WASI
     \\    [--env <KEY=VAL>]                          Set an environment variable for the guest
     \\    [--fuel <N>]                               Trap after a fuel budget (units are engine-specific:
