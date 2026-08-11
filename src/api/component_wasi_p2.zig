@@ -76,6 +76,18 @@ pub const TcpTxRole = struct { rep: u32, fut: u32 };
 pub const ParkedUdpReceive = struct { rep: u32, retptr: u32 };
 /// Harness-supplied request-body bytes served to guest stream reads.
 pub const HostBodyBytes = struct { data: []u8, pos: usize = 0 };
+/// A parked `wasi:http/client.send` (ADR-0205 D-5): the request rep, the
+/// async call's retptr, its subtask waitable, and the request body being
+/// collected via a capture sink. The blocking HTTP exchange runs once the
+/// guest closes its body stream (`pollPendingClientSends`). Heap-allocated
+/// — the capture sink holds a pointer to `body`.
+pub const PendingClientSend = struct {
+    req_rep: u32,
+    retptr: u32,
+    subtask: u32,
+    body: std.ArrayList(u8) = .empty,
+    body_shared: ?u32 = null,
+};
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -195,6 +207,9 @@ pub const WasiP2Ctx = struct {
     /// stream appends to the harness's buffer and completes — how the
     /// harness collects a response body without a host-side stream reader.
     host_capture_sinks: std.AutoHashMapUnmanaged(u32, *std.ArrayList(u8)) = .empty,
+    /// Parked `client.send` calls awaiting their request body (ADR-0205
+    /// D-5); resolved by `pollPendingClientSends`.
+    pending_client_sends: std.ArrayList(*PendingClientSend) = .empty,
     host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_tx: std.AutoHashMapUnmanaged(u32, TcpTxRole) = .empty,
@@ -313,6 +328,11 @@ pub const WasiP2Ctx = struct {
         while (body_it.next()) |e| self.alloc.free(e.value_ptr.data);
         self.host_body_bytes.deinit(self.alloc);
         self.host_capture_sinks.deinit(self.alloc);
+        for (self.pending_client_sends.items) |pcs| {
+            pcs.body.deinit(self.alloc);
+            self.alloc.destroy(pcs);
+        }
+        self.pending_client_sends.deinit(self.alloc);
         self.host_accept_streams.deinit(self.alloc);
         self.host_tcp_rx.deinit(self.alloc);
         self.host_tcp_tx.deinit(self.alloc);
@@ -1939,6 +1959,9 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .http3_reqopts_between_bytes_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64, u32) WasiP2Error!void, http3ReqoptsBetweenBytesSet),
         .http3_reqopts_clone => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3ReqoptsClone),
         .http3_request_consume_body => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, http3RequestConsumeBody),
+        .http3_response_consume_body => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, http3ResponseConsumeBody),
+        // client.send arrives ASYNC-lowered; a sync lower is unreached.
+        .http3_client_send => return error.UnsupportedWasiImport,
         // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
         .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
         .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
@@ -3800,6 +3823,7 @@ fn defineAsyncLoweredOp(lk: *Linker, ns: []const u8, name: []const u8, op: adapt
         .{ adapter.P2Op.sock3_udp_send, fn (*Caller, u32, u32) WasiP2Error!u32, sock3UdpSend },
         .{ adapter.P2Op.sock3_udp_receive, fn (*Caller, u32, u32) WasiP2Error!u32, sock3UdpReceive },
         .{ adapter.P2Op.sock3_resolve_addresses, fn (*Caller, u32, u32, u32) WasiP2Error!u32, sock3ResolveAddresses },
+        .{ adapter.P2Op.http3_client_send, fn (*Caller, u32, u32) WasiP2Error!u32, http3ClientSend },
     };
     inline for (binds) |b| {
         if (op == b[0]) return lk.defineFuncCtx(ns, name, ctx, b[1], b[2]);
@@ -5092,6 +5116,206 @@ fn http3RequestConsumeBody(caller: *Caller, this: u32, res_fut: u32, retptr: u32
     _ = try ctx.resources.drop(WasiP2Ctx.HTTP_REQUEST_RT, this);
     try mem.write(retptr, contents);
     try mem.write(retptr + 4, trailers);
+}
+
+/// `[static]response.consume-body` — the response-side mirror of the
+/// request form: hand out the stored body ends (host-built responses from
+/// `client.send` carry `host_body_bytes`-served streams; a bodiless one
+/// gets a CLOSED stream and a host-resolved `ok(none)` trailers future).
+fn http3ResponseConsumeBody(caller: *Caller, this: u32, res_fut: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const resp = try http3ResponseSelf(ctx, this);
+    const contents = resp.contents_stream orelse blk: {
+        const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+        try async_mod.dropEndGuarded(&ctx.streams, &ctx.shared, pair.writable);
+        break :blk pair.readable;
+    };
+    const trailers = if (resp.trailers_future != 0) resp.trailers_future else blk: {
+        const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+        try ctx.host_trailer_ok_futures.put(ctx.alloc, fut.readable, {});
+        break :blk fut.readable;
+    };
+    resp.contents_stream = null;
+    resp.trailers_future = 0;
+    http3DropTransferredEnd(ctx, res_fut);
+    _ = try ctx.resources.drop(WasiP2Ctx.HTTP_RESPONSE_RT, this);
+    try mem.write(retptr, contents);
+    try mem.write(retptr + 4, trailers);
+}
+
+/// `[async-lower]wasi:http/client.send` (request, retptr): consumes the
+/// request handle and PARKS as a subtask — the request body is a guest
+/// stream fed by a guest writer task, so the blocking exchange can only
+/// run once the guest closes it (`pollPendingClientSends`). A bodiless
+/// request resolves at the first poll (its shared is never written).
+fn http3ClientSend(caller: *Caller, request: u32, retptr: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const rep = try ctx.resources.rep(WasiP2Ctx.HTTP_REQUEST_RT, request);
+    _ = try ctx.resources.drop(WasiP2Ctx.HTTP_REQUEST_RT, request);
+    const h = try ctx.streams.add(.{
+        .kind = .subtask,
+        .side = .readable,
+        .elem_type = null,
+        .subtask_state = .started,
+    });
+    const pcs = ctx.alloc.create(PendingClientSend) catch return WasiP2Error.OutOfMemory;
+    pcs.* = .{ .req_rep = rep, .retptr = retptr, .subtask = h };
+    ctx.pending_client_sends.append(ctx.alloc, pcs) catch {
+        ctx.alloc.destroy(pcs);
+        return WasiP2Error.OutOfMemory;
+    };
+    const req = try ctxHttpRequest(ctx, rep);
+    if (req.contents_stream) |cs| {
+        const end = try ctx.streams.get(cs);
+        pcs.body_shared = end.shared;
+        try http3RegisterCaptureSink(ctx, end.shared, &pcs.body);
+    }
+    // Release the request's trailers future (the guest holds the writer and
+    // parks it; nothing reads request trailers on the client path) so its
+    // writer observes DROPPED. `resources.drop` here bypasses p2ResourceDrop,
+    // so the transferred-end release must be explicit.
+    http3DropTransferredEnd(ctx, req.trailers_future);
+    req.trailers_future = 0;
+    return @intFromEnum(async_mod.SubtaskState.started) | (h << 4);
+}
+
+fn ctxHttpRequest(ctx: *WasiP2Ctx, rep: u32) WasiP2Error!*p3http.HttpRequest {
+    if (rep >= ctx.http_requests.items.len) return WasiP2Error.InvalidHandle;
+    return &ctx.http_requests.items[rep];
+}
+
+/// Resolve parked `client.send`s whose request body is complete (the body
+/// stream's writer dropped — or no body at all): run the blocking HTTP
+/// exchange, mint the response resource, marshal the result, and flip the
+/// subtask to RETURNED (the timer-fire shape).
+pub fn pollPendingClientSends(self: *WasiP2Ctx) WasiP2Error!bool {
+    if (self.pending_client_sends.items.len == 0) return false;
+    var progressed = false;
+    var i: usize = 0;
+    while (i < self.pending_client_sends.items.len) {
+        const pcs = self.pending_client_sends.items[i];
+        const body_done = if (pcs.body_shared) |sid| blk: {
+            const sh = self.shared.get(sid) catch break :blk true;
+            break :blk switch (sh.*) {
+                .stream => |s| s.dropped,
+                .future, .subtask => true,
+            };
+        } else true;
+        if (!body_done) {
+            i += 1;
+            continue;
+        }
+        try http3PerformSend(self, pcs);
+        if (pcs.body_shared) |sid| _ = self.host_capture_sinks.remove(sid);
+        pcs.body.deinit(self.alloc);
+        self.alloc.destroy(pcs);
+        _ = self.pending_client_sends.orderedRemove(i);
+        progressed = true;
+    }
+    return progressed;
+}
+
+/// The blocking HTTP exchange for one resolved `client.send`: std.http
+/// Client against the request's scheme/authority/path, the response minted
+/// as a host-built resource (`host_body_bytes`-served body; trailers via
+/// the resolved-ok(none) future at consume-body). result<own<response>,
+/// error-code> marshals at retptr with payload offset 8 (error-code
+/// carries u64 cases).
+fn http3PerformSend(self: *WasiP2Ctx, pcs: *PendingClientSend) WasiP2Error!void {
+    const mem = try self.memory();
+    const io = try ctxIo(self);
+    const req = try ctxHttpRequest(self, pcs.req_rep);
+    const fail = struct {
+        fn write(m: Memory, retptr: u32, sub: *async_mod.StreamFutureEnd, h: u32) WasiP2Error!void {
+            try m.write(retptr, @as(u8, 1));
+            // error-code `internal-error(option<string>)` = ordinal 37, none.
+            try m.write(retptr + 8, @as(u8, 37));
+            try m.write(retptr + 16, @as(u8, 0));
+            sub.subtask_state = .returned;
+            sub.setPendingEvent(.{ .code = .subtask, .index = h, .payload = @intFromEnum(async_mod.SubtaskState.returned) });
+        }
+    };
+    const sub = try self.streams.get(pcs.subtask);
+    const authority = req.authority orelse return fail.write(mem, pcs.retptr, sub, pcs.subtask);
+    const path = req.path_with_query orelse "/";
+    const url = std.fmt.allocPrint(self.alloc, "http://{s}{s}", .{ authority, path }) catch return WasiP2Error.OutOfMemory;
+    defer self.alloc.free(url);
+    const uri = std.Uri.parse(url) catch return fail.write(mem, pcs.retptr, sub, pcs.subtask);
+    const method: std.http.Method = switch (req.method) {
+        .get => .GET,
+        .head => .HEAD,
+        .post => .POST,
+        .put => .PUT,
+        .delete => .DELETE,
+        .connect => .CONNECT,
+        .options => .OPTIONS,
+        .trace => .TRACE,
+        .patch => .PATCH,
+        .other => return fail.write(mem, pcs.retptr, sub, pcs.subtask),
+    };
+    // Request headers from the fields model; content-length is computed by
+    // the std client from the body.
+    var extra: std.ArrayList(std.http.Header) = .empty;
+    defer extra.deinit(self.alloc);
+    if (req.headers_rep < self.http_fields.items.len) {
+        for (self.http_fields.items[req.headers_rep].entries.items) |p| {
+            if (std.ascii.eqlIgnoreCase(p.name, "content-length")) continue;
+            extra.append(self.alloc, .{ .name = p.name, .value = p.value }) catch return WasiP2Error.OutOfMemory;
+        }
+    }
+    var client: std.http.Client = .{ .allocator = self.alloc, .io = io };
+    defer client.deinit();
+    var hreq = client.request(method, uri, .{ .extra_headers = extra.items }) catch return fail.write(mem, pcs.retptr, sub, pcs.subtask);
+    defer hreq.deinit();
+    hreq.sendBodyComplete(pcs.body.items) catch return fail.write(mem, pcs.retptr, sub, pcs.subtask);
+    var redirect_buf: [2048]u8 = undefined;
+    var hresp = hreq.receiveHead(&redirect_buf) catch return fail.write(mem, pcs.retptr, sub, pcs.subtask);
+
+    // Response headers → an immutable fields entry.
+    const fields_idx: u32 = @intCast(self.http_fields.items.len);
+    self.http_fields.append(self.alloc, .{}) catch return WasiP2Error.OutOfMemory;
+    var hit = hresp.head.iterateHeaders();
+    while (hit.next()) |hd| {
+        self.http_fields.items[fields_idx].appendChecked(self.alloc, hd.name, hd.value) catch continue;
+    }
+    self.http_fields.items[fields_idx].immutable = true;
+
+    // Response body → a host-served stream.
+    var transfer_buf: [4096]u8 = undefined;
+    const rdr = hresp.reader(&transfer_buf);
+    var body: std.ArrayList(u8) = .empty;
+    defer body.deinit(self.alloc);
+    while (true) {
+        const chunk = rdr.peekGreedy(1) catch |e| switch (e) {
+            error.EndOfStream => break,
+            else => return fail.write(mem, pcs.retptr, sub, pcs.subtask),
+        };
+        body.appendSlice(self.alloc, chunk) catch return WasiP2Error.OutOfMemory;
+        rdr.toss(chunk.len);
+    }
+    var contents: ?u32 = null;
+    if (body.items.len > 0) {
+        const pair = try async_mod.newStreamPair(&self.streams, &self.shared, null);
+        const shared_id = (try self.streams.get(pair.readable)).shared;
+        const copy = self.alloc.dupe(u8, body.items) catch return WasiP2Error.OutOfMemory;
+        try self.host_body_bytes.put(self.alloc, shared_id, .{ .data = copy });
+        contents = pair.readable;
+    }
+    const resp_idx: u32 = @intCast(self.http_responses.items.len);
+    self.http_responses.append(self.alloc, .{
+        .status = @intFromEnum(hresp.head.status),
+        .headers_rep = fields_idx,
+        .contents_stream = contents,
+    }) catch return WasiP2Error.OutOfMemory;
+    const handle = try self.resources.new(WasiP2Ctx.HTTP_RESPONSE_RT, resp_idx);
+    try mem.write(pcs.retptr, @as(u8, 0));
+    try mem.write(pcs.retptr + 8, handle);
+    // Re-fetch: newStreamPair/http_* appends above may have grown the
+    // streams table, dangling the `sub` pointer taken at entry.
+    const sub2 = try self.streams.get(pcs.subtask);
+    sub2.subtask_state = .returned;
+    sub2.setPendingEvent(.{ .code = .subtask, .index = pcs.subtask, .payload = @intFromEnum(async_mod.SubtaskState.returned) });
 }
 
 /// Register a harness capture sink for `shared_id`, draining a write that

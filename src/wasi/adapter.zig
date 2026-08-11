@@ -311,6 +311,8 @@ pub const P2Op = enum {
     http3_reqopts_between_bytes_set,
     http3_reqopts_clone,
     http3_request_consume_body,
+    http3_response_consume_body,
+    http3_client_send,
     // wasi:io / wasi:cli resource drops a full wasi:cli world imports
     // directly (error / pollable / terminal handles); all route to the
     // generic drop.
@@ -586,6 +588,8 @@ pub fn p1Target(op: P2Op) P1Target {
         .http3_reqopts_between_bytes_set,
         .http3_reqopts_clone,
         .http3_request_consume_body,
+        .http3_response_consume_body,
+        .http3_client_send,
         => .noop,
         // Poll + subscribe: no P1 facility (always-ready host bookkeeping).
         .poll_pollable_ready,
@@ -864,6 +868,8 @@ const table = [_]Entry{
     .{ .iface = "wasi:http/types", .func = "[method]request-options.set-between-bytes-timeout", .op = .http3_reqopts_between_bytes_set, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[method]request-options.clone", .op = .http3_reqopts_clone, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[resource-drop]request-options", .op = .io_resource_drop, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[static]response.consume-body", .op = .http3_response_consume_body, .gens = p3_only },
+    .{ .iface = "wasi:http/client", .func = "send", .op = .http3_client_send, .gens = p3_only },
 };
 
 /// Classify a WASI import `(interface, func, generation)` → the `P2Op` it maps

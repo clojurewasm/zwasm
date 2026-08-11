@@ -495,6 +495,34 @@ pub const WaitableSet = struct {
         }
         return null;
     }
+
+    /// Complete any member whose copy is PARKED (`async_copying`) but whose
+    /// rendezvous peer has since DROPPED — deliver the DROPPED event so the
+    /// waiter observes the close. A peer that drops AFTER this end parked
+    /// wakes it directly (`dropEndGuarded`); this covers the reverse order
+    /// (the end parks its write, THEN the host drops the peer — e.g. a
+    /// consume-body `res` future the guest wrote before the host dropped it,
+    /// ADR-0205 D-5). Idempotent; called from the scheduler's poll seam.
+    pub fn resolveDroppedPeers(self: *WaitableSet, table: *StreamFutureTable, shared: *SharedTable) void {
+        for (self.elems.items) |h| {
+            const e = table.get(h) catch continue;
+            if (e.state != .async_copying or e.shared == 0) continue;
+            const sh = shared.get(e.shared) catch continue;
+            const dropped = switch (sh.*) {
+                .stream => |s| s.dropped,
+                .future => |f| f.dropped,
+                .subtask => false,
+            };
+            if (!dropped) continue;
+            e.state = .done;
+            const code: EventCode = switch (e.kind) {
+                .stream => streamEventFor(e.side),
+                .future => futureEventFor(e.side),
+                .subtask => continue,
+            };
+            e.setPendingEvent(.{ .code = code, .index = h, .payload = (ReturnCode{ .dropped = 0 }).encode() });
+        }
+    }
 };
 
 /// The per-task waitable-set table (`CanonicalABI.md` — sets are created by

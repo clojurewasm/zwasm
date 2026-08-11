@@ -77,6 +77,8 @@ const P3CallbackCtx = struct {
         _ = try self.wp2.fireDueTimers();
         _ = try self.wp2.pollBlockedSockets();
         _ = try self.wp2.pollBlockedUdpReceives();
+        _ = try wasi_p2.pollPendingClientSends(self.wp2);
+        set.resolveDroppedPeers(&self.wp2.streams, &self.wp2.shared);
         return try set.poll(&self.wp2.streams);
     }
 
@@ -87,6 +89,7 @@ const P3CallbackCtx = struct {
         // A ready socket is immediate progress — retry without sleeping.
         if (try self.wp2.pollBlockedSockets()) return true;
         if (try self.wp2.pollBlockedUdpReceives()) return true;
+        if (try wasi_p2.pollPendingClientSends(self.wp2)) return true;
         // External-actor seam (official sockets-echo): let the harness act
         // as the remote client while the guest is parked.
         if (self.wp2.external_sock_step) |hook| {
@@ -888,6 +891,9 @@ const OfficialExpect = struct {
     /// the harness drives `handler.handle` per `http_reqs` entry.
     world_service: bool = false,
     http_reqs: std.ArrayList(HttpReqOp) = .empty,
+    /// Manifest `endpoints` present: the harness serves an HTTP echo
+    /// endpoint and exports its address as `HTTP_ENDPOINT` (http-client).
+    has_endpoints: bool = false,
 
     fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
         self.http_reqs.deinit(alloc);
@@ -909,6 +915,7 @@ fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value
     if (parsed.object.get("world")) |w| {
         if (std.mem.eql(u8, w.string, "wasi:http/service")) out.world_service = true;
     }
+    if (parsed.object.get("endpoints")) |_| out.has_endpoints = true;
     const ops = parsed.object.get("operations") orelse return;
     for (ops.array.items) |op| {
         const ty = op.object.get("type").?.string;
@@ -1006,6 +1013,76 @@ const ExternalClient = struct {
         const port = std.fmt.parseInt(u16, line[colon + 1 ..], 10) catch return null;
         const ip4 = net.Ip4Address.parse(line[0..colon], port) catch return null;
         return .{ .ip4 = ip4 };
+    }
+};
+
+/// The manifest `endpoints` echo server (http-client, ADR-0205 D-5): one
+/// HTTP/1.1 connection served on a background thread — read head +
+/// content-length body, echo it back. The listener is created on the main
+/// io (Threaded is thread-safe); `stop` dials a wake-up connection if the
+/// guest never connected.
+const EchoEndpoint = struct {
+    io: std.Io,
+    server: net.Server,
+    port: u16,
+    thread: std.Thread,
+
+    fn start(io: std.Io) !*EchoEndpoint {
+        const self = try std.heap.page_allocator.create(EchoEndpoint);
+        errdefer std.heap.page_allocator.destroy(self);
+        const addr: net.IpAddress = .{ .ip4 = net.Ip4Address.loopback(0) };
+        self.io = io;
+        self.server = try addr.listen(io, .{ .mode = .stream, .protocol = .tcp });
+        self.port = self.server.socket.address.getPort();
+        self.thread = try std.Thread.spawn(.{}, serve, .{self});
+        return self;
+    }
+
+    fn serve(self: *EchoEndpoint) void {
+        const io = self.io;
+        var conn = self.server.accept(io) catch return;
+        defer conn.close(io);
+        var buf: [65536]u8 = undefined;
+        var n: usize = 0;
+        // Read until the header terminator, then the content-length body.
+        var head_end: usize = 0;
+        while (head_end == 0) {
+            var bufs = [_][]u8{buf[n..]};
+            const got = io.vtable.netRead(io.userdata, conn.socket.handle, &bufs) catch return;
+            if (got == 0) return;
+            n += got;
+            if (std.mem.find(u8, buf[0..n], "\r\n\r\n")) |p| head_end = p + 4;
+        }
+        var content_len: usize = 0;
+        var lines = std.mem.splitSequence(u8, buf[0..head_end], "\r\n");
+        while (lines.next()) |line| {
+            const prefix = "content-length:";
+            if (line.len > prefix.len and std.ascii.eqlIgnoreCase(line[0..prefix.len], prefix)) {
+                content_len = std.fmt.parseInt(usize, std.mem.trim(u8, line[prefix.len..], " "), 10) catch 0;
+            }
+        }
+        while (n - head_end < content_len) {
+            var bufs = [_][]u8{buf[n..]};
+            const got = io.vtable.netRead(io.userdata, conn.socket.handle, &bufs) catch return;
+            if (got == 0) break;
+            n += got;
+        }
+        const body = buf[head_end..n];
+        var out: [66000]u8 = undefined;
+        const resp = std.fmt.bufPrint(&out, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n{s}", .{ body.len, body }) catch return;
+        const data = [_][]const u8{resp};
+        _ = io.vtable.netWrite(io.userdata, conn.socket.handle, "", &data, 1) catch return;
+    }
+
+    fn stop(self: *EchoEndpoint) void {
+        // Unblock a never-connected accept, then reap the thread.
+        const addr: net.IpAddress = .{ .ip4 = net.Ip4Address.loopback(self.port) };
+        if (addr.connect(self.io, .{ .mode = .stream, .protocol = .tcp })) |s| s.close(self.io) else |_| {
+            // Already connected/served — the accept has returned; nothing to wake.
+        }
+        self.thread.join();
+        self.server.deinit(self.io);
+        std.heap.page_allocator.destroy(self);
     }
 };
 
@@ -1195,6 +1272,14 @@ fn runOfficialWasip3Test(comptime name: []const u8) !void {
     if (expect.world_service) {
         // Service world: no cli/run export — build once, then drive the
         // exported handler per manifest `request` op (ADR-0205 D-3).
+        var endpoint: ?*EchoEndpoint = null;
+        defer if (endpoint) |ep| ep.stop();
+        var endpoint_buf: [32]u8 = undefined;
+        if (expect.has_endpoints) {
+            endpoint = try EchoEndpoint.start(io);
+            const ep_addr = try std.fmt.bufPrint(&endpoint_buf, "127.0.0.1:{d}", .{endpoint.?.port});
+            try host.setEnvs(&.{"HTTP_ENDPOINT"}, &.{ep_addr});
+        }
         var built = try wasi_p2.buildWasiP2Component(&eng, alloc, bytes, &host, .{});
         defer built.deinit();
         for (expect.http_reqs.items) |rop| {
@@ -1360,6 +1445,9 @@ test "wasip3-official: http-service-echo (request body + header reflection)" {
 }
 test "wasip3-official: http-service-uri (scheme/authority set by host)" {
     try runOfficialWasip3Test("http-service-uri");
+}
+test "wasip3-official: http-client (client.send against the harness echo endpoint)" {
+    try runOfficialWasip3Test("http-client");
 }
 
 test "wasip3-official: http-request-options (timeouts + immutable child)" {
