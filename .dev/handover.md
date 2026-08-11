@@ -73,15 +73,16 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 ## Active rework campaign
 
 - **Campaign-ID**: s1-d444-three-way-split (branch of the same name)
-- **Phase**: II — correctness assurance (of I→V); findings-doc = the D-444 row
-  (structural map, 3 reverse deps, three-way shape)
+- **Phase**: III — design ADR (of I→V); findings-doc = the D-444 row. Phase II
+  CLOSED: 7 characterization tests (`3c935b12a`,`6fc672a30`,`e546857`) + e2e
+  oracles documented for udp-receive + dir-stream-read (corpus, 3 OSes)
 - **Exit target**: shared substrate + P2 + P3 files, under ADR-0099 caps or honestly
   EXEMPT; full net (76 p3 + 61 component_tests + characterization) green every commit
 - **Done**: coverage map (12 pub symbols to preserve); II-1+II-2a pinned
   (`3c935b12a`, `6fc672a30` — the latter also FIXED dead test discovery:
   component_wasi_p2.zig in-file tests never ran; S5 gains a discovery-guard axis)
-- **Next**: II-2b — pin pollBlockedUdpReceives→sock3UdpReceiveComplete, the
-  engine's P3 callbacks (fs3Fail/ResolveSend/DirStreamRead), fallthrough
+- **Next**: III — ADR-0207: three-way shape + vtable inversion for the 3 reverse
+  deps + 12-pub-symbol compat + incremental migration seq (net green per commit)
 
 ## Operational invariants (keep using)
 
