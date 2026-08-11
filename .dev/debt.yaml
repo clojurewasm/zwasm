@@ -3,6 +3,34 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-580"
+    layer: "code"
+    status: "note"
+    description: |-
+      canon.zig (1876 lines) carries a verified ADR-0099 P1 seam: the
+      CanonicalABI flatten surface (lower_flat/lift_flat + decoded-type
+      bridge, ~720 LOC tail incl. tests) extracts to canon_flat.zig
+      consuming only already-pub store/load + CanonContext (0 negatives,
+      triage 2026-08-12 sweep S1). Deliberately sequenced AFTER the
+      v2.5.0 tag (the sweep gates the release; an impl split does not).
+    first_raised: "2026-08-12"
+    last_reviewed: "2026-08-12"
+    refs: |-
+      src/feature/component/canon.zig; ADR-0099
+  - id: "D-581"
+    layer: "code"
+    status: "note"
+    description: |-
+      types.zig (1838 lines) carries a verified ADR-0099 P1 seam: the
+      Binary.md section-decode half (~900 LOC, "Primitive decode
+      helpers" + "Section-level decode" banners) extracts to
+      types_decode.zig using the type model type-only (0 negatives,
+      triage 2026-08-12 sweep S1). Sequenced AFTER the v2.5.0 tag,
+      same reasoning as D-580.
+    first_raised: "2026-08-12"
+    last_reviewed: "2026-08-12"
+    refs: |-
+      src/feature/component/types.zig; ADR-0099
   - id: "D-533"
     layer: "code"
     status: "resolved"

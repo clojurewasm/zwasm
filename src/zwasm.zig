@@ -403,6 +403,7 @@ test {
     _ = @import("instruction/wasm_2_0/reference_types.zig");
     _ = @import("instruction/wasm_2_0/table_ops.zig");
     _ = @import("api/wasm.zig");
+    _ = @import("interp/mvp_tests.zig");
     _ = @import("wasi/preview1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
