@@ -36,11 +36,11 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
   `wait-until`/`wait-for` + `exit-with-code`. Closes D-524.
 - **B filesystem — DONE/green** (6d95ac124): full `wasi:filesystem@0.3.0`;
   official fs corpus 14/14; generation-aware `WasiGen` dispatch.
-- **C sockets — COMPLETE/green**: official 12/12 on POSIX (control + TCP/UDP
-  data planes + ip-name-lookup real DNS). Keys: parked reads EXECUTE at
+- **C sockets — COMPLETE/green**: official 12/12 (control + TCP/UDP data
+  planes + ip-name-lookup real DNS). Keys: parked reads EXECUTE at
   readiness, tcp.send future non-eager, stream-drop = SHUT_WR/SHUT_RD,
   udp connect = OS dgram connect, explicit-bind connect = raw posix
-  (ADR-0070 amendment; windows carve-out = D-569 skip).
+  (ADR-0070 amendment) / own AFD on windows.
 - **D http — COMPLETE/green**: full `wasi:http@0.3.0` (types resources +
   handler EXPORT + client.send). Model = src/wasi/p3_http.zig. Keys: `new`
   consumes headers/options owns (immutable after); harness drives the guest's
@@ -60,13 +60,19 @@ SO_REUSEPORT and Linux caches `fastreuseport` at first bind; spike
 ## Active bundle — wasi03 Windows port (user-directed 2026-08-11)
 
 - **Bundle-ID**: wasi03-win-port
-- **Cycles-remaining**: ~3 (fs windows → sockets windows AFD → 3-OS gates+PR)
-- **Continuity-memo**: windowsmini p3off.log verdict line (37 pass / 1 skip /
-  10 fail baseline) + `[run_remote_*] OK` on all 3 hosts
-- **Goal**: official corpus green on windows too (user: 全部実装しきる → PR →
-  CI 3-OS green → user merge). 10 fails = fs 5 (hard-links, is-same-object,
-  metadata-hash, open-errors, unlink-errors) + sockets 5
-  (udp-bind/connect/send/receive, tcp-bind).
+- **Cycles-remaining**: ~1 (code DONE — remaining: 3-OS full-gate pass + PR)
+- **Continuity-memo**: windowsmini p3off.log "All 48 tests passed." (0 skip —
+  D-569 discharged too) + `[run_remote_*] OK` on all 3 hosts
+- **Goal**: official corpus green on windows (user: 全部実装しきる → PR →
+  CI 3-OS green → user merge). ACHIEVED at source level: baseline 10 fails
+  all fixed + the D-569 explicit-bind connect implemented via the own AFD
+  layer (winOpenSocketAfd/winAfdBind UNIQUE-share/winAfdConnect/
+  winAfdGetSockName — GET_ADDRESS returns a plain sockaddr at offset 0);
+  NT hardlink via FILE_LINK_INFORMATION (FileName at its field offset 20,
+  NOT @sizeOf — a misplace silently creates a garbage-named link);
+  empty-path→noent pre-OS; stream connect owns AFD too (stdlib maps no
+  failure statuses → ConnectionRefused was Other). Docs/claims flipped to
+  3-OS; D-568+D-569 discharged.
 - **Root causes (surveyed — wasmtime digest + official test sources)**:
   (1) pinned stdlib `dirHardLink` = windows `OperationUnsupported` → implement
   NT `FILE_LINK_INFORMATION` via `NtSetInformationFile` (dirfd-relative;

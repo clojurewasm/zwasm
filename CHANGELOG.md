@@ -15,14 +15,19 @@ SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 - **Full WASI 0.3 coverage** (ADR-0205, opt-in `-Dwasi=p3`). zwasm now serves
   all six WASI 0.3.0 proposals — `cli` / `clocks` / `random` / `filesystem` /
   `sockets` / `http` — over the Component-Model async substrate. Conformance is
-  the official `wasm32-wasip3` corpus, **45/45 green** on POSIX
-  (`@unstable`-gated interfaces excluded, matching upstream release gating).
-  Sockets and http run their real data planes: TCP/UDP connect / listen /
-  send / receive / echo, `ip-name-lookup` real DNS, `wasi:http` fields /
-  request / response / request-options resources, the exported
-  `handler.handle` (service world), and `client.send` over `std.http.Client`.
-  One carve-out: connect-from-an-explicitly-bound TCP socket is POSIX-only
-  (windows NT/AFD gap, tracked as D-569). A `doc-truth` CI guard
+  the official `wasm32-wasip3` corpus, **45/45 green on all three supported
+  OSes** (macOS aarch64 / Linux x86_64 / Windows x86_64; `@unstable`-gated
+  interfaces excluded, matching upstream release gating). Sockets and http run
+  their real data planes: TCP/UDP connect / listen / send / receive / echo,
+  `ip-name-lookup` real DNS, `wasi:http` fields / request / response /
+  request-options resources, the exported `handler.handle` (service world),
+  and `client.send` over `std.http.Client`. Platform substance behind the
+  claim: on Linux, TCP listen composes a raw SO_REUSEADDR-only bind (the
+  stdlib couples SO_REUSEPORT, whose `fastreuseport` bind-bucket cache breaks
+  the address-in-use contract); on Windows, the runtime composes its own
+  NT/AFD socket control plane (UNIQUE-share bind, dgram/bound connect,
+  getsockname) and NT hardlinks (`FILE_LINK_INFORMATION`) where the pinned
+  stdlib has gaps. A `doc-truth` CI guard
   (`check_wasi03_coverage_claims.sh`) keeps the coverage prose honest.
 
 ### Fixed

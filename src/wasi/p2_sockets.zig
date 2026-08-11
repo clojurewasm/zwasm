@@ -353,6 +353,23 @@ pub const TcpSocket = struct {
         if (self.state != .unbound) return error.InvalidState;
         if (!familyMatches(self.family, addr)) return error.InvalidArgument;
         self.state = .connect_started;
+        if (builtin.os.tag == .windows) {
+            // Own AFD path: the stdlib windows connect maps no failure
+            // statuses (CONNECTION_REFUSED etc. surface as Unexpected).
+            const any: net.IpAddress = switch (self.family) {
+                .ipv4 => .{ .ip4 = net.Ip4Address.parse("0.0.0.0", 0) catch unreachable },
+                .ipv6 => .{ .ip6 = net.Ip6Address.parse("::", 0) catch unreachable },
+            };
+            const handle = winBoundConnect(self.family, any, addr) catch |err| {
+                self.connect_err = err;
+                return;
+            };
+            const local = winAfdGetSockName(handle) catch any;
+            self.stream = .{ .socket = .{ .handle = handle, .address = local } };
+            self.local_addr = local;
+            self.remote_addr = addr;
+            return;
+        }
         self.stream = addr.connect(io, .{ .mode = .stream, .protocol = .tcp }) catch |err| {
             self.connect_err = err;
             return;
@@ -363,23 +380,26 @@ pub const TcpSocket = struct {
 
     /// WASI-0.3 `connect` on an explicitly BOUND socket (official
     /// sockets-tcp-connect test_explicit_bind): the `bindNow` placeholder
-    /// listener is dropped and a raw socket re-binds the SAME resolved
-    /// address (SO_REUSEADDR) then connects — `rawBoundConnect`. POSIX
-    /// only; windows sockets are NT/AFD handles with no libc surface
-    /// (truthful not-supported, D-569).
+    /// listener is dropped and a fresh socket re-binds the SAME resolved
+    /// address then connects — raw posix composition with SO_REUSEADDR on
+    /// POSIX (`rawBoundConnect`), the own AFD bind+connect on windows
+    /// (`winBoundConnect`; the just-released port rebinds under the
+    /// windows default semantics without a reuse option).
     pub fn connectFromBound(self: *TcpSocket, io: std.Io, addr: net.IpAddress) !void {
         if (self.state != .bound or self.server == null) return error.InvalidState;
         if (!familyMatches(self.family, addr)) return error.InvalidArgument;
-        if (builtin.os.tag == .windows) return error.OptionUnsupported;
         const local = self.bound_addr.?; // bindNow resolved it
         self.server.?.deinit(io);
         self.server = null;
         self.state = .connect_started;
-        const fd = rawBoundConnect(local, addr) catch |err| {
+        const handle = (if (builtin.os.tag == .windows)
+            winBoundConnect(self.family, local, addr)
+        else
+            rawBoundConnect(local, addr)) catch |err| {
             self.connect_err = err;
             return;
         };
-        self.stream = .{ .socket = .{ .handle = fd, .address = local } };
+        self.stream = .{ .socket = .{ .handle = handle, .address = local } };
         self.local_addr = local;
         self.remote_addr = addr;
     }
@@ -956,6 +976,17 @@ fn winAfdGetSockName(handle: win.HANDLE) !net.IpAddress {
     return std.Io.Threaded.addressFromPosix(&storage);
 }
 
+/// Windows connect-from-a-bound-address (the stream analogue of
+/// `rawBoundConnect`): fresh AFD stream socket, bind the released local
+/// address, then the CONNECT ioctl (blocking via the event wait).
+fn winBoundConnect(family: AddressFamily, local: net.IpAddress, remote: net.IpAddress) !win.HANDLE {
+    const handle = try winOpenSocketAfd(family, .stream);
+    errdefer win.CloseHandle(handle);
+    _ = try winAfdBind(handle, local);
+    try winAfdConnect(handle, remote);
+    return handle;
+}
+
 /// Windows TCP listen with the WIT bind contract (UNIQUE share).
 fn winListen(addr: net.IpAddress, backlog: u31) !net.Server {
     const handle = try winOpenSocketAfd(switch (addr) {
@@ -1217,8 +1248,6 @@ test "tcp bind honors the spec's SO_REUSEADDR contract: TIME_WAIT rebind ok, act
 }
 
 test "tcp connect from an explicitly bound socket preserves the bound port" {
-    // Windows: no raw bound-connect (NT/AFD handles, no libc surface).
-    if (builtin.os.tag == .windows) return skip.blocker(.@"D-569");
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();

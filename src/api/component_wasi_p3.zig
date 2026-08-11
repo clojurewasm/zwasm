@@ -1421,11 +1421,6 @@ test "wasip3-official: sockets-tcp-bind (REUSEADDR + addrinuse contracts)" {
     try runOfficialWasip3Test("sockets-tcp-bind");
 }
 test "wasip3-official: sockets-tcp-connect (incl. explicit-bind connect)" {
-    // Windows: connect-from-an-explicitly-bound socket is not-supported —
-    // the raw posix bound-connect composition (ADR-0070 amendment) has no
-    // NT/AFD counterpart yet.
-    if (@import("builtin").os.tag == .windows)
-        return @import("../test_support/skip.zig").blocker(.@"D-569");
     try runOfficialWasip3Test("sockets-tcp-connect");
 }
 test "wasip3-official: http-fields (fields resource, RFC 9110 validation)" {

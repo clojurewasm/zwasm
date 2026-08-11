@@ -1320,8 +1320,9 @@ loop self-selects the next unit by value and proceeds.
   (types + handler export + `client.send`), E claims sweep (this
   README/docs/ROADMAP flip + `check_wasi03_coverage_claims.sh` doc-truth
   guard). Conformance = vendored official `wasi-testsuite` wasip3 binaries
-  (`prod/testsuite-base`, `=0.3.0`-pinned): **45/45 green** on POSIX (one
-  carve-out: windows explicit-bind TCP connect = D-569).
+  (`prod/testsuite-base`, `=0.3.0`-pinned): **45/45 green on all three
+  supported OSes** (the windows port composes its own NT/AFD socket control
+  plane + NT hardlinks where the pinned stdlib has gaps).
 
 **Genuinely-future bucket** (demand-driven, NO version gate — the §1.3 + §3.3
 set; not a queue):

@@ -69,9 +69,9 @@ if [[ ${#hits[@]} -gt 0 ]]; then
   echo "[check_wasi03_coverage] FAIL — ${#hits[@]} live claim(s) that a WASI 0.3 proposal is unimplemented:"
   for h in "${hits[@]}"; do echo "  - $h"; done
   echo ""
-  echo "All six 0.3.0 proposals are served (official corpus 45/45; ADR-0205)."
-  echo "State the coverage as complete, or cite a specific carve-out (D-569 ="
-  echo "windows explicit-bind TCP connect)."
+  echo "All six 0.3.0 proposals are served on all three supported OSes"
+  echo "(official corpus 45/45; ADR-0205). State the coverage as complete, or"
+  echo "cite a specific tracked debt row."
   fail=1
 fi
 

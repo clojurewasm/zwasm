@@ -1,8 +1,8 @@
 # ADR-0205: WASI 0.3 full-coverage campaign (wasi03-full)
 
-- **Status**: Accepted — campaign COMPLETE (phases A–E landed on
-  `develop/wasi-03-full`; official corpus 45/45 green on POSIX, windows
-  explicit-bind TCP connect carved out as D-569)
+- **Status**: Accepted — campaign COMPLETE incl. the F windows port (phases
+  A–F landed on `develop/wasi-03-full`; official corpus 45/45 green on ALL
+  THREE supported OSes; D-568 and D-569 both discharged)
 - **Date**: 2026-08-10
 - **Front**: D-wasi03 (D-335 / D-523 / D-524; user-directed 2026-08-10)
 - **Findings base**: `~/Documents/OSS/WASI` tag `v0.3.0` WIT inventory +
@@ -115,6 +115,23 @@ certification meanwhile.
   flipped to full-coverage; `scripts/check_wasi03_coverage_claims.sh`
   doc-truth guard (anchored on the http-client conformance test) wired into
   the always-on CI `doc-truth` job; CHANGELOG Added entry.
+- **F — cross-OS truth pass — DONE** (2026-08-11, user-directed 全部実装しきる).
+  The A–E "45/45 green" was a macOS-arm64-only measurement; running the
+  corpus on the other two gate OSes surfaced 3 Linux + 10 windows real
+  failures. Linux: TCP listen now composes a raw SO_REUSEADDR-only bind —
+  the stdlib couples SO_REUSEPORT into `reuse_address` and clearing it
+  post-bind is ineffective (the kernel bind bucket caches `fastreuseport` at
+  first bind; spike `private/spikes/linux-reuseport-bind`). Windows: own
+  NT/AFD socket control plane (UNIQUE-share bind fixing the address-in-use
+  contract the stdlib's REUSE-share bind broke; dgram + bound + stream
+  connect ioctls with real status mapping — the stdlib's dgram connect dies
+  on SO_REUSE_UNICASTPORT and its stream connect maps no failure statuses;
+  AFD getsockname, which returns a plain sockaddr at offset 0) + NT
+  hardlinks via FILE_LINK_INFORMATION (stdlib dirHardLink is a blanket
+  OperationUnsupported) + pre-OS empty-path→NoEntry (NT resolves "" to the
+  dir handle itself). Official corpus green on windowsmini with ZERO skips;
+  D-568 (was: sockets data plane) and D-569 (was: explicit-bind connect)
+  both discharged.
 
 ### D5 — Async-eager host completion (keeps ADR-0187 stackless design)
 
