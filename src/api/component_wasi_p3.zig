@@ -1157,9 +1157,14 @@ test "wasip3-official: sockets-udp-bind (bind + address validation)" {
 test "wasip3-official: sockets-tcp-bind (REUSEADDR + addrinuse contracts)" {
     try runOfficialWasip3Test("sockets-tcp-bind");
 }
-// sockets-tcp-connect is vendored but not yet enabled (D-568): it needs
-// connect-from-an-explicitly-bound socket (no bound-connect in the pinned
-// std.Io.net).
+test "wasip3-official: sockets-tcp-connect (incl. explicit-bind connect)" {
+    // Windows: connect-from-an-explicitly-bound socket is not-supported —
+    // the raw posix bound-connect composition (ADR-0070 amendment) has no
+    // NT/AFD counterpart yet.
+    if (@import("builtin").os.tag == .windows)
+        return @import("../test_support/skip.zig").blocker(.@"D-569");
+    try runOfficialWasip3Test("sockets-tcp-connect");
+}
 test "wasip3-official: sockets-udp-connect" {
     try runOfficialWasip3Test("sockets-udp-connect");
 }

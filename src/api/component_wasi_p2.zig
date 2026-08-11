@@ -3780,7 +3780,14 @@ fn sock3TcpConnect(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
     }
     const sock = try sock3TcpSelf(ctx, self);
     const io = try ctxIo(ctx);
-    sock.startConnect(io, addr) catch |e| {
+    // Explicitly bound (the 0.3 `bind` → `connect` transition) takes the
+    // raw bound-connect composition; everything else the std connect.
+    if (sock.state == .bound) {
+        sock.connectFromBound(io, addr) catch |e| {
+            try writeSock3UnitResult(mem, retptr, e);
+            return SUBTASK_RETURNED;
+        };
+    } else sock.startConnect(io, addr) catch |e| {
         try writeSock3UnitResult(mem, retptr, e);
         return SUBTASK_RETURNED;
     };

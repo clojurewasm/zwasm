@@ -78,6 +78,10 @@ pub const Blocker = enum {
     /// fp spill_offsets) crashes the x86_64 codegen before the lane-op spill
     /// path is reached. arm64 lane-op spill-awareness landed first.
     @"D-461",
+    /// Windows `tcp.connect` from an explicitly BOUND socket: the raw posix
+    /// bound-connect composition (ADR-0070 amendment 2026-08-11) has no
+    /// NT/AFD counterpart under the pinned stdlib.
+    @"D-569",
     // (D-186 / D-179 / D-194 / D-212 variants removed 2026-06-14 — their
     // debt rows were discharged; check_skip_helpers enforces enum↔debt pairing.)
 };

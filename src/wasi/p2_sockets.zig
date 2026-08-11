@@ -317,8 +317,9 @@ pub const TcpSocket = struct {
 
     /// `tcp.start-connect`. The synchronous `std.Io.net` connect executes
     /// here; a failure is cached for finish-connect (see module docstring).
-    /// Connecting FROM an explicitly bound socket is Phase-2 scope
-    /// (`std.Io.net` has no bound-socket connect) — truthful not-supported.
+    /// Connecting FROM an explicitly bound socket is `connectFromBound`
+    /// (the WASI-0.3 path) — the 0.2 deferred-bind path stays truthful
+    /// not-supported.
     pub fn startConnect(self: *TcpSocket, io: std.Io, addr: net.IpAddress) !void {
         if (self.state == .bound or self.state == .bind_started) return error.OptionUnsupported;
         if (self.state != .unbound) return error.InvalidState;
@@ -329,6 +330,29 @@ pub const TcpSocket = struct {
             return;
         };
         self.local_addr = self.stream.?.socket.address;
+        self.remote_addr = addr;
+    }
+
+    /// WASI-0.3 `connect` on an explicitly BOUND socket (official
+    /// sockets-tcp-connect test_explicit_bind): the `bindNow` placeholder
+    /// listener is dropped and a raw socket re-binds the SAME resolved
+    /// address (SO_REUSEADDR) then connects — `rawBoundConnect`. POSIX
+    /// only; windows sockets are NT/AFD handles with no libc surface
+    /// (truthful not-supported, D-569).
+    pub fn connectFromBound(self: *TcpSocket, io: std.Io, addr: net.IpAddress) !void {
+        if (self.state != .bound or self.server == null) return error.InvalidState;
+        if (!familyMatches(self.family, addr)) return error.InvalidArgument;
+        if (builtin.os.tag == .windows) return error.OptionUnsupported;
+        const local = self.bound_addr.?; // bindNow resolved it
+        self.server.?.deinit(io);
+        self.server = null;
+        self.state = .connect_started;
+        const fd = rawBoundConnect(local, addr) catch |err| {
+            self.connect_err = err;
+            return;
+        };
+        self.stream = .{ .socket = .{ .handle = fd, .address = local } };
+        self.local_addr = local;
         self.remote_addr = addr;
     }
 
@@ -493,6 +517,50 @@ pub const UdpSocket = struct {
     }
 };
 
+/// Raw socket+SO_REUSEADDR+bind+connect composition (ADR-0070 amendment
+/// 2026-08-11): the pinned `std.Io.net` cannot connect FROM a bound socket,
+/// so the WASI-0.3 bind→connect transition composes one from
+/// `posix.system` primitives (= libc on every zwasm build — `link_libc` is
+/// always on) and the PUBLIC `std.Io.Threaded` sockaddr converters. The fd
+/// then plugs into the normal `net.Stream` vtable paths (read/write/poll/
+/// shutdown/close all take the handle). No CLOEXEC: the portable c surface
+/// has no SOCK_CLOEXEC, and zwasm never execs.
+fn rawBoundConnect(local: net.IpAddress, remote: net.IpAddress) !net.Socket.Handle {
+    if (builtin.os.tag == .windows) return error.OptionUnsupported;
+    const af: c_uint = switch (local) {
+        .ip4 => posix.AF.INET,
+        .ip6 => posix.AF.INET6,
+    };
+    const fd = posix.system.socket(af, posix.SOCK.STREAM, 0);
+    if (posix.errno(fd) != .SUCCESS) return error.SystemResources;
+    errdefer _ = posix.system.close(fd);
+    // SO_REUSEADDR pre-bind: the same WIT bind contract as the listen
+    // paths (TIME_WAIT must not block the rebind).
+    const on = std.mem.toBytes(@as(c_int, 1));
+    try posix.setsockopt(fd, posix.SOL.SOCKET, posix.SO.REUSEADDR, &on);
+    var local_storage: std.Io.Threaded.PosixAddress = undefined;
+    const local_len = std.Io.Threaded.addressToPosix(&local, &local_storage);
+    switch (posix.errno(posix.system.bind(fd, &local_storage.any, local_len))) {
+        .SUCCESS => {},
+        .ADDRINUSE => return error.AddressInUse,
+        .ADDRNOTAVAIL => return error.AddressUnavailable,
+        .ACCES => return error.AccessDenied,
+        else => return error.Unexpected,
+    }
+    var remote_storage: std.Io.Threaded.PosixAddress = undefined;
+    const remote_len = std.Io.Threaded.addressToPosix(&remote, &remote_storage);
+    switch (posix.errno(posix.system.connect(fd, &remote_storage.any, remote_len))) {
+        .SUCCESS => {},
+        .CONNREFUSED => return error.ConnectionRefused,
+        .TIMEDOUT => return error.ConnectionTimedOut,
+        .NETUNREACH => return error.NetworkUnreachable,
+        .HOSTUNREACH => return error.HostUnreachable,
+        .ADDRINUSE => return error.AddressInUse,
+        else => return error.Unexpected,
+    }
+    return fd;
+}
+
 fn familyMatches(family: AddressFamily, addr: net.IpAddress) bool {
     return switch (addr) {
         .ip4 => family == .ipv4,
@@ -592,6 +660,7 @@ fn afdPollOnce(handle: net.Socket.Handle, interest: i16) !bool {
 // Tests
 // ============================================================
 const testing = std.testing;
+const skip = @import("../test_support/skip.zig");
 
 test "tcp client lifecycle: create → connect → echo against a loopback listener" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
@@ -822,6 +891,51 @@ test "tcp bind honors the spec's SO_REUSEADDR contract: TIME_WAIT rebind ok, act
     try rebind.bindNow(io);
     try rebind.listenNow(io);
     try testing.expectEqual(port, (try rebind.localAddress()).getPort());
+}
+
+test "tcp connect from an explicitly bound socket preserves the bound port" {
+    // Windows: no raw bound-connect (NT/AFD handles, no libc surface).
+    if (builtin.os.tag == .windows) return skip.blocker(.@"D-569");
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = TcpSocket.create(.ipv4);
+    defer listener.deinit(io);
+    try listener.startBind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    try listener.finishBind();
+    try listener.bindNow(io);
+    try listener.listenNow(io);
+    const srv_port = (try listener.localAddress()).getPort();
+
+    var client = TcpSocket.create(.ipv4);
+    defer client.deinit(io);
+    try client.startBind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    try client.finishBind();
+    try client.bindNow(io);
+    const bound_port = (try client.localAddress()).getPort();
+    try testing.expect(bound_port != 0);
+
+    try client.connectFromBound(io, .{ .ip4 = net.Ip4Address.loopback(srv_port) });
+    try client.finishConnect();
+    try testing.expectEqual(TcpState.connected, client.state);
+    // The bound port survives the connect (the raw composition re-binds it).
+    try testing.expectEqual(bound_port, (try client.localAddress()).getPort());
+    try testing.expectEqual(srv_port, (try client.remoteAddress()).getPort());
+
+    var attempts: u32 = 0;
+    while (!(try listener.ready(POLL_IN)) and attempts < 500) : (attempts += 1) {
+        try io.sleep(.{ .nanoseconds = 2 * std.time.ns_per_ms }, .awake);
+    }
+    var accepted = try listener.accept(io);
+    defer accepted.deinit(io);
+    try testing.expectEqual(bound_port, (try accepted.remoteAddress()).getPort());
+
+    // Round-trip: the raw fd plugs into the normal io vtable paths.
+    try testing.expectEqual(@as(usize, 4), try client.send(io, "ping"));
+    var buf: [8]u8 = undefined;
+    const got = try accepted.recv(io, &buf);
+    try testing.expectEqualStrings("ping", buf[0..got]);
 }
 
 test "tcp listener state machine: invalid transitions are rejected" {
