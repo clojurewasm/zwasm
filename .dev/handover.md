@@ -5,13 +5,15 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.4.1 is the release line** (tag cut 2026-08-04, USER-GRANTED per ADR-0156;
-consumer-driven patch #157/#158/#159 from ClojureWasm). v2.4.0 = external-
-consumer release (`-Dcompiler-rt` #154 + GC-cohort DCE #150); v2.3.0 =
-WASI-0.3.0 sweep + Homebrew tap; v2.2.x = binary-size / AOT lines. v1 frozen
-at `v1.11.1`. Dev model: cut a `develop/<slug>` branch from `main` → PR → CI
-`ci-required` 3-OS gate green to merge. **Release stays user-only (ADR-0156)**
-— never autonomously tag / publish / cut over.
+**v2.5.0 release prep in flight (USER-GRANTED 2026-08-11 per ADR-0156)**:
+this branch bumps `build.zig.zon` → 2.5.0 + cuts the CHANGELOG section
+(headline: WASI 0.3 full coverage on all 3 OSes; also #162 C-API symbols,
+#164 doc sweep, #166 dev-env SSOT). After merge + CI green the USER pushes
+the `v2.5.0` tag → `release.yml` auto-builds + publishes. Prior line
+v2.4.1 (2026-08-04); v1 frozen at `v1.11.1`. Dev model: cut a
+`develop/<slug>` branch from `main` → PR → CI `ci-required` gate green to
+merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
+publish / cut over.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
@@ -27,19 +29,14 @@ at `v1.11.1`. Dev model: cut a `develop/<slug>` branch from `main` → PR → CI
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
 
-## Active front — reproducible-dev-env (2026-08-11, user-directed)
+## Closed front — reproducible-dev-env (SHIPPED 2026-08-11, PR #166 → dc46526c5)
 
-Branch `develop/reproducible-dev-env` — **DONE, PR #166 open + CI all-green,
-awaiting user merge** (ADR-0206). Goal: anyone can develop this project.
-Delivered: `docs/development.md` SSOT (README/CONTRIBUTING link it; honest
-CI claim — windows leg is advisory); `scripts/dev_hosts.env.example`
-(per-machine host config for the OPTIONAL fan-out; absolute-dir sourcing
-pre-orphan-guard); yq guards (SKIP + pointer); 5 dead campaign scripts
-deleted (D5 list in the ADR); `.dev/README.md` split record-vs-host-setup.
-Verified: fresh-clone Zig-only `zig build test` 3153 pass; subdir-invocation
-config regression test; two clean-context agent audits (walkthrough "story
-holds, no blockers"; adversarial diff review 5 findings → all fixed).
-post-merge main CI for #165 (run 31487010199): **all-green** incl. extended.
+ADR-0206: anyone can develop this project. `docs/development.md` SSOT
+(README/CONTRIBUTING link it; honest CI claim — windows leg advisory);
+`scripts/dev_hosts.env.example` per-machine host config for the OPTIONAL
+fan-out; yq guards; 5 dead campaign scripts deleted. Verified by fresh-clone
+Zig-only build/test + two clean-context agent audits (5 findings all fixed).
+post-merge main CI green for both #165 (incl. extended) and #166.
 
 ## Operational invariants (keep using)
 
