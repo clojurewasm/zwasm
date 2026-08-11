@@ -75,6 +75,7 @@ const P3CallbackCtx = struct {
         try self.wp2.deliverParkedReads(set);
         _ = try self.wp2.fireDueTimers();
         _ = try self.wp2.pollBlockedSockets();
+        _ = try self.wp2.pollBlockedUdpReceives();
         return try set.poll(&self.wp2.streams);
     }
 
@@ -84,6 +85,7 @@ const P3CallbackCtx = struct {
     pub fn waitForTimer(self: *P3CallbackCtx) !bool {
         // A ready socket is immediate progress — retry without sleeping.
         if (try self.wp2.pollBlockedSockets()) return true;
+        if (try self.wp2.pollBlockedUdpReceives()) return true;
         // External-actor seam (official sockets-echo): let the harness act
         // as the remote client while the guest is parked.
         if (self.wp2.external_sock_step) |hook| {
@@ -91,7 +93,7 @@ const P3CallbackCtx = struct {
         }
         // Otherwise, if socket reads are still pending, briefly sleep and
         // retry (poll(2) has no scheduler-integrated wakeup here).
-        if (self.wp2.blocked_socket_reads.count() > 0) {
+        if (self.wp2.blocked_socket_reads.count() > 0 or self.wp2.blocked_udp_receives.count() > 0) {
             const io = self.wp2.host.io orelse return error.NoHostIo;
             std.Io.sleep(io, std.Io.Duration.fromNanoseconds(std.time.ns_per_ms), .awake) catch |err| switch (err) {
                 error.Canceled => {},
@@ -1155,11 +1157,18 @@ test "wasip3-official: sockets-udp-bind (bind + address validation)" {
 test "wasip3-official: sockets-tcp-bind (REUSEADDR + addrinuse contracts)" {
     try runOfficialWasip3Test("sockets-tcp-bind");
 }
-// sockets-tcp-connect + the udp data-plane trio are vendored but not yet
-// enabled (D-568): tcp-connect needs connect-from-an-explicitly-bound
-// socket (no bound-connect in the pinned std.Io.net) and the udp trio
-// needs OS-level connect (implicit-bind local-address resolution) +
-// send-path fixes.
+// sockets-tcp-connect is vendored but not yet enabled (D-568): it needs
+// connect-from-an-explicitly-bound socket (no bound-connect in the pinned
+// std.Io.net).
+test "wasip3-official: sockets-udp-connect" {
+    try runOfficialWasip3Test("sockets-udp-connect");
+}
+test "wasip3-official: sockets-udp-send" {
+    try runOfficialWasip3Test("sockets-udp-send");
+}
+test "wasip3-official: sockets-udp-receive" {
+    try runOfficialWasip3Test("sockets-udp-receive");
+}
 test "wasip3-official: sockets-tcp-listen" {
     try runOfficialWasip3Test("sockets-tcp-listen");
 }

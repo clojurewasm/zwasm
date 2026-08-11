@@ -67,6 +67,10 @@ pub const ParkedSockRead = struct { rep: u32, ptr: u32, cap: u32, elem_size: u32
 /// so a drain failure (peer reset / shutdown) flips the future to err before
 /// the guest awaits it (official sockets-tcp-receive test_drop_read_half).
 pub const TcpTxRole = struct { rep: u32, fut: u32 };
+/// A parked `udp.receive` subtask: the udp socket rep + the async call's
+/// retptr, completed (recvfrom + marshal + SUBTASK event) at readiness by
+/// `pollBlockedUdpReceives` — the timer-subtask pattern (ADR-0205 D2).
+pub const ParkedUdpReceive = struct { rep: u32, retptr: u32 };
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -173,6 +177,9 @@ pub const WasiP2Ctx = struct {
     /// (mirrors the D2 timer path) and EXECUTES the parked read. Key = the
     /// readable end HANDLE (the waitable a set joins).
     blocked_socket_reads: std.AutoHashMapUnmanaged(u32, ParkedSockRead) = .empty,
+    /// Parked `udp.receive` subtasks awaiting datagram readiness, keyed by
+    /// the subtask waitable handle.
+    blocked_udp_receives: std.AutoHashMapUnmanaged(u32, ParkedUdpReceive) = .empty,
     /// Optional external-actor seam (official sockets-echo: the conformance
     /// harness plays the REMOTE CLIENT — connect / send — while the guest
     /// is parked): called at the scheduler's no-progress point; returns
@@ -258,6 +265,7 @@ pub const WasiP2Ctx = struct {
         self.host_tcp_rx.deinit(self.alloc);
         self.host_tcp_tx.deinit(self.alloc);
         self.blocked_socket_reads.deinit(self.alloc);
+        self.blocked_udp_receives.deinit(self.alloc);
         self.dir_streams.deinit(self.alloc);
         self.resources.deinit();
         self.guest_resources.deinit();
@@ -379,6 +387,36 @@ pub const WasiP2Ctx = struct {
                 if (dbg.on("async.host")) std.debug.print("[host] sock-rx-complete handle={d} n={d}\n", .{ h, n });
             } else continue;
             _ = self.blocked_socket_reads.remove(h);
+            progressed = true;
+        }
+        return progressed;
+    }
+
+    /// Poll parked `udp.receive` subtasks; a ready socket's receive EXECUTES
+    /// (recvfrom + marshal at the saved retptr) and the subtask flips to
+    /// RETURNED with its SUBTASK event pending (the timer-fire shape).
+    pub fn pollBlockedUdpReceives(self: *WasiP2Ctx) WasiP2Error!bool {
+        if (self.blocked_udp_receives.count() == 0) return false;
+        var progressed = false;
+        var it = self.blocked_udp_receives.iterator();
+        var ready_handles: [64]u32 = undefined;
+        var n_ready: usize = 0;
+        while (it.next()) |entry| {
+            const sock = ctxUdpSocket(self, entry.value_ptr.rep) catch continue;
+            if (sock.readyIn() catch false) {
+                if (n_ready < ready_handles.len) {
+                    ready_handles[n_ready] = entry.key_ptr.*;
+                    n_ready += 1;
+                }
+            }
+        }
+        for (ready_handles[0..n_ready]) |h| {
+            const pr = self.blocked_udp_receives.get(h) orelse continue;
+            const end = self.streams.get(h) catch continue;
+            try sock3UdpReceiveComplete(self, pr.rep, pr.retptr);
+            end.subtask_state = .returned;
+            end.setPendingEvent(.{ .code = .subtask, .index = h, .payload = @intFromEnum(async_mod.SubtaskState.returned) });
+            _ = self.blocked_udp_receives.remove(h);
             progressed = true;
         }
         return progressed;
@@ -3641,7 +3679,7 @@ fn sockErrToFs3Code(e: anyerror) u8 {
         error.BrokenPipe => 10,
         error.ConnectionResetByPeer => 11,
         error.ConnectionAborted => 12,
-        error.MessageTooBig => 13,
+        error.MessageTooBig, error.MessageOversize => 13,
         else => 14,
     };
 }
@@ -4123,8 +4161,22 @@ fn sock3UdpDisconnect(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void 
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const sock = try sock3UdpSelf(ctx, self);
-    sock.disconnect() catch |e| return writeSock3UnitResult(mem, retptr, e);
+    sock.disconnect(try ctxIo(ctx)) catch |e| return writeSock3UnitResult(mem, retptr, e);
     try writeSock3UnitResult(mem, retptr, null);
+}
+
+/// Structural equality of two socket addresses (port + raw address bytes).
+fn sock3AddrEql(a: std.Io.net.IpAddress, b: std.Io.net.IpAddress) bool {
+    return switch (a) {
+        .ip4 => |x| switch (b) {
+            .ip4 => |y| x.port == y.port and std.mem.eql(u8, &x.bytes, &y.bytes),
+            .ip6 => false,
+        },
+        .ip6 => |x| switch (b) {
+            .ip6 => |y| x.port == y.port and std.mem.eql(u8, &x.bytes, &y.bytes),
+            .ip4 => false,
+        },
+    };
 }
 
 /// `[async-lower]udp.send` — spilled args: self@0, data list@4 (ptr,len),
@@ -4150,6 +4202,28 @@ fn sock3UdpSend(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
             return SUBTASK_RETURNED;
         };
     };
+    // Pre-OS validation — an EINVAL sendto is an errnoBug PANIC in the
+    // pinned stdlib, so the invalid-argument classes never reach the OS:
+    // family mismatch / unspecified ip / port 0, and a connected socket
+    // only sends to its own remote.
+    if (has_remote) {
+        const fam_ok = switch (dest) {
+            .ip4 => sock.family == .ipv4,
+            .ip6 => sock.family == .ipv6,
+        };
+        const port_zero = switch (dest) {
+            .ip4 => |a| a.port == 0,
+            .ip6 => |a| a.port == 0,
+        };
+        if (!fam_ok or port_zero or sock3IsAnyAddr(dest)) {
+            try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+            return SUBTASK_RETURNED;
+        }
+        if (sock.remote) |r| if (!sock3AddrEql(dest, r)) {
+            try writeSock3UnitResult(mem, retptr, error.InvalidArgument);
+            return SUBTASK_RETURNED;
+        };
+    }
     const bytes = mem.sliceAt(data_ptr, data_len) catch return WasiP2Error.OutOfBounds;
     sock.sendTo(try ctxIo(ctx), dest, bytes) catch |e| {
         try writeSock3UnitResult(mem, retptr, e);
@@ -4165,12 +4239,41 @@ fn sock3UdpSend(caller: *Caller, argsptr: u32, retptr: u32) WasiP2Error!u32 {
 fn sock3UdpReceive(caller: *Caller, self: u32, retptr: u32) WasiP2Error!u32 {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
-    const sock = try sock3UdpSelf(ctx, self);
+    const rep = try ctx.resources.rep(WasiP2Ctx.UDP_SOCKET3_RT, self);
+    const sock = try ctxUdpSocket(ctx, rep);
+    if (sock.socket == null) {
+        // Unbound → invalid-state (official udp-receive test_not_bound).
+        try writeSock3Err(mem, retptr, 4, error.InvalidState);
+        return SUBTASK_RETURNED;
+    }
+    if (sock.readyIn() catch false) {
+        try sock3UdpReceiveComplete(ctx, rep, retptr);
+        return SUBTASK_RETURNED;
+    }
+    // No datagram queued → park as a subtask waitable (the timer pattern):
+    // `pollBlockedUdpReceives` completes it at readiness. Receiving eagerly
+    // here would block the whole runtime and starve the guest's own
+    // sending task (official udp-receive test_receive_data joins both).
+    const h = try ctx.streams.add(.{
+        .kind = .subtask,
+        .side = .readable,
+        .elem_type = null,
+        .subtask_state = .started,
+    });
+    try ctx.blocked_udp_receives.put(ctx.alloc, h, .{ .rep = rep, .retptr = retptr });
+    return @intFromEnum(async_mod.SubtaskState.started) | (h << 4);
+}
+
+/// The receive proper: recvfrom into a fresh guest buffer + marshal the
+/// `result<tuple<list<u8>, ip-socket-address>, _>` ok payload at `retptr`.
+/// Shared by the eager (data already queued) and parked-completion paths.
+fn sock3UdpReceiveComplete(ctx: *WasiP2Ctx, rep: u32, retptr: u32) WasiP2Error!void {
+    const mem = try ctx.memory();
+    const sock = try ctxUdpSocket(ctx, rep);
     const buf_ptr = try ctx.reallocGuest(65536, 1);
     const buf = mem.sliceAt(buf_ptr, 65536) catch return WasiP2Error.OutOfBounds;
     const r = sock.receiveFrom(try ctxIo(ctx), buf) catch |e| {
-        try writeSock3Err(mem, retptr, 4, e);
-        return SUBTASK_RETURNED;
+        return writeSock3Err(mem, retptr, 4, e);
     };
     try mem.write(retptr, @as(u8, 0));
     try mem.write(retptr + 4, buf_ptr);
@@ -4192,7 +4295,6 @@ fn sock3UdpReceive(caller: *Caller, self: u32, retptr: u32) WasiP2Error!u32 {
             try mem.write(retptr + 40, @as(u32, 0)); // scope-id
         },
     }
-    return SUBTASK_RETURNED;
 }
 
 fn sock3UdpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {

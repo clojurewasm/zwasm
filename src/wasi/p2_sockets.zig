@@ -83,7 +83,7 @@ pub fn errorToCode(err: anyerror) ErrorCode {
         error.ConnectionRefused => .connection_refused,
         error.ConnectionResetByPeer => .connection_reset,
         error.ConnectionAborted => .connection_aborted,
-        error.MessageTooBig => .datagram_too_large,
+        error.MessageTooBig, error.MessageOversize => .datagram_too_large,
         else => .unknown,
     };
 }
@@ -380,13 +380,20 @@ pub const TcpSocket = struct {
 };
 
 /// One live UDP socket (WASI-0.3 `wasi:sockets` `udp-socket`, ADR-0205 phase
-/// C): `IpAddress.bind(mode=.dgram)` backs it; "connect" is a local filter
-/// per the WIT ("only changes the local socket configuration").
+/// C): `IpAddress.bind(mode=.dgram)` backs the bound/implicit-bind states;
+/// the WIT `connect` on an UNBOUND socket is a real OS connect (the pinned
+/// stdlib's dgram connect resolves the implicit-bind LOCAL address via
+/// getsockname — the official udp-connect test expects 127.0.0.1 back, not
+/// the wildcard).
 pub const UdpSocket = struct {
     family: AddressFamily,
     socket: ?net.Socket = null,
     bound_addr: ?net.IpAddress = null,
     remote: ?net.IpAddress = null,
+    /// Socket created by an OS-level dgram connect: sends go through the
+    /// connected fd (a sendto WITH an address on it is EISCONN — an
+    /// errnoBug panic in the pinned stdlib).
+    os_connected: bool = false,
     opt_hop_limit: u8 = 64,
     opt_rcvbuf: u64 = 64 * 1024,
     opt_sndbuf: u64 = 64 * 1024,
@@ -408,7 +415,7 @@ pub const UdpSocket = struct {
         self.bound_addr = a;
     }
 
-    /// The WIT's implicit bind (send/connect on an unbound socket).
+    /// The WIT's implicit bind (send-to on an unbound socket).
     pub fn ensureBound(self: *UdpSocket, io: std.Io) !void {
         if (self.socket != null) return;
         var any: net.IpAddress = switch (self.family) {
@@ -421,18 +428,51 @@ pub const UdpSocket = struct {
 
     pub fn connect(self: *UdpSocket, io: std.Io, addr: net.IpAddress) !void {
         if (!familyMatches(self.family, addr)) return error.InvalidArgument;
-        try self.ensureBound(io);
+        if (self.socket != null and !self.os_connected) {
+            // Explicitly bound: the local endpoint is already resolved, so
+            // connect stays the WIT's "local socket configuration" filter.
+            self.remote = addr;
+            return;
+        }
+        // Unbound, or a re-connect of an OS-connected socket: a fresh OS
+        // dgram connect (the pinned stdlib has no connect-existing-fd).
+        var a = addr;
+        const stream = a.connect(io, .{ .mode = .dgram, .protocol = .udp }) catch |e| return e;
+        if (self.socket) |*old| old.close(io);
+        self.socket = stream.socket;
+        self.bound_addr = stream.socket.address;
+        self.os_connected = true;
         self.remote = addr;
     }
 
-    pub fn disconnect(self: *UdpSocket) !void {
+    pub fn disconnect(self: *UdpSocket, io: std.Io) !void {
         if (self.remote == null) return error.InvalidState;
+        if (self.os_connected) {
+            // No AF_UNSPEC dissolve in the pinned stdlib: drop the fd (the
+            // socket returns to the unbound state; nothing observable in
+            // the WIT contract retains the local port across disconnect).
+            if (self.socket) |*sock| sock.close(io);
+            self.socket = null;
+            self.bound_addr = null;
+            self.os_connected = false;
+        }
         self.remote = null;
     }
 
     pub fn sendTo(self: *UdpSocket, io: std.Io, dest: net.IpAddress, bytes: []const u8) !void {
+        if (self.os_connected) {
+            const data = [_][]const u8{bytes};
+            _ = try io.vtable.netWrite(io.userdata, self.socket.?.handle, "", &data, 1);
+            return;
+        }
         try self.ensureBound(io);
         try self.socket.?.send(io, &dest, bytes);
+    }
+
+    /// POLL.IN readiness: a datagram is queued for `receiveFrom`.
+    pub fn readyIn(self: *UdpSocket) !bool {
+        const sock = self.socket orelse return error.InvalidState;
+        return pollOnce(sock.handle, POLL_IN);
     }
 
     pub fn receiveFrom(self: *UdpSocket, io: std.Io, buf: []u8) !struct { n: usize, from: net.IpAddress } {
