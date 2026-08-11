@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single-type Instance facade (ADR-0109 §3.5); 45% in-file tests is P4-alone — insufficient for a split (investigated 2026-08-12, per ADR-0099)
 //! `Instance` — native Zig facade for an instantiated module per
 //! ADR-0109 §3.5 + §3.6.
 //!

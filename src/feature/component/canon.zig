@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: verified P1 seam (flatten surface → canon_flat.zig) SCHEDULED post-v2.5.0 as D-580 — the split is planned, not rejected (triage 2026-08-12, per ADR-0099)
 //! Canonical ABI **lift/lower + memory layout** (spec
 //! `component-model/design/mvp/CanonicalABI.md`). Design: ADR-0171 / ADR-0183.
 //!

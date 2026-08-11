@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: library root: re-export surface + root smoke tests; P4-alone at 44 lines over soft cap (investigated 2026-08-12, per ADR-0099)
 //! zwasm — WebAssembly runtime, library root.
 //!
 //! Per ADR-0024 D-1/D-2: this file is the `root_source_file` of
@@ -410,6 +411,7 @@ test {
     _ = @import("engine/codegen/shared/frame_teardown.zig");
     _ = @import("ir/feature_level_check.zig");
     _ = @import("test_support/skip.zig");
+    _ = @import("interp/mvp_tests.zig");
     _ = @import("wasi/preview1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");

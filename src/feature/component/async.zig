@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: ADR-0187 handle-table state machine; stream/future/waitable-set ops mutually reference the shared table (N1/N2) (investigated 2026-08-12, per ADR-0099)
 //! WASI-0.3 / Component-Model async runtime (campaign D-335 Unit D; ADR-0187).
 //!
 //! Stackless callback-ABI model on zwasm's synchronous engine — NO fibers. This

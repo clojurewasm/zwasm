@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: the JIT ABI contract file — extern structs + offset constants + the host-callback families that JitRuntime FIELD DEFAULTS name directly (gc_alloc_fn = jitGcAlloc etc., lines ~606-614), so extracting any callback family creates a definition cycle (ADR-0099 N1; investigated 2026-08-12, split rejected).
 //! JIT Runtime ABI (ADR-0017).
 //!
 //! `JitRuntime` is the extern struct passed to every JIT-compiled

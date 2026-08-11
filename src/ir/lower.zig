@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single-pass opcode→ZirOp lowering; 19 private helpers share the emit cursor, any extraction forces an N2 pub-leak (investigated 2026-08-12, per ADR-0099)
 //! Wasm function-body **lowerer** — wasm opcode → ZirOp emission
 //! into a pre-initialised `ZirFunc` (Phase 1 / §9.1 / 1.6).
 //!

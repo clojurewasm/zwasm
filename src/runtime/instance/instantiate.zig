@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single deep spec-instantiation sequence (ADR-0023 §7); a mid-algorithm split forces an N2 pub-leak (investigated 2026-08-12, per ADR-0099)
 //! Module-bytes → instantiated Runtime helpers.
 //!
 //! Per ADR-0023 §7 item 5: extracts the binding-agnostic

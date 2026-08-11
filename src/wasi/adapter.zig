@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: the single P2→P1 name-map concern; largest data block is 27% — under P2's 40% bar (investigated 2026-08-12, per ADR-0099)
 //! WASI **Preview 2 → Preview 1 adapter** name-map (CM campaign chunk D1;
 //! WASI-P2 `wasi:cli` / `wasi:io` / `wasi:clocks` / `wasi:random` WIT).
 //!
