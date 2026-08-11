@@ -70,6 +70,17 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
   extend the doc-truth job pattern; (c) whatever S2/S3 finds systemic.
 - Exit: axes S1–S5 each closed-or-ADR'd, THEN user tags v2.5.0.
 
+## Active rework campaign
+
+- **Campaign-ID**: s1-d444-three-way-split (D-444; branch `develop/s1-d444-three-way-split`)
+- **Phase**: II — correctness assurance (of I→V; Phase-I findings live in the D-444 row)
+- **Findings-doc**: D-444 debt row (structural map, 3 reverse deps, three-way shape)
+- **Exit target**: component_wasi_p2.zig → shared substrate + P2 + P3 files, all under
+  ADR-0099 caps or honestly EXEMPT; full test net green at every commit
+- **Correctness net**: 76 (p3) + 61 (component_tests) sibling tests green baseline +
+  characterization of the 3 reverse-dep paths BEFORE any code moves
+- **Next**: coverage map of reverse-dep paths (survey running) → fill gaps as test-only chunks
+
 ## Operational invariants (keep using)
 
 - **Win64 fast-repro** (~2min): cross-build on Mac (run-step "fails" but
