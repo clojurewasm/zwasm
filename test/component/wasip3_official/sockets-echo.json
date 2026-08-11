@@ -1,0 +1,28 @@
+{
+    "proposals": [
+	"sockets"
+    ],
+    "operations": [
+	{
+	    "type": "run"
+	},
+	{
+	    "type": "connect",
+	    "id": "echo-server",
+	    "protocol_type": "tcp"
+	},
+	{
+	    "type": "send",
+	    "id": "echo-server",
+	    "payload": "Hello, world"
+	},
+	{
+	    "type": "recv",
+	    "id": "echo-server",
+	    "payload": "Hello, world"
+	},
+	{
+	    "type": "wait"
+	}
+    ]
+}

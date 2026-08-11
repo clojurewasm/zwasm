@@ -1,0 +1,20 @@
+{
+  "operations": [
+    {
+      "type": "run"
+    },
+    {
+      "type": "read",
+      "id": "stdout",
+      "payload": "READY"
+    },
+    {
+      "type": "write",
+      "id": "stdin",
+      "payload": "x"
+    },
+    {
+      "type": "wait"
+    }
+  ]
+}

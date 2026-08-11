@@ -270,9 +270,10 @@ Both ship **WASI 0.1 (preview1)**. In v2:
   `-Dwasi>=p2` (default `p2`; `-Dwasi=p1` for a lean opt-out — the former
   `-Dcomponent` flag is folded into the version axis) — real `wasm32-wasip2` Rust/Go
   components run e2e (corpus 158/0/0). **WASI 0.3 / preview3** (native async;
-  officially released as WASI 0.3.0 on 2026-06-11) compiles at `-Dwasi=p3`
-  (opt-in; the default stays `p2` while the 0.3 host interface set —
-  filesystem/sockets data-plane, http — is completed).
+  officially released as WASI 0.3.0 on 2026-06-11) runs at `-Dwasi=p3`
+  (opt-in; the default stays `p2`) with FULL coverage of all six 0.3.0
+  proposals — cli / clocks / random / filesystem / sockets / http — the
+  official `wasm32-wasip3` corpus green 45/45 (ADR-0205).
 - **C-API preopen** is **shipped** (`zwasm_wasi_config_preopen_dir`
   + `inherit_env`); the CLI `--dir` and Zig facade also cover it.
 - **Preopen confinement:** guest paths are escape-guarded (absolute and `..` are

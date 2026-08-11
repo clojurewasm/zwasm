@@ -1,0 +1,11 @@
+{
+  "operations": [
+    {
+      "type": "run"
+    },
+    {
+      "type": "wait",
+      "exit_code": 1
+    }
+  ]
+}

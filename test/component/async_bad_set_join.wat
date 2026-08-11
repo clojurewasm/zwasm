@@ -9,7 +9,7 @@
     (func (export "callback") (param i32 i32 i32) (result i32) i32.const 0)
     (func (export "run") (result i32)
       ;; join into a never-minted set (handle 999, waitable 1) → InvalidHandle → traps
-      (call $wj (i32.const 999) (i32.const 1))
+      (call $wj (i32.const 1) (i32.const 999))
       i32.const 0)) ;; a clean EXIT here would mean the bad set handle did NOT trap
   (core instance $deps
     (export "w-join" (func $wj)))

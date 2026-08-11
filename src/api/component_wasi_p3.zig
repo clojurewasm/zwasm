@@ -12,6 +12,8 @@
 const std = @import("std");
 
 const async_mod = @import("../feature/component/async.zig");
+const net = std.Io.net;
+const p3http = @import("../wasi/p3_http.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_p2 = @import("component_wasi_p2.zig");
 
@@ -65,13 +67,53 @@ const P3CallbackCtx = struct {
 
     /// Non-blocking WAIT seam for `driveScheduler` (ADR-0195 step c): deliver any
     /// parked host-source reads (the synchronous "make progress" hook, ADR-0191
-    /// E2c) then poll. Returns null when no event is deliverable — the scheduler
-    /// decides deadlock across ALL tasks (vs single-task `waitOn`, which traps
-    /// directly because its one task IS the whole program).
+    /// E2c) + fire due timers (ADR-0205 D2), then poll. Returns null when no
+    /// event is deliverable — the scheduler decides deadlock across ALL tasks
+    /// (vs single-task `waitOn`, which traps directly because its one task IS
+    /// the whole program).
     pub fn pollSet(self: *P3CallbackCtx, set_index: u32) !?async_mod.EventTuple {
         const set = try self.wp2.sets.get(set_index);
         try self.wp2.deliverParkedReads(set);
+        _ = try self.wp2.fireDueTimers();
+        _ = try self.wp2.pollBlockedSockets();
+        _ = try self.wp2.pollBlockedUdpReceives();
+        _ = try wasi_p2.pollPendingClientSends(self.wp2);
+        set.resolveDroppedPeers(&self.wp2.streams, &self.wp2.shared);
         return try set.poll(&self.wp2.streams);
+    }
+
+    /// The no-progress seam (ADR-0205 D2): a pass delivered nothing — if a
+    /// timer subtask is still armed, sleep until the nearest deadline and fire
+    /// it (true = the scheduler retries); no armed timer = genuine deadlock.
+    pub fn waitForTimer(self: *P3CallbackCtx) !bool {
+        // A ready socket is immediate progress — retry without sleeping.
+        if (try self.wp2.pollBlockedSockets()) return true;
+        if (try self.wp2.pollBlockedUdpReceives()) return true;
+        if (try wasi_p2.pollPendingClientSends(self.wp2)) return true;
+        // External-actor seam (official sockets-echo): let the harness act
+        // as the remote client while the guest is parked.
+        if (self.wp2.external_sock_step) |hook| {
+            if (hook(self.wp2.external_sock_ctx.?)) return true;
+        }
+        // Otherwise, if socket reads are still pending, briefly sleep and
+        // retry (poll(2) has no scheduler-integrated wakeup here).
+        if (self.wp2.blocked_socket_reads.count() > 0 or self.wp2.blocked_udp_receives.count() > 0) {
+            const io = self.wp2.host.io orelse return error.NoHostIo;
+            std.Io.sleep(io, std.Io.Duration.fromNanoseconds(std.time.ns_per_ms), .awake) catch |err| switch (err) {
+                error.Canceled => {},
+            };
+            return true;
+        }
+        const nearest = (try self.wp2.fireDueTimers()) orelse return false;
+        const now = try self.wp2.monotonicNowNs();
+        if (nearest > now) {
+            const io = self.wp2.host.io orelse return error.NoHostIo;
+            std.Io.sleep(io, std.Io.Duration.fromNanoseconds(@intCast(nearest - now)), .awake) catch |err| switch (err) {
+                error.Canceled => {}, // an early wake just re-polls
+            };
+        }
+        _ = try self.wp2.fireDueTimers();
+        return true;
     }
 };
 
@@ -88,6 +130,12 @@ pub fn runWasiP3Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
 /// can inspect the result the guest delivered via `task.return`
 /// (`built.ctx.task_return`, ADR-0189 ζ2) after the loop exits.
 pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
+    return driveAsyncCall(built, &.{});
+}
+
+/// Drive the first async-lifted export with explicit core args (the service
+/// world's `handler.handle` takes the request handle; ADR-0205 D-3).
+pub fn driveAsyncCall(built: *wasi_p2.BuiltComponent, args: []const Value) anyerror!void {
     // async is an export property (ADR-0188): the first `canon lift` with
     // `opts.is_async` is the task to drive; its `callback` is the loop re-entry.
     const lift = blk: {
@@ -109,7 +157,7 @@ pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
 
     // Invoke the async task entry once; its packed i32 return seeds the loop.
     var results = [_]Value{.{ .i32 = 0 }};
-    inst.invoke(entry_ref.name, &.{}, &results) catch |err| {
+    inst.invoke(entry_ref.name, args, &results) catch |err| {
         if (err == error.ProcExit) return; // wasi:cli/exit clean unwind
         return err;
     };
@@ -129,6 +177,11 @@ pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
     // before exiting — otherwise it "failed to produce a result" → guest trap.
     if (built.ctx.task_return == null and asyncExportExpectsResult(built, lift.type_index))
         return error.Unreachable;
+    // `run: async func() -> result` — an `err` task.return (discriminant 1) is
+    // exit code 1 per the wasi:cli command contract (official run-with-err.wasm).
+    if (built.ctx.task_return) |tr| {
+        if (tr != 0 and built.ctx.host.exit_code == null) built.ctx.host.exit_code = 1;
+    }
 }
 
 /// True if the async-lifted export (component func type at `type_index`) declares
@@ -782,4 +835,637 @@ test "WASI 0.3 conformance (wasip3): cli-clocks reads wall+monotonic clocks (rea
     // (wall) must succeed → exit(0); proves wasi:clocks is served to the guest.
     try wasi_p2.runWasiMain(&eng, testing.allocator, bytes, &host, .{});
     try testing.expectEqual(@as(?u32, 0), host.exit_code);
+}
+
+// ============================================================
+// Official wasi-testsuite conformance (ADR-0205 D3)
+// ============================================================
+// Fixtures = the upstream-BUILT `prod/testsuite-base` wasm32-wasip3 binaries
+// (stripped; provenance + pin in scripts/vendor_wasip3_official.sh), driven by
+// the official per-test manifests. The in-process runner flattens the
+// operation stream: stdin `write` payloads are pre-supplied, stdout/stderr
+// `read` payloads become capture assertions, `wait.exit_code` the exit check —
+// faithful for every vendored test (none requires mid-run interactivity).
+
+/// The flattened expectation set of one official manifest (absent manifest =
+/// upstream default: run with no I/O, expect exit 0).
+/// A manifest socket operation (official sockets-echo): the harness plays
+/// the remote client. `connect`/`send` run at the scheduler's no-progress
+/// seam (the guest is parked waiting for exactly this actor); `recv` runs
+/// after the guest completed (the echoed bytes are buffered on our fd).
+const SockOp = struct {
+    kind: enum { connect, send, recv },
+    payload: []const u8 = "",
+};
+
+/// One manifest `request` operation against a `wasi:http/service` world
+/// (ADR-0205 D-3): the harness plays the HTTP client, building a request
+/// resource and invoking the guest's exported `handler.handle`.
+const HttpReqOp = struct {
+    method: []const u8,
+    path: []const u8,
+    body: []const u8 = "",
+    /// Extra request headers (manifest JSON object, e.g. {"x-echo": "ping"}).
+    headers: ?std.json.Value = null,
+    expect_status: u16 = 200,
+    /// Expected response headers (manifest JSON object).
+    expect_headers: ?std.json.Value = null,
+    expect_body: ?[]const u8 = null,
+};
+
+const OfficialExpect = struct {
+    env_keys: std.ArrayList([]const u8) = .empty,
+    env_vals: std.ArrayList([]const u8) = .empty,
+    args: std.ArrayList([]const u8) = .empty,
+    stdin: std.ArrayList(u8) = .empty,
+    stdout: std.ArrayList(u8) = .empty,
+    stderr: std.ArrayList(u8) = .empty,
+    assert_stdout: bool = false,
+    assert_stderr: bool = false,
+    exit_code: u32 = 0,
+    /// Legacy flat-manifest "root": the preopen tree name (copied to a fresh
+    /// tmp dir per run — the tests mutate it) mapped as guest "/".
+    root: ?[]const u8 = null,
+    sock_ops: std.ArrayList(SockOp) = .empty,
+    /// True for `"world": "wasi:http/service"` manifests: no cli/run export;
+    /// the harness drives `handler.handle` per `http_reqs` entry.
+    world_service: bool = false,
+    http_reqs: std.ArrayList(HttpReqOp) = .empty,
+    /// Manifest `endpoints` present: the harness serves an HTTP echo
+    /// endpoint and exports its address as `HTTP_ENDPOINT` (http-client).
+    has_endpoints: bool = false,
+
+    fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
+        self.http_reqs.deinit(alloc);
+        self.env_keys.deinit(alloc);
+        self.env_vals.deinit(alloc);
+        self.args.deinit(alloc);
+        self.stdin.deinit(alloc);
+        self.stdout.deinit(alloc);
+        self.stderr.deinit(alloc);
+        self.sock_ops.deinit(alloc);
+    }
+};
+
+fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value, out: *OfficialExpect) !void {
+    // Legacy flat form ({"root": ..., "exit_code": ...}) coexists with the
+    // operations form upstream (test_case.py LEGACY_CONFIG_KEYS).
+    if (parsed.object.get("root")) |r| out.root = r.string;
+    if (parsed.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+    if (parsed.object.get("world")) |w| {
+        if (std.mem.eql(u8, w.string, "wasi:http/service")) out.world_service = true;
+    }
+    if (parsed.object.get("endpoints")) |_| out.has_endpoints = true;
+    const ops = parsed.object.get("operations") orelse return;
+    for (ops.array.items) |op| {
+        const ty = op.object.get("type").?.string;
+        if (std.mem.eql(u8, ty, "run")) {
+            if (op.object.get("env")) |env| {
+                var it = env.object.iterator();
+                while (it.next()) |e| {
+                    try out.env_keys.append(alloc, e.key_ptr.*);
+                    try out.env_vals.append(alloc, e.value_ptr.string);
+                }
+            }
+            if (op.object.get("args")) |args| {
+                for (args.array.items) |a| try out.args.append(alloc, a.string);
+            }
+        } else if (std.mem.eql(u8, ty, "write")) {
+            // Only stdin is writable from the runner side.
+            try out.stdin.appendSlice(alloc, op.object.get("payload").?.string);
+        } else if (std.mem.eql(u8, ty, "read")) {
+            const id = op.object.get("id").?.string;
+            const payload = op.object.get("payload").?.string;
+            if (std.mem.eql(u8, id, "stdout")) {
+                try out.stdout.appendSlice(alloc, payload);
+                out.assert_stdout = true;
+            } else if (std.mem.eql(u8, id, "stderr")) {
+                try out.stderr.appendSlice(alloc, payload);
+                out.assert_stderr = true;
+            }
+        } else if (std.mem.eql(u8, ty, "wait")) {
+            if (op.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+        } else if (std.mem.eql(u8, ty, "request")) {
+            var rop: HttpReqOp = .{
+                .method = op.object.get("method").?.string,
+                .path = op.object.get("path").?.string,
+            };
+            if (op.object.get("body")) |b| rop.body = b.string;
+            if (op.object.get("headers")) |h| rop.headers = h;
+            if (op.object.get("response")) |resp| {
+                if (resp.object.get("status")) |st| rop.expect_status = @intCast(st.integer);
+                if (resp.object.get("headers")) |h| rop.expect_headers = h;
+                if (resp.object.get("body")) |b| rop.expect_body = b.string;
+            }
+            try out.http_reqs.append(alloc, rop);
+        } else if (std.mem.eql(u8, ty, "kill")) {
+            // In-process service driving: nothing to signal.
+        } else if (std.mem.eql(u8, ty, "connect")) {
+            try out.sock_ops.append(alloc, .{ .kind = .connect });
+        } else if (std.mem.eql(u8, ty, "send")) {
+            try out.sock_ops.append(alloc, .{ .kind = .send, .payload = op.object.get("payload").?.string });
+        } else if (std.mem.eql(u8, ty, "recv")) {
+            try out.sock_ops.append(alloc, .{ .kind = .recv, .payload = op.object.get("payload").?.string });
+        }
+    }
+}
+
+/// The harness-side remote client for `SockOp` manifests. `step` is the
+/// `external_sock_step` hook: performs the next in-seam op (connect / send)
+/// against the address the guest printed to stdout; `recv` ops stop the
+/// in-seam phase (verified post-run by the harness).
+const ExternalClient = struct {
+    io: std.Io,
+    stdout: *std.ArrayList(u8),
+    ops: []const SockOp,
+    next: usize = 0,
+    stream: ?net.Stream = null,
+
+    fn step(ctx_ptr: *anyopaque) bool {
+        const self: *ExternalClient = @ptrCast(@alignCast(ctx_ptr));
+        if (self.next >= self.ops.len) return false;
+        switch (self.ops[self.next].kind) {
+            .connect => {
+                const addr = self.parseAddrLine() orelse return false; // not printed yet
+                self.stream = addr.connect(self.io, .{ .mode = .stream, .protocol = .tcp }) catch return false;
+                self.next += 1;
+                return true;
+            },
+            .send => {
+                const s = self.stream orelse return false;
+                const data = [_][]const u8{self.ops[self.next].payload};
+                _ = self.io.vtable.netWrite(self.io.userdata, s.socket.handle, "", &data, 1) catch return false;
+                self.next += 1;
+                return true;
+            },
+            .recv => return false, // post-run phase (runOfficialWasip3Test)
+        }
+    }
+
+    /// Parse the LAST complete stdout line as "a.b.c.d:port" (the echo
+    /// guest's Display for its bound v4 address).
+    fn parseAddrLine(self: *ExternalClient) ?net.IpAddress {
+        const text = self.stdout.items;
+        const nl = std.mem.findScalarLast(u8, text, '\n') orelse return null;
+        const line_start = if (std.mem.findScalarLast(u8, text[0..nl], '\n')) |p| p + 1 else 0;
+        const line = text[line_start..nl];
+        const colon = std.mem.findScalarLast(u8, line, ':') orelse return null;
+        const port = std.fmt.parseInt(u16, line[colon + 1 ..], 10) catch return null;
+        const ip4 = net.Ip4Address.parse(line[0..colon], port) catch return null;
+        return .{ .ip4 = ip4 };
+    }
+};
+
+/// The manifest `endpoints` echo server (http-client, ADR-0205 D-5): one
+/// HTTP/1.1 connection served on a background thread — read head +
+/// content-length body, echo it back. The listener is created on the main
+/// io (Threaded is thread-safe); `stop` dials a wake-up connection if the
+/// guest never connected.
+const EchoEndpoint = struct {
+    io: std.Io,
+    server: net.Server,
+    port: u16,
+    thread: std.Thread,
+
+    fn start(io: std.Io) !*EchoEndpoint {
+        const self = try std.heap.page_allocator.create(EchoEndpoint);
+        errdefer std.heap.page_allocator.destroy(self);
+        const addr: net.IpAddress = .{ .ip4 = net.Ip4Address.loopback(0) };
+        self.io = io;
+        self.server = try addr.listen(io, .{ .mode = .stream, .protocol = .tcp });
+        self.port = self.server.socket.address.getPort();
+        self.thread = try std.Thread.spawn(.{}, serve, .{self});
+        return self;
+    }
+
+    fn serve(self: *EchoEndpoint) void {
+        const io = self.io;
+        var conn = self.server.accept(io) catch return;
+        defer conn.close(io);
+        var buf: [65536]u8 = undefined;
+        var n: usize = 0;
+        // Read until the header terminator, then the content-length body.
+        var head_end: usize = 0;
+        while (head_end == 0) {
+            var bufs = [_][]u8{buf[n..]};
+            const got = io.vtable.netRead(io.userdata, conn.socket.handle, &bufs) catch return;
+            if (got == 0) return;
+            n += got;
+            if (std.mem.find(u8, buf[0..n], "\r\n\r\n")) |p| head_end = p + 4;
+        }
+        var content_len: usize = 0;
+        var lines = std.mem.splitSequence(u8, buf[0..head_end], "\r\n");
+        while (lines.next()) |line| {
+            const prefix = "content-length:";
+            if (line.len > prefix.len and std.ascii.eqlIgnoreCase(line[0..prefix.len], prefix)) {
+                content_len = std.fmt.parseInt(usize, std.mem.trim(u8, line[prefix.len..], " "), 10) catch 0;
+            }
+        }
+        while (n - head_end < content_len) {
+            var bufs = [_][]u8{buf[n..]};
+            const got = io.vtable.netRead(io.userdata, conn.socket.handle, &bufs) catch return;
+            if (got == 0) break;
+            n += got;
+        }
+        const body = buf[head_end..n];
+        var out: [66000]u8 = undefined;
+        const resp = std.fmt.bufPrint(&out, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {d}\r\nConnection: close\r\n\r\n{s}", .{ body.len, body }) catch return;
+        const data = [_][]const u8{resp};
+        _ = io.vtable.netWrite(io.userdata, conn.socket.handle, "", &data, 1) catch return;
+    }
+
+    fn stop(self: *EchoEndpoint) void {
+        // Unblock a never-connected accept, then reap the thread.
+        const addr: net.IpAddress = .{ .ip4 = net.Ip4Address.loopback(self.port) };
+        if (addr.connect(self.io, .{ .mode = .stream, .protocol = .tcp })) |s| s.close(self.io) else |_| {
+            // Already connected/served — the accept has returned; nothing to wake.
+        }
+        self.thread.join();
+        self.server.deinit(self.io);
+        std.heap.page_allocator.destroy(self);
+    }
+};
+
+/// The no-progress hook for service driving (ADR-0205 D-3): once the guest
+/// delivered its response via task.return, register the harness capture
+/// sink on the response's contents stream — the guest's spawned body writer
+/// parks BEFORE the harness can know the stream id, so the registration
+/// (which drains the parked write) must happen inside the drive.
+const ServiceCapture = struct {
+    wp2: *wasi_p2.WasiP2Ctx,
+    capture: *std.ArrayList(u8),
+    registered_shared: ?u32 = null,
+    done: bool = false,
+
+    fn step(ptr: *anyopaque) bool {
+        const self: *ServiceCapture = @ptrCast(@alignCast(ptr));
+        if (self.done) return false;
+        if (self.wp2.task_return != 0) return false;
+        const payload = self.wp2.task_return_payload orelse return false;
+        const rep = self.wp2.resources.rep(wasi_p2.WasiP2Ctx.HTTP_RESPONSE_RT, payload) catch return false;
+        if (rep >= self.wp2.http_responses.items.len) return false;
+        const resp = &self.wp2.http_responses.items[rep];
+        // The harness never reads response trailers: release the readable so
+        // the guest's parked trailers writer observes DROPPED.
+        if (resp.trailers_future != 0) {
+            wasi_p2.http3DropTransferredEnd(self.wp2, resp.trailers_future);
+            resp.trailers_future = 0;
+        }
+        if (resp.contents_stream) |cs| {
+            const end = self.wp2.streams.get(cs) catch return false;
+            wasi_p2.http3RegisterCaptureSink(self.wp2, end.shared, self.capture) catch return false;
+            self.registered_shared = end.shared;
+        }
+        self.done = true;
+        return true;
+    }
+};
+
+/// Build a harness-side request resource for one manifest `request` op and
+/// drive the guest's `handler.handle` with it; assert the response.
+fn runServiceRequest(built: *wasi_p2.BuiltComponent, rop: HttpReqOp) !void {
+    const ctx = built.ctx;
+    const alloc = ctx.alloc;
+
+    // Request headers: a fresh immutable fields entry.
+    const fields_idx: u32 = @intCast(ctx.http_fields.items.len);
+    try ctx.http_fields.append(alloc, .{});
+    if (rop.headers) |hs| {
+        var it = hs.object.iterator();
+        while (it.next()) |e| {
+            try ctx.http_fields.items[fields_idx].appendChecked(alloc, e.key_ptr.*, e.value_ptr.string);
+        }
+    }
+    ctx.http_fields.items[fields_idx].immutable = true;
+
+    // Request body: served from the stored buffer by the body-bytes branch.
+    var contents: ?u32 = null;
+    if (rop.body.len > 0) {
+        const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+        const shared_id = (try ctx.streams.get(pair.readable)).shared;
+        try ctx.host_body_bytes.put(alloc, shared_id, .{ .data = try alloc.dupe(u8, rop.body) });
+        contents = pair.readable;
+    }
+
+    const method: p3http.Method = blk: {
+        inline for (p3http.Method.known_names) |k| {
+            if (std.mem.eql(u8, rop.method, k.name)) break :blk @unionInit(p3http.Method, @tagName(k.tag), {});
+        }
+        return error.TestUnexpectedResult; // manifest methods are all known
+    };
+    const req_idx: u32 = @intCast(ctx.http_requests.items.len);
+    try ctx.http_requests.append(alloc, .{
+        .method = method,
+        .path_with_query = try alloc.dupe(u8, rop.path),
+        .scheme = .http,
+        .authority = try alloc.dupe(u8, "localhost"),
+        .headers_rep = fields_idx,
+        .contents_stream = contents,
+    });
+    const req_handle = try ctx.resources.new(wasi_p2.WasiP2Ctx.HTTP_REQUEST_RT, req_idx);
+
+    // Drive handler.handle(request) with the capture seam installed.
+    ctx.task_return = null;
+    ctx.task_return_payload = null;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(alloc);
+    var svc = ServiceCapture{ .wp2 = ctx, .capture = &capture };
+    ctx.external_sock_step = ServiceCapture.step;
+    ctx.external_sock_ctx = &svc;
+    defer {
+        ctx.external_sock_step = null;
+        ctx.external_sock_ctx = null;
+        if (svc.registered_shared) |sid| _ = ctx.host_capture_sinks.remove(sid);
+    }
+    try driveAsyncCall(built, &.{.{ .i32 = @bitCast(req_handle) }});
+
+    // Assert the delivered response.
+    try testing.expectEqual(@as(?u32, 0), ctx.task_return);
+    const resp_handle = ctx.task_return_payload orelse return error.TestUnexpectedResult;
+    const rep = try ctx.resources.rep(wasi_p2.WasiP2Ctx.HTTP_RESPONSE_RT, resp_handle);
+    const resp = ctx.http_responses.items[rep];
+    try testing.expectEqual(rop.expect_status, resp.status);
+    if (rop.expect_headers) |ehs| {
+        const flds = &ctx.http_fields.items[resp.headers_rep];
+        var it = ehs.object.iterator();
+        while (it.next()) |e| {
+            var got: std.ArrayList([]const u8) = .empty;
+            defer got.deinit(alloc);
+            try flds.get(&got, alloc, e.key_ptr.*);
+            var found = false;
+            for (got.items) |v| {
+                if (std.mem.eql(u8, v, e.value_ptr.string)) found = true;
+            }
+            if (!found) {
+                std.debug.print("[service] missing response header {s}: {s}\n", .{ e.key_ptr.*, e.value_ptr.string });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    if (rop.expect_body) |eb| try testing.expectEqualStrings(eb, capture.items);
+}
+
+/// Run one vendored official test end-to-end and assert its manifest.
+fn runOfficialWasip3Test(comptime name: []const u8) !void {
+    const alloc = testing.allocator;
+    var threaded: std.Io.Threaded = .init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3_official/" ++ name ++ ".wasm", alloc, .limited(8 << 20));
+    defer alloc.free(bytes);
+
+    var expect: OfficialExpect = .{};
+    defer expect.deinit(alloc);
+    var manifest_parsed: ?std.json.Parsed(std.json.Value) = null;
+    defer if (manifest_parsed) |*p| p.deinit();
+    if (std.Io.Dir.cwd().readFileAlloc(io, "test/component/wasip3_official/" ++ name ++ ".json", alloc, .limited(1 << 20))) |mb| {
+        defer alloc.free(mb);
+        manifest_parsed = try std.json.parseFromSlice(std.json.Value, alloc, mb, .{});
+        try parseOfficialManifest(alloc, &manifest_parsed.?.value, &expect);
+    } else |_| {
+        // No manifest = upstream default (run, expect exit 0, no I/O asserts).
+    }
+
+    var eng = try Engine.init(alloc, .{});
+    defer eng.deinit();
+    var host = try wasi_host.Host.init(alloc);
+    defer host.deinit();
+    host.io = io;
+
+    // "root" preopen: copy the vendored tree into a fresh tmp dir (the guest
+    // mutates it) and map it as guest "/" (the upstream wasmtime adapter's
+    // `--dir root::/`).
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    if (expect.root) |root_name| {
+        const src_path = try std.fmt.allocPrint(alloc, "test/component/wasip3_official/{s}", .{root_name});
+        defer alloc.free(src_path);
+        var src_dir = try std.Io.Dir.cwd().openDir(io, src_path, .{ .iterate = true });
+        defer src_dir.close(io);
+        var it = src_dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            const data = try src_dir.readFileAlloc(io, entry.name, alloc, .limited(1 << 20));
+            defer alloc.free(data);
+            try tmp.dir.writeFile(io, .{ .sub_path = entry.name, .data = data });
+        }
+        _ = try host.addPreopen(tmp.dir.handle, "/");
+    }
+
+    // argv[0] = the test's own basename (the upstream runner launches by name).
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(alloc);
+    try argv.append(alloc, name ++ ".wasm");
+    try argv.appendSlice(alloc, expect.args.items);
+    try host.setArgs(argv.items);
+    if (expect.env_keys.items.len > 0) try host.setEnvs(expect.env_keys.items, expect.env_vals.items);
+    host.stdin_bytes = expect.stdin.items;
+
+    var stdout_cap: std.ArrayList(u8) = .empty;
+    defer stdout_cap.deinit(alloc);
+    var stderr_cap: std.ArrayList(u8) = .empty;
+    defer stderr_cap.deinit(alloc);
+    host.stdout_buffer = &stdout_cap;
+    host.stderr_buffer = &stderr_cap;
+
+    if (expect.world_service) {
+        // Service world: no cli/run export — build once, then drive the
+        // exported handler per manifest `request` op (ADR-0205 D-3).
+        var endpoint: ?*EchoEndpoint = null;
+        defer if (endpoint) |ep| ep.stop();
+        var endpoint_buf: [32]u8 = undefined;
+        if (expect.has_endpoints) {
+            endpoint = try EchoEndpoint.start(io);
+            const ep_addr = try std.fmt.bufPrint(&endpoint_buf, "127.0.0.1:{d}", .{endpoint.?.port});
+            try host.setEnvs(&.{"HTTP_ENDPOINT"}, &.{ep_addr});
+        }
+        var built = try wasi_p2.buildWasiP2Component(&eng, alloc, bytes, &host, .{});
+        defer built.deinit();
+        for (expect.http_reqs.items) |rop| {
+            runServiceRequest(&built, rop) catch |err| {
+                std.debug.print("[official {s}] service request {s} {s} failed: {t}; guest stderr:\n{s}\n", .{ name, rop.method, rop.path, err, stderr_cap.items });
+                return err;
+            };
+        }
+        try testing.expectEqual(@as(?u32, expect.exit_code), host.exit_code orelse 0);
+        return;
+    }
+    if (expect.sock_ops.items.len > 0) {
+        // Socket-operations manifest (sockets-echo): the harness is the
+        // remote client. Build first so the external-actor seam can be
+        // installed on the component ctx, then drive.
+        var built = try wasi_p2.buildWasiP2Component(&eng, alloc, bytes, &host, .{});
+        defer built.deinit();
+        var client = ExternalClient{ .io = io, .stdout = &stdout_cap, .ops = expect.sock_ops.items };
+        defer if (client.stream) |s| s.close(io);
+        built.ctx.external_sock_step = ExternalClient.step;
+        built.ctx.external_sock_ctx = &client;
+        driveAsyncMain(&built) catch |err| {
+            std.debug.print("[official {s}] runner error {t}; guest stderr:\n{s}\n", .{ name, err, stderr_cap.items });
+            return err;
+        };
+        // Post-run ops: the echoed bytes (and FIN) are buffered on our fd.
+        for (expect.sock_ops.items[client.next..]) |op| {
+            try testing.expectEqual(@as(@TypeOf(op.kind), .recv), op.kind);
+            const s = client.stream orelse return error.TestUnexpectedResult;
+            const buf = try alloc.alloc(u8, op.payload.len);
+            defer alloc.free(buf);
+            var got: usize = 0;
+            while (got < buf.len) {
+                var bufs = [_][]u8{buf[got..]};
+                const n = try io.vtable.netRead(io.userdata, s.socket.handle, &bufs);
+                if (n == 0) break;
+                got += n;
+            }
+            try testing.expectEqualStrings(op.payload, buf[0..got]);
+        }
+    } else wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{}) catch |err| {
+        // Surface the guest's own report (a rust assert panic lands on
+        // stderr) — the raw trap code alone is undebuggable.
+        std.debug.print("[official {s}] runner error {t}; guest stderr:\n{s}\n", .{ name, err, stderr_cap.items });
+        return err;
+    };
+    try testing.expectEqual(@as(?u32, expect.exit_code), host.exit_code orelse 0);
+    if (expect.assert_stdout) try testing.expectEqualStrings(expect.stdout.items, stdout_cap.items);
+    if (expect.assert_stderr) try testing.expectEqualStrings(expect.stderr.items, stderr_cap.items);
+}
+
+test "wasip3-official: cli-env" {
+    try runOfficialWasip3Test("cli-env");
+}
+test "wasip3-official: cli-exit" {
+    try runOfficialWasip3Test("cli-exit");
+}
+test "wasip3-official: cli-stdio" {
+    try runOfficialWasip3Test("cli-stdio");
+}
+test "wasip3-official: cli-stdio-roundtrip" {
+    try runOfficialWasip3Test("cli-stdio-roundtrip");
+}
+test "wasip3-official: cli-stdout-flush" {
+    try runOfficialWasip3Test("cli-stdout-flush");
+}
+test "wasip3-official: cli-terminal" {
+    try runOfficialWasip3Test("cli-terminal");
+}
+test "wasip3-official: monotonic-clock (async wait-until/wait-for timers)" {
+    try runOfficialWasip3Test("monotonic-clock");
+}
+test "wasip3-official: multi-clock-wait (20 interleaved wait-until subtasks)" {
+    try runOfficialWasip3Test("multi-clock-wait");
+}
+test "wasip3-official: random (incl. cached insecure-seed)" {
+    try runOfficialWasip3Test("random");
+}
+test "wasip3-official: wall-clock" {
+    try runOfficialWasip3Test("wall-clock");
+}
+test "wasip3-official: run-with-err (exit code 1)" {
+    try runOfficialWasip3Test("run-with-err");
+}
+
+test "wasip3-official: filesystem-stat" {
+    try runOfficialWasip3Test("filesystem-stat");
+}
+test "wasip3-official: filesystem-io (file via-stream data plane)" {
+    try runOfficialWasip3Test("filesystem-io");
+}
+test "wasip3-official: filesystem-advise" {
+    try runOfficialWasip3Test("filesystem-advise");
+}
+test "wasip3-official: filesystem-dotdot" {
+    try runOfficialWasip3Test("filesystem-dotdot");
+}
+test "wasip3-official: filesystem-flags-and-type" {
+    try runOfficialWasip3Test("filesystem-flags-and-type");
+}
+test "wasip3-official: filesystem-hard-links" {
+    try runOfficialWasip3Test("filesystem-hard-links");
+}
+test "wasip3-official: filesystem-is-same-object" {
+    try runOfficialWasip3Test("filesystem-is-same-object");
+}
+test "wasip3-official: filesystem-metadata-hash" {
+    try runOfficialWasip3Test("filesystem-metadata-hash");
+}
+test "wasip3-official: filesystem-mkdir-rmdir" {
+    try runOfficialWasip3Test("filesystem-mkdir-rmdir");
+}
+test "wasip3-official: filesystem-open-errors" {
+    try runOfficialWasip3Test("filesystem-open-errors");
+}
+test "wasip3-official: filesystem-read-directory" {
+    try runOfficialWasip3Test("filesystem-read-directory");
+}
+test "wasip3-official: filesystem-rename" {
+    try runOfficialWasip3Test("filesystem-rename");
+}
+test "wasip3-official: filesystem-set-size" {
+    try runOfficialWasip3Test("filesystem-set-size");
+}
+test "wasip3-official: filesystem-unlink-errors" {
+    try runOfficialWasip3Test("filesystem-unlink-errors");
+}
+
+test "wasip3-official: sockets-tcp-properties (TCP option store)" {
+    try runOfficialWasip3Test("sockets-tcp-properties");
+}
+test "wasip3-official: sockets-udp-properties (UDP option store)" {
+    try runOfficialWasip3Test("sockets-udp-properties");
+}
+test "wasip3-official: sockets-udp-bind (bind + address validation)" {
+    try runOfficialWasip3Test("sockets-udp-bind");
+}
+test "wasip3-official: sockets-tcp-bind (REUSEADDR + addrinuse contracts)" {
+    try runOfficialWasip3Test("sockets-tcp-bind");
+}
+test "wasip3-official: sockets-tcp-connect (incl. explicit-bind connect)" {
+    try runOfficialWasip3Test("sockets-tcp-connect");
+}
+test "wasip3-official: http-fields (fields resource, RFC 9110 validation)" {
+    try runOfficialWasip3Test("http-fields");
+}
+test "wasip3-official: http-request (method/scheme/path/authority validation)" {
+    try runOfficialWasip3Test("http-request");
+}
+test "wasip3-official: http-response (status code + immutable headers)" {
+    try runOfficialWasip3Test("http-response");
+}
+test "wasip3-official: http-service (handler export + body capture)" {
+    try runOfficialWasip3Test("http-service");
+}
+test "wasip3-official: http-service-echo (request body + header reflection)" {
+    try runOfficialWasip3Test("http-service-echo");
+}
+test "wasip3-official: http-service-uri (scheme/authority set by host)" {
+    try runOfficialWasip3Test("http-service-uri");
+}
+test "wasip3-official: http-client (client.send against the harness echo endpoint)" {
+    try runOfficialWasip3Test("http-client");
+}
+
+test "wasip3-official: http-request-options (timeouts + immutable child)" {
+    try runOfficialWasip3Test("http-request-options");
+}
+test "wasip3-official: sockets-udp-connect" {
+    try runOfficialWasip3Test("sockets-udp-connect");
+}
+test "wasip3-official: sockets-udp-send" {
+    try runOfficialWasip3Test("sockets-udp-send");
+}
+test "wasip3-official: sockets-udp-receive" {
+    try runOfficialWasip3Test("sockets-udp-receive");
+}
+test "wasip3-official: sockets-tcp-listen" {
+    try runOfficialWasip3Test("sockets-tcp-listen");
+}
+test "wasip3-official: sockets-tcp-send" {
+    try runOfficialWasip3Test("sockets-tcp-send");
+}
+test "wasip3-official: sockets-tcp-receive" {
+    try runOfficialWasip3Test("sockets-tcp-receive");
+}
+test "wasip3-official: sockets-echo (join! interleaved data plane)" {
+    try runOfficialWasip3Test("sockets-echo");
 }

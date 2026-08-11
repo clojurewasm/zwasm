@@ -76,6 +76,9 @@ const Resolved = struct { dir: std.Io.Dir, sub: []const u8 };
 /// Returns the errno on failure (`.success` when `out` is populated).
 fn resolve(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr: u32, path_len: u32, out: *Resolved) p1.Errno {
     const path = sliceMemConst(mem, path_ptr, path_len) orelse return .fault;
+    // POSIX: the empty path resolves to nothing (ENOENT). Guarded here because
+    // std.Io panics on the resulting EINVAL in debug builds ("programmer bug").
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
     const slot = host.translateFd(dirfd) orelse return .badf;
     if (slot.kind != .dir) return .notdir;
@@ -89,6 +92,9 @@ fn resolve(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr: u32, path_len: 
 fn mapDirErr(err: anyerror) p1.Errno {
     return switch (err) {
         error.FileNotFound => .noent,
+        // NT invalid object names ("" / reserved chars) have no WASI errno of
+        // their own; POSIX would have said ENOENT.
+        error.BadPathName => .noent,
         error.PathAlreadyExists => .exist,
         error.AccessDenied, error.PermissionDenied => .acces,
         error.NotDir => .notdir,
@@ -127,6 +133,9 @@ pub fn pathRemoveDirectory(host: *Host, mem: []const u8, dirfd: p1.Fd, path_ptr:
     const e = resolve(host, mem, dirfd, path_ptr, path_len, &r);
     if (e != .success) return e;
     const io = host.io orelse return .nosys;
+    // rmdir(".") is EINVAL per POSIX; guarded because std.Io panics on the
+    // unexpected EINVAL in debug builds.
+    if (std.mem.eql(u8, r.sub, ".") or std.mem.eql(u8, r.sub, "./")) return .inval;
     r.dir.deleteDir(io, r.sub) catch |err| return mapDirErr(err);
     return .success;
 }
@@ -146,6 +155,10 @@ pub fn pathRename(host: *Host, mem: []const u8, old_dirfd: p1.Fd, old_ptr: u32, 
     const e2 = resolve(host, mem, new_dirfd, new_ptr, new_len, &rn);
     if (e2 != .success) return e2;
     const io = host.io orelse return .nosys;
+    // rename involving "." is EINVAL/EBUSY per POSIX; guarded because std.Io
+    // panics on the unexpected EINVAL in debug builds.
+    if (std.mem.eql(u8, ro.sub, ".") or std.mem.eql(u8, ro.sub, "./") or
+        std.mem.eql(u8, rn.sub, ".") or std.mem.eql(u8, rn.sub, "./")) return .inval;
     ro.dir.rename(ro.sub, rn.dir, rn.sub, io) catch |err| return mapDirErr(err);
     return .success;
 }
@@ -161,10 +174,119 @@ pub fn pathLink(host: *Host, mem: []const u8, old_dirfd: p1.Fd, old_flags: u32, 
     const e2 = resolve(host, mem, new_dirfd, new_ptr, new_len, &rn);
     if (e2 != .success) return e2;
     const io = host.io orelse return .nosys;
+    const follow = old_flags & p1.LOOKUPFLAGS_SYMLINK_FOLLOW != 0;
+    if (builtin.os.tag == .windows) return winPathLink(ro.dir, ro.sub, rn.dir, rn.sub, follow);
     ro.dir.hardLink(ro.sub, rn.dir, rn.sub, io, .{
-        .follow_symlinks = old_flags & p1.LOOKUPFLAGS_SYMLINK_FOLLOW != 0,
+        .follow_symlinks = follow,
     }) catch |err| return mapDirErr(err);
     return .success;
+}
+
+/// Windows `linkat`: the pinned stdlib's `dirHardLink` is a blanket
+/// `OperationUnsupported` on windows, so the NT primitive is composed
+/// directly — open the source relative to its directory handle
+/// (NON_DIRECTORY_FILE: hardlinking a directory must fail acces per the
+/// filesystem WIT, matching what CreateHardLinkW itself reports) and issue
+/// FILE_LINK_INFORMATION (class `.Link`) targeting the destination
+/// directory handle.
+fn winPathLink(old_dir: std.Io.Dir, old_sub: []const u8, new_dir: std.Io.Dir, new_sub: []const u8, follow: bool) p1.Errno {
+    const w = std.os.windows;
+    const T = std.Io.Threaded;
+    // NT resolves "." relative to a handle as an invalid object name, not as
+    // the directory itself — pre-map it to the directory-source contract.
+    if (std.mem.eql(u8, old_sub, ".")) return .acces;
+    const old_ws = T.sliceToPrefixedFileW(old_dir.handle, old_sub, .{}) catch return .noent;
+    const old_span = old_ws.span();
+    const old_root = if (std.Io.Dir.path.isAbsoluteWindowsWtf16(old_span)) null else old_dir.handle;
+    var iosb: w.IO_STATUS_BLOCK = undefined;
+    var src: w.HANDLE = undefined;
+    switch (w.ntdll.NtCreateFile(
+        &src,
+        .{ .STANDARD = .{ .SYNCHRONIZE = true } },
+        &.{ .RootDirectory = old_root, .ObjectName = @constCast(&w.UNICODE_STRING.init(old_span)) },
+        &iosb,
+        null,
+        .{ .NORMAL = true },
+        .VALID_FLAGS,
+        .OPEN,
+        .{ .IO = .SYNCHRONOUS_NONALERT, .NON_DIRECTORY_FILE = true, .OPEN_REPARSE_POINT = !follow },
+        null,
+        0,
+    )) {
+        .SUCCESS => {},
+        .OBJECT_NAME_NOT_FOUND, .OBJECT_PATH_NOT_FOUND => return .noent,
+        .OBJECT_NAME_INVALID => return .noent,
+        .FILE_IS_A_DIRECTORY => return .acces,
+        .ACCESS_DENIED => return .acces,
+        else => return .io,
+    }
+    defer w.CloseHandle(src);
+    const new_ws = T.sliceToPrefixedFileW(new_dir.handle, new_sub, .{}) catch return .noent;
+    const new_span = new_ws.span();
+    const new_root = if (std.Io.Dir.path.isAbsoluteWindowsWtf16(new_span)) null else new_dir.handle;
+    // POSIX linkat: an existing destination is EEXIST, unconditionally. NT's
+    // FILE_LINK_INFORMATION with ReplaceIfExists=FALSE silently SUCCEEDS when
+    // the destination resolves to the linked file itself (link-to-self), so
+    // existence is probed up front.
+    {
+        var probe_iosb: w.IO_STATUS_BLOCK = undefined;
+        var probe: w.HANDLE = undefined;
+        switch (w.ntdll.NtCreateFile(
+            &probe,
+            .{ .STANDARD = .{ .SYNCHRONIZE = true } },
+            &.{ .RootDirectory = new_root, .ObjectName = @constCast(&w.UNICODE_STRING.init(new_span)) },
+            &probe_iosb,
+            null,
+            .{ .NORMAL = true },
+            .VALID_FLAGS,
+            .OPEN,
+            .{ .IO = .SYNCHRONOUS_NONALERT, .OPEN_REPARSE_POINT = true },
+            null,
+            0,
+        )) {
+            .SUCCESS => {
+                w.CloseHandle(probe);
+                return .exist;
+            },
+            else => {},
+        }
+    }
+    // FILE_LINK_INFORMATION is a variable-length record: fixed header +
+    // inline UTF-16 FileName. The FileName field must sit at ITS declared
+    // offset (20 on x64 — right after FileNameLength), NOT at the
+    // padded-to-8 @sizeOf of a header-only struct: NT reads FileNameLength
+    // bytes from the field offset, so a misplace silently creates a
+    // garbage-prefixed link name.
+    const LinkInfo = extern struct {
+        ReplaceIfExists: w.BOOLEAN,
+        RootDirectory: ?w.HANDLE,
+        FileNameLength: w.ULONG,
+        FileName: [1]w.WCHAR,
+    };
+    const name_off = @offsetOf(LinkInfo, "FileName");
+    var buf: [name_off + @sizeOf(T.WindowsPathSpace)]u8 align(@alignOf(LinkInfo)) = undefined;
+    const name_bytes = std.mem.sliceAsBytes(new_span);
+    const info: *LinkInfo = @ptrCast(&buf);
+    info.ReplaceIfExists = .FALSE;
+    info.RootDirectory = new_root;
+    info.FileNameLength = @intCast(name_bytes.len);
+    @memcpy(buf[name_off..][0..name_bytes.len], name_bytes);
+    var iosb2: w.IO_STATUS_BLOCK = undefined;
+    return switch (w.ntdll.NtSetInformationFile(
+        src,
+        &iosb2,
+        &buf,
+        @intCast(name_off + name_bytes.len),
+        .Link,
+    )) {
+        .SUCCESS => .success,
+        .OBJECT_NAME_COLLISION => .exist,
+        .OBJECT_NAME_NOT_FOUND, .OBJECT_PATH_NOT_FOUND => .noent,
+        .OBJECT_NAME_INVALID => .noent,
+        .ACCESS_DENIED => .acces,
+        .NOT_SAME_DEVICE => .xdev,
+        else => .io,
+    };
 }
 
 // ============================================================
@@ -268,6 +390,10 @@ pub fn pathFilestatSetTimes(host: *Host, mem: []const u8, dirfd: p1.Fd, lookupfl
     const io = host.io orelse return .nosys;
     const atime = setTimestampOf(fst_flags, p1.FSTFLAGS_ATIM_NOW, p1.FSTFLAGS_ATIM, atim);
     const mtime = setTimestampOf(fst_flags, p1.FSTFLAGS_MTIM_NOW, p1.FSTFLAGS_MTIM, mtim);
+    // Pre-probe existence: Threaded's setTimestamps op treats ENOENT as an
+    // UNEXPECTED errno (posix.unexpectedErrno → error.Unexpected → `.io`),
+    // losing the `noent` the guest is owed for a missing path.
+    r.dir.access(io, r.sub, .{}) catch |err| return mapDirErr(err);
     if (comptime builtin.os.tag == .windows) {
         // Zig 0.16 std has NO `dirSetTimestamps` on Windows (`@panic("TODO")`)
         // — it would crash the runtime. Open the file and use the

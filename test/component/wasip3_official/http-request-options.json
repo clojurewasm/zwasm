@@ -1,0 +1,11 @@
+{
+    "proposals": ["http"],
+    "operations": [
+	{
+	    "type": "run"
+	},
+	{
+	    "type": "wait"
+	}
+    ]
+}

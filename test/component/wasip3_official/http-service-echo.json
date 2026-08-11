@@ -1,0 +1,32 @@
+{
+  "proposals": ["http"],
+  "world": "wasi:http/service",
+  "operations": [
+    { "type": "run" },
+    { "type": "request",
+      "method": "POST",
+      "path": "/echo",
+      "body": "hello, echo",
+      "response": { "status": 200,
+                    "headers": { "content-type": "application/octet-stream" },
+                    "body": "hello, echo" } },
+    { "type": "request",
+      "method": "POST",
+      "path": "/echo",
+      "body": "",
+      "response": { "status": 200,
+                    "body": "" } },
+    { "type": "request",
+      "method": "GET",
+      "path": "/reflect-header",
+      "headers": { "x-echo": "ping" },
+      "response": { "status": 200,
+                    "headers": { "x-echoed": "ping" } } },
+    { "type": "request",
+      "method": "GET",
+      "path": "/whatever",
+      "response": { "status": 404 } },
+    { "type": "kill", "signal": "SIGINT" },
+    { "type": "wait" }
+  ]
+}

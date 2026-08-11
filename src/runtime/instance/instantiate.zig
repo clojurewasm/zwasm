@@ -1117,7 +1117,16 @@ pub fn instantiateRuntime(
                         };
                     },
                     .wasi => {
-                        // Local placeholder remains in place.
+                        // Local placeholder remains in place — but it must
+                        // carry the import's DECLARED typeidx: a host-bound
+                        // import wired into a table and reached via
+                        // call_indirect in a GTI-bearing module is checked by
+                        // `concreteReaches(raw_typeidx, expected)`, and the 0
+                        // default aliases type 0 → false trap.
+                        entities[imp_idx].raw_typeidx = switch (it.payload) {
+                            .func_typeidx => |t| t,
+                            else => 0,
+                        };
                     },
                 }
                 imp_idx += 1;

@@ -5,7 +5,7 @@
 > re-evaluated when they advance. Phase 4 non-web proposals are the
 > v0.2.0 line.
 
-Last reviewed: **2026-07-17**.
+Last reviewed: **2026-08-10**.
 
 > **WASI 0.3.0 RATIFIED 2026-06-11** (Bytecode Alliance; Wasmtime 43+). It
 > rebases WASI onto the **Component Model async primitives** (`async` func,
@@ -85,8 +85,23 @@ Text Encoding Builtins` (skip).
 |----------------|---------------|-----------------------------------------|
 | 0.1 (preview1) | ✅ COMPLETE   | de-facto baseline; complete since Phase 11 |
 | 0.2 (preview2) | ✅ COMPLETE (default-ON) | Component Model campaign done 2026-06-13 (ADR-0170); official corpus 158/0/0 |
-| 0.3            | 🚧 core SHIPPED (opt-in `-Dwasi=p3`) | **released 2026-06-11**; rebases WASI on CM async (async func / `stream<T>` / `future<T>` — NOT core stack-switching, see callout). zwasm ships the CM-async substrate + cli/clocks/random host; official-0.3.0 interface deltas tracked in the 2026-07-17 entry below |
+| 0.3            | 🚧 FULL-coverage campaign (ADR-0205) | **released 2026-06-11**; rebases WASI on CM async (async func / `stream<T>` / `future<T>` — NOT core stack-switching, see callout). zwasm ships the CM-async substrate + cli/clocks/random host; full-coverage campaign phases A–E per ADR-0205 (2026-08-10 entry below) |
 
+- **2026-08-10** — **WASI 0.3 full-coverage campaign kickoff (ADR-0205,
+  user-directed)**. Reference clones re-pulled / re-cloned (WASI monorepo →
+  HEAD `a72eb09`; wasmtime / wasm-tools / WebAssembly{spec wg-3.0, testsuite,
+  component-model} re-cloned into `~/Documents/OSS/`; wasi-testsuite +
+  wit-bindgen + wasi-rs pulled). New upstream facts: (1) `docs/Release.md`
+  formalizes the **0.3.x release train** — 0.3.1 lands 2026-08-11, then every
+  second Tuesday bi-monthly; (2) `specifications/wasi-0.3.0/` = six proposals
+  (cli / clocks / filesystem / http / random / sockets) published as OCI
+  packages; WIT diff `v0.3.0`→HEAD is 3 doc-comment lines in `http/types.wit`
+  (0.3.0 ≈ 0.3.1); (3) official wasi-testsuite carries **45 wasm32-wasip3
+  guest tests** (wkg.lock `=0.3.0`-pinned) prebuilt on `prod/testsuite-base`
+  — measured: the binaries are dual-world (0.2.x + 0.3.0 imports both
+  present), so the host serves both generations simultaneously. Per-release
+  tracking discipline = ADR-0205 D6 (record `v0.3.x` tag + WIT diff at each
+  quarterly review; deliberate testsuite-binary bumps only).
 - **2026-07-17** — **WASI-0.3.0-official diff inventory** (reference clones
   pulled: WASI monorepo → 2026-07-15 HEAD incl. the `v0.3.0` release of
   2026-06-11; wasmtime v48; wasm-tools v1.252; the per-interface

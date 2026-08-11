@@ -44,7 +44,7 @@
         (call $sr (local.get 0) (i32.const 0) (i32.const 2)) ;; read r → PARKS (no writer yet)
         (i32.const -1) (i32.ne) (if (then unreachable))      ;; assert it BLOCKED (0xffffffff)
         (local.set $set (call $wsn))
-        (call $wj (local.get $set) (local.get 0))            ;; join the readable end
+        (call $wj (local.get 0) (local.get $set))            ;; join the readable end
         (i32.or (i32.shl (local.get $set) (i32.const 4)) (i32.const 2)))) ;; return WAIT(set)
     (core instance $deps
       (export "stream-read" (func $sr))

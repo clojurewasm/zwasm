@@ -421,8 +421,10 @@ pub fn fdAdvise(host: *Host, fd: p1.Fd, offset: u64, len: u64, advice: u8) p1.Er
     const slot = host.translateFd(fd) orelse return .badf;
     return switch (slot.kind) {
         .stdin, .stdout, .stderr => .spipe,
-        .closed => .badf,
-        .file, .dir => .success,
+        // Advisory information applies to file data; a directory has none
+        // (official filesystem-advise.wasm asserts bad-descriptor).
+        .closed, .dir => .badf,
+        .file => .success,
     };
 }
 
@@ -531,6 +533,29 @@ pub fn pwriteSlice(host: *Host, fd: p1.Fd, bytes: []const u8, offset: u64) p1.Er
     return .success;
 }
 
+/// Positional read into one contiguous byte range (mirror of `pwriteSlice`;
+/// the WASI-0.3 file via-stream source reads through this). `n_out` receives
+/// the byte count (0 = EOF).
+pub fn preadSlice(host: *Host, fd: p1.Fd, dest: []u8, offset: u64, n_out: *usize) p1.Errno {
+    const slot = host.translateFd(fd) orelse return .badf;
+    switch (slot.kind) {
+        .file => {},
+        .stdin, .stdout, .stderr => return .spipe,
+        .dir => return .isdir,
+        .closed => return .badf,
+    }
+    const handle = slot.host_handle orelse return .badf;
+    const io = host.io orelse return .nosys;
+    const file: std.Io.File = .{ .handle = handle, .flags = .{ .nonblocking = false } };
+    if (dest.len == 0) {
+        n_out.* = 0;
+        return .success;
+    }
+    var bufs = [_][]u8{dest};
+    n_out.* = file.readPositional(io, &bufs, offset) catch return .io;
+    return .success;
+}
+
 // ============================================================
 // fd_fdstat_get / fd_fdstat_set_flags  (§9.4 / 4.5 chunk a)
 // ============================================================
@@ -616,7 +641,10 @@ fn pathHasParentEscape(path: []const u8) bool {
 fn mapOpenError(err: anyerror) p1.Errno {
     return switch (err) {
         error.FileNotFound => .noent,
-        error.AccessDenied => .acces,
+        // NT invalid object names ("" / reserved chars) have no WASI errno of
+        // their own; POSIX would have said ENOENT.
+        error.BadPathName => .noent,
+        error.AccessDenied, error.PermissionDenied => .acces,
         error.IsDir => .isdir,
         error.NotDir => .notdir,
         error.SymLinkLoop => .loop,
@@ -852,6 +880,9 @@ pub fn pathOpen(
     const path_end = @as(usize, path_ptr) + @as(usize, path_len);
     if (path_end > mem.len) return .fault;
     const path = mem[path_ptr..path_end];
+    // POSIX: the empty path is ENOENT. Must be pre-OS: NT resolves "" against
+    // a RootDirectory handle as the directory itself.
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
 
     // Resolve dirfd.
@@ -881,14 +912,19 @@ pub fn pathOpen(
             .truncate = (oflags & p1.OFLAGS_TRUNC) != 0,
             .exclusive = (oflags & p1.OFLAGS_EXCL) != 0,
         }) catch |err| return mapOpenError(err)
-    else
-        dir.openFile(io, path, .{ .mode = if (wants_write) .read_write else .read_only }) catch |err| {
+    else blk: {
+        const f = dir.openFile(io, path, .{ .mode = if (wants_write) .read_write else .read_only }) catch |err| {
             // POSIX-style guests (Go's os.Open before ReadDir) open a
             // directory read-only WITHOUT OFLAGS_DIRECTORY; mirror the
             // kernel by falling back to a directory open.
             if (err == error.IsDir) return openDirSlot(host, io, dir, path, fs_rights_base, fs_rights_inheriting, fdflags, mem, opened_fd_ptr);
             return mapOpenError(err);
         };
+        // O_TRUNC without O_CREAT (a bare truncate-open; the 0.3 `truncate`
+        // open-flag arrives standalone).
+        if ((oflags & p1.OFLAGS_TRUNC) != 0) f.setLength(io, 0) catch |err| return mapSetLengthError(err);
+        break :blk f;
+    };
 
     // Reserve the new fd_table slot.
     host.fd_table.append(host.alloc, .{
@@ -996,6 +1032,9 @@ pub fn fdFilestatGet(host: *Host, mem: []u8, fd: p1.Fd, filestat_ptr: u32) p1.Er
 /// `notdir`; absolute / `..`-escaping path → `notcapable`.
 pub fn pathUnlinkFile(host: *Host, mem: []u8, dirfd: p1.Fd, path_ptr: u32, path_len: u32) p1.Errno {
     const path = sliceMemConst(mem, path_ptr, path_len) orelse return .fault;
+    // POSIX: the empty path is ENOENT. Must be pre-OS: NT resolves "" against
+    // a RootDirectory handle as the directory itself (delete would hit the dir).
+    if (path.len == 0) return .noent;
     if (pathHasParentEscape(path)) return .notcapable;
     const dir_slot = host.translateFd(dirfd) orelse return .badf;
     if (dir_slot.kind != .dir) return .notdir;

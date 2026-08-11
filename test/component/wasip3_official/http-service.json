@@ -1,0 +1,29 @@
+{
+  "proposals": ["http"],
+  "world": "wasi:http/service",
+  "operations": [
+    { "type": "run" },
+    { "type": "request",
+      "method": "GET",
+      "path": "/",
+      "response": { "status": 200,
+                    "headers": { "content-type": "text/plain" },
+                    "body": "hey\n" } },
+    { "type": "request",
+      "method": "GET",
+      "path": "/",
+      "response": { "status": 200,
+                    "headers": { "content-type": "text/plain" },
+                    "body": "hey\n" } },
+    { "type": "request",
+      "method": "GET",
+      "path": "/whatever",
+      "response": { "status": 404 } },
+    { "type": "request",
+      "method": "POST",
+      "path": "/whatever",
+      "response": { "status": 405 } },
+    { "type": "kill", "signal": "SIGINT" },
+    { "type": "wait" }
+  ]
+}

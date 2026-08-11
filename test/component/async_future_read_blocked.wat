@@ -12,13 +12,13 @@
   (core func $rd (canon future.read $ft (memory $libc "mem")))
   (core module $m
     (import "async" "future-new" (func $fn (result i64)))
-    (import "async" "future-read" (func $rd (param i32 i32 i32) (result i32)))
+    (import "async" "future-read" (func $rd (param i32 i32) (result i32)))
     (func (export "callback") (param i32 i32 i32) (result i32) i32.const 0)
     (func (export "run") (result i32)
       (local $h i64)
       (local.set $h (call $fn))
-      ;; read readable end (ri = low 32) into mem[0], count 1 → BLOCKED
-      (call $rd (i32.wrap_i64 (local.get $h)) (i32.const 0) (i32.const 1))
+      ;; read readable end (ri = low 32) into mem[0] → BLOCKED
+      (call $rd (i32.wrap_i64 (local.get $h)) (i32.const 0))
       (i32.const -1) ;; 0xffffffff = BLOCKED
       (i32.ne)
       (if (then unreachable)) ;; trap if the read did NOT block

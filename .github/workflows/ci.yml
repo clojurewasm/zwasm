@@ -99,6 +99,9 @@ jobs:
       - name: Engine-default claims
         shell: bash
         run: bash scripts/check_engine_default_claims.sh --gate
+      - name: WASI 0.3 coverage claims
+        shell: bash
+        run: bash scripts/check_wasi03_coverage_claims.sh --gate
 
   gate:
     name: gate (${{ matrix.name }})

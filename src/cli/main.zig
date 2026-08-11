@@ -350,7 +350,18 @@ pub fn main(init: std.process.Init) !void {
                     try printlnErr(io, "zwasm run: --fuel/--timeout/--max-memory are not wired for components yet (core modules only)");
                     std.process.exit(2);
                 }
-                const code = cli_run.runComponentWasi(gpa, io, run_bytes, argv_list.items, preopen_list.items) catch |err| {
+                // Piped stdin feeds the guest stdin source (a TTY stays EOF —
+                // interactive streaming stdin is not wired for components).
+                var stdin_pipe: ?[]u8 = null;
+                defer if (stdin_pipe) |s| gpa.free(s);
+                const stdin_file = std.Io.File.stdin();
+                const stdin_is_tty = stdin_file.isTty(io) catch true;
+                if (!stdin_is_tty) {
+                    var rd_buf: [4096]u8 = undefined;
+                    var rd = stdin_file.reader(io, &rd_buf);
+                    stdin_pipe = rd.interface.allocRemaining(gpa, .limited(64 * 1024 * 1024)) catch null;
+                }
+                const code = cli_run.runComponentWasi(gpa, io, run_bytes, argv_list.items, preopen_list.items, env_keys.items, env_vals.items, stdin_pipe) catch |err| {
                     var buf: [256]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "zwasm run: cannot run component '{s}': {s}", .{ path, @errorName(err) }) catch "zwasm run: component run failed";
                     try printlnErr(io, msg);
@@ -370,7 +381,7 @@ pub fn main(init: std.process.Init) !void {
                 // diagnostic when one was set; fall back to the
                 // legacy `@errorName` form for unwired sites.
                 var stderr_buf: [1024]u8 = undefined;
-                var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
+                var stderr_writer = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
                 const stderr = &stderr_writer.interface;
                 const source: diag_print.Source = .{ .filename = path, .bytes = bytes };
                 if (diagnostic.lastDiagnostic()) |diag| {
@@ -399,7 +410,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var stdout_buf: [256]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     try stdout.print("zwasm v{s}\n", .{zwasm.version});
@@ -441,7 +452,7 @@ fn defaultCacheRoot(gpa: std.mem.Allocator, init: std.process.Init) ?[]const u8 
 
 fn printlnErr(io: std.Io, msg: []const u8) !void {
     var stderr_buf: [512]u8 = undefined;
-    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writerStreaming(io, &stderr_buf);
     const stderr = &stderr_writer.interface;
     try stderr.print("{s}\n", .{msg});
     try stderr.flush();
@@ -451,7 +462,7 @@ fn printlnErr(io: std.Io, msg: []const u8) !void {
 /// pass text that already terminates). Used by --help / --version.
 fn printOut(io: std.Io, msg: []const u8) !void {
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
     try stdout.print("{s}", .{msg});
     try stdout.flush();

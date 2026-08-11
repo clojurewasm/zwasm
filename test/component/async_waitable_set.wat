@@ -18,7 +18,7 @@
       (local.set $h (call $sn))
       (local.set $set (call $wsn)) ;; mint an empty waitable set
       ;; join the readable end (ri = low 32) to the set
-      (call $wj (local.get $set) (i32.wrap_i64 (local.get $h)))
+      (call $wj (i32.wrap_i64 (local.get $h)) (local.get $set))
       i32.const 0)) ;; 0 = EXIT
   (core instance $deps
     (export "stream-new" (func $sn))

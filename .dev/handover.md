@@ -18,103 +18,94 @@ binary-size line, v2.2.0 = AOT line). v1 frozen at `v1.11.1`. Dev model: cut a
 green to merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
 publish / cut over. No active campaign; no cron self-re-arm.
 
-## Consumer-reported doc-truth gaps — both CLOSED (reporter `jtakakura`)
+## Consumer doc-truth gaps (both CLOSED) + closed campaigns
 
-- **compiler-rt, 2026-08-03 (#153/#154 + follow-up).** Undefined
-  `__zig_probe_stack` linking `libzwasm.a` from zwasm-rust-sdk: Zig's implicit
-  `bundle_compiler_rt` covers exe + dynamic lib ONLY, so a static `.a` never
-  carries it — docs and D-312 claimed the opposite. Fix = opt-in
-  `-Dcompiler-rt=true`; `test_extlink.sh` now asserts `compiler_rt.o` and runs
-  on `ci_gate.sh` extended. Lesson `2026-08-03-ungated-negative-doc-claim-…`.
-- **Default engine, 2026-08-10 (#163).** "interp is the default" outlived the
-  D-496 ch6 `auto` flip in 5 places — because doc-only PRs skip the whole 3-host
-  gate, so prose had the weakest net. Fix = `check_engine_default_claims.sh`
-  (anchors on the CLI usage string, then sweeps) + a new **always-on CI
-  `doc-truth` job — put any future prose gate there.** Lesson
-  `2026-08-10-doc-only-ci-skip-is-where-prose-claims-rot.md`.
+- #153/#154 compiler-rt opt-in + #163 default-engine sweep (reporter
+  `jtakakura`): future prose gates go in the always-on CI **`doc-truth` job**
+  (`check_engine_default_claims.sh` precedent).
+- Binary-size CLOSED (ADR-0204, v2.2.1; D-522 demand-driven); AOT
+  full-fidelity CLOSED (ADR-0203, v2.2.0; residual D-515(2)+D-514).
 
-## Closed campaigns (residual debt only — details in the cited ADR/CHANGELOG)
+## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
-- **Binary-size** — CLOSED 2026-07-16 (ADR-0204, v2.2.1, #144-#146). D-522 stage
-  1 shipped (CLI −21% ReleaseSafe), stage 2 demand-driven; **D-521 DISCHARGED,
-  premise refuted by measurement** (lesson `2026-07-16-outlining-…-neutral.md`).
-- **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0, #136-#142).
-  `test-aot-diff` 63/63. Residual = D-515(2) + D-514.
-- **WASI-0.3.0-official sweep** — 2026-07-17. Docs truth-sweep (`-Dgc` INERT →
-  D-525) + `system-clock`/`get-resolution` host support. Fixtures still import
-  0.2.6 → D-523; async wait-until/wait-for → D-524. Full diff = proposal_watch.
+Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).
+Conformance = vendored official `prod/testsuite-base` wasip3 binaries
+(`=0.3.0`-pinned, dual-world 0.2+0.3 imports), run by an in-process
+manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
+- **A substrate — DONE/green** (8a793863f): timer waitables + scheduler seam +
+  `wait-until`/`wait-for` + `exit-with-code`. Closes D-524.
+- **B filesystem — DONE/green** (6d95ac124): full `wasi:filesystem@0.3.0`;
+  official fs corpus 14/14; generation-aware `WasiGen` dispatch.
+- **C sockets — COMPLETE/green**: official 12/12 (control + TCP/UDP data
+  planes + ip-name-lookup real DNS). Keys: parked reads EXECUTE at
+  readiness, tcp.send future non-eager, stream-drop = SHUT_WR/SHUT_RD,
+  udp connect = OS dgram connect, explicit-bind connect = raw posix
+  (ADR-0070 amendment) / own AFD on windows.
+- **D http — COMPLETE/green**: full `wasi:http@0.3.0` (types resources +
+  handler EXPORT + client.send). Model = src/wasi/p3_http.zig. Keys: `new`
+  consumes headers/options owns (immutable after); harness drives the guest's
+  exported handler.handle per manifest `request` op (service world = no
+  cli/run); task.return generalizes to >1-flat results via defineFuncRaw;
+  client.send parks as a subtask + real std.http.Client exchange (harness
+  echo endpoint on a bg thread → HTTP_ENDPOINT); `resolveDroppedPeers` (poll
+  seam) completes a parked copy whose peer dropped after it parked.
+- **E claims sweep — DONE**: README/migration/ROADMAP/CHANGELOG flipped to
+  full-coverage; `check_wasi03_coverage_claims.sh` doc-truth guard wired into
+  CI. ADR-0205 = COMPLETE.
+Official corpus **45/45 green** on POSIX. Linux x86_64 sockets fixed
+(c5ce34fa4: SO_REUSEADDR-only `posixListen` — stdlib `reuse_address` couples
+SO_REUSEPORT and Linux caches `fastreuseport` at first bind; spike
+`private/spikes/linux-reuseport-bind`). 0.3.1 WIT diff vs 0.3.0 = 3 doc lines.
 
-## Active front — G-senior-gap (2026-07-06, /continue entry point)
+## Active bundle — wasi03 Windows port (user-directed 2026-08-11)
 
-Report = `.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`. **G1/G2/G3
-all COMPLETE.**
-- **G1 = D-507** (#131/#132/#133, ADR-0202 guard-page elision). Retrospective:
-  measured scalar-elision perf ≈ NOISE — "biggest tier-free lever" REFUTED; the
-  1.75–3.9x gap vs wasmtime = optimising-tier codegen (**D-513**, user-gated).
-  Elision kept (correct, code-size, base for D-509 threads); ENABLED for AOT at
-  ADR-0203 stage 4 (D-515(1)). Follow-up **D-514** (SIMD elision symmetry).
-- **G3 = D-510** (#135) — committed `zig build fuzz-diff` gate: memory-snapshot
-  compare + dual JIT lanes (`.auto`/`.explicit`) + regression corpus; 2008-module
-  campaign 0 mismatch, D-515(2) partially covered. **G2 = D-508** via AOT (above).
-- Then: D-314(a) epoch-counter · note-class D-509 (threads campaign, own
-  kickoff + ADR) · D-511/D-512 (demand-driven) · **D-513 (user-gated)**.
-- Older demand-driven tail unchanged: D-444, D-506, D-502 residual, D-475
-  residual (spec-harness cross-module register-table), mac/win rust-host CI.
+- **Bundle-ID**: wasi03-win-port
+- **Cycles-remaining**: ~1 (code DONE — remaining: 3-OS full-gate pass + PR)
+- **Continuity-memo**: windowsmini p3off.log "All 48 tests passed." (0 skip —
+  D-568 AND D-569 discharged) + `[run_remote_*] OK` on all 3 hosts
+- **Goal**: official corpus green on windows (user: 全部実装しきる → PR → CI
+  3-OS green → user merge). ACHIEVED at source level (d5b81f7e3): all 10
+  baseline fails fixed + explicit-bind/stream connect via the own AFD layer.
+  Full root-cause record = ADR-0205 phase F; mechanism notes live as code
+  comments in `p2_sockets.zig` (AFD section) + `path.zig` (winPathLink).
+- **Iteration loop**: Mac cross-build
+  `zig build test-wasi-p3 -Dtarget=x86_64-windows-gnu -Dtest-filter=wasip3-official`
+  (run-step fails on mac = expected) → scp exe → windowsmini p3off.exe →
+  read p3off.log.
+- **Exit-condition**: official corpus 0-fail 0-skip on windowsmini (MET) +
+  test-all green on all 3 hosts → PR to main.
 
 ## Operational invariants (keep using)
 
-- **Win64 fast-repro** (~2min): cross-build `zig build test -Dtarget=x86_64-windows-gnu`
-  on Mac (run-step "fails" but test.exe builds) → `scp` to windowsmini → ssh-run from
-  the repo dir (cwd matters for file-fixture tests).
-- **Mac `zig build test` is INSUFFICIENT for flip/ABI-class changes** — ubuntu-gate
-  mandatory; arm64 masks x86_64 bugs. Rosetta `-Dtarget=x86_64-macos` REPRODUCES
-  x86_64-linux JIT bugs. JIT-codegen fix → verify arm64 AND x86_64-macos.
+- **Win64 fast-repro** (~2min): cross-build on Mac (run-step "fails" but
+  test.exe builds) → `scp` to windowsmini → ssh-run from the repo dir.
+- **Mac `zig build test` is INSUFFICIENT** for flip/ABI/platform-branch
+  changes — ubuntu+windows gates mandatory; arm64/POSIX masks the rest (this
+  campaign: "45/45 green" was a POSIX-only claim; Linux had 3 fails, windows 10).
 - **Step-0.7 NOTE**: `failed command: …--listen=-` / host-example exe lines are
   COSMETIC (exit 0); trust `[run_remote_*] OK/FAIL` + `N passed, 0 failed`.
-- CI `ci_gate.sh` runs `zig fmt` + `test-all` + (core) `run-rust-host` on the Linux
-  leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check`/`spill_aware_check`
-  (promoted E-段2 + D-505). `file_size_check` is advisory-only (ADR-0099). NOTE:
-  extended runs only on push-to-main, so `zone_check`/`spill_aware` enforce
-  post-merge, not as a PR blocker. Doc-only PRs skip `gate` entirely — the
-  always-on `doc-truth` job is the only PR-blocking leg they get.
+- CI `ci_gate.sh` = fmt + `test-all` + (core) `run-rust-host` + (extended)
+  lint/DCE/AOT/`zone_check`/`spill_aware`. Doc-only PRs: `doc-truth` job only
+  (runs `check_engine_default_claims` + `check_wasi03_coverage_claims`).
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
-- **D-477 slivers** (partial, build-on-demand; trigger = a real consumer): v128
-  invoke / Win64 stack-spill / MEMORY-class thunk — recipe in the row. **D-478**
-  = JIT FP host-callback bridge + funcref `Table.set` panic + proc_exit code.
-- **D-475 residual**: spec-harness cross-module register-table wiring only
-  (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
-  feature itself is COMPLETE on both engines.
-- **D-502** CM utf16/latin1 canonical-ABI string encodings; **D-444** split
-  `component_wasi_p2.zig` (2228 > 2000) — both Batch B (Component域).
-- **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
-- D-305 long-tail (niche CM shapes; `component_graph.zig` 1895/2000 split first);
-  D-464 async adversarial; D-462 feature-separation (user-gated). blocked-by rows = parked.
-- **D-526** — external-contributor reproducibility / doc-staleness sweep (row has
-  the full gap list: `wasm-tools` prereq, `zwasm_from_scratch` refs, stale
-  `continue/SKILL.md` body, drifted `check_three_host_diff` totals, no
-  Japanese-chat opt-out note). Fresh clone + the 3-OS CI gate reproduce cleanly.
-  Companion: ClojureWasm D-565. Mechanisable parts belong in the CI `doc-truth`
-  job (see #163 above).
+- **D-477/D-478** JIT slivers (build-on-demand); **D-475 residual**
+  spec-harness register-table wiring; **D-502** CM string encodings;
+  **D-444** split `component_wasi_p2.zig` (grew again this campaign);
+  **D-526** doc-staleness sweep; D-305/D-464/D-462 long-tail.
+- G-senior-gap G1/G2/G3 COMPLETE
+  (`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`).
 
 ## State (release = USER-ONLY, ADR-0156)
 
-- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM** default-ON;
-  **0.3 core** done. Sandbox triad (fuel / interrupt / memory+table cap) cross-engine.
-- **Surfaces**: C-API · Zig-API (full WASI parity) · lean CLI · memory-safety sound ·
-  dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
-- **EH**: cross-instance JIT EH both arches; interp+JIT corpus green. Realworld 56
-  fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE; follow-on D-506 = FP spill
-  stage-2, note-class). 完成形 plateau (all dims confirmed, surface audits clean,
-  interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
-- **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
+  default-ON; **0.3**: POSIX full (windows port in flight, bundle above).
+- **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
+  into cljw. Realworld 56 interp 56/0; JIT diff-gated. Debt: 0 `now`-class.
 
 ## Key refs
 
-- [`flake.nix`](../flake.nix) `devShells.gen` / `.#gen-wasip3`;
-  [`docs/zig_api_design.md`](../docs/zig_api_design.md); lessons INDEX
-  `.dev/lessons/INDEX.md`. ADRs: **0156** (NO autonomous release) · **0153**
-  (rework) · **0201** (funcref-table grow) · **0172** (components=interp) ·
-  **0099** (file-size caps) · **0126** (iso-recursive equality).
+- `flake.nix` `.#gen-wasip3`; `docs/zig_api_design.md`; lessons INDEX. ADRs:
+  **0156** (NO autonomous release) · **0153** (rework) · **0099** (file-size)
+  · **0172** (components=interp) · **0205** (this campaign).
