@@ -38,6 +38,8 @@ const Module = @import("../zwasm/module.zig").Module;
 const Instance = @import("../zwasm/instance.zig").Instance;
 const Linker = @import("../zwasm/linker.zig").Linker;
 const Value = @import("../zwasm.zig").Value;
+const zir_mod = @import("../ir/zir.zig");
+const rt_value = @import("../runtime/value.zig");
 const build_options = @import("build_options");
 
 // ============================================================
@@ -72,6 +74,8 @@ pub const TcpTxRole = struct { rep: u32, fut: u32 };
 /// retptr, completed (recvfrom + marshal + SUBTASK event) at readiness by
 /// `pollBlockedUdpReceives` — the timer-subtask pattern (ADR-0205 D2).
 pub const ParkedUdpReceive = struct { rep: u32, retptr: u32 };
+/// Harness-supplied request-body bytes served to guest stream reads.
+pub const HostBodyBytes = struct { data: []u8, pos: usize = 0 };
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -112,6 +116,9 @@ pub const WasiP2Ctx = struct {
     /// exits. Minimal single-`i32`-lowered-result form; typed/multi-value is a
     /// later ζ2 slice. `null` until the guest calls `task.return`.
     task_return: ?u32 = null,
+    /// The ok-payload slot of a raw task.return (e.g. the response handle
+    /// the http handler delivered); valid when `task_return == 0`.
+    task_return_payload: ?u32 = null,
     /// CM-async per-task state (ADR-0189 ζ2): the stream/future end handle table,
     /// the shared-rendezvous arena, and the waitable-set table. Lives here (not
     /// in the P3 runner's frame) so the canon async builtins reach it via
@@ -177,6 +184,17 @@ pub const WasiP2Ctx = struct {
     http_requests: std.ArrayList(p3http.HttpRequest) = .empty,
     http_responses: std.ArrayList(p3http.HttpResponse) = .empty,
     http_reqopts: std.ArrayList(p3http.HttpRequestOptions) = .empty,
+    /// Host-resolved trailers futures (keyed by READABLE handle): a guest
+    /// read completes immediately with `ok(none)` — the shape a
+    /// harness-built request's `consume-body` hands out (ADR-0205 D-3).
+    host_trailer_ok_futures: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// Harness-supplied request-body bytes (keyed by the stream's SHARED
+    /// id): a guest read drains from the buffer, then observes DROPPED.
+    host_body_bytes: std.AutoHashMapUnmanaged(u32, HostBodyBytes) = .empty,
+    /// Harness capture sinks (keyed by SHARED id): a guest WRITE into the
+    /// stream appends to the harness's buffer and completes — how the
+    /// harness collects a response body without a host-side stream reader.
+    host_capture_sinks: std.AutoHashMapUnmanaged(u32, *std.ArrayList(u8)) = .empty,
     host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_tx: std.AutoHashMapUnmanaged(u32, TcpTxRole) = .empty,
@@ -290,6 +308,11 @@ pub const WasiP2Ctx = struct {
         self.http_requests.deinit(self.alloc);
         self.http_responses.deinit(self.alloc);
         self.http_reqopts.deinit(self.alloc);
+        self.host_trailer_ok_futures.deinit(self.alloc);
+        var body_it = self.host_body_bytes.iterator();
+        while (body_it.next()) |e| self.alloc.free(e.value_ptr.data);
+        self.host_body_bytes.deinit(self.alloc);
+        self.host_capture_sinks.deinit(self.alloc);
         self.host_accept_streams.deinit(self.alloc);
         self.host_tcp_rx.deinit(self.alloc);
         self.host_tcp_tx.deinit(self.alloc);
@@ -1915,6 +1938,7 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         .http3_reqopts_between_bytes_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3ReqoptsBetweenBytesGet),
         .http3_reqopts_between_bytes_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64, u32) WasiP2Error!void, http3ReqoptsBetweenBytesSet),
         .http3_reqopts_clone => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3ReqoptsClone),
+        .http3_request_consume_body => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, http3RequestConsumeBody),
         // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
         .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
         .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
@@ -2004,6 +2028,11 @@ const Def = union(enum) {
     /// result-delivery import; the trampoline records the value in
     /// `WasiP2Ctx.task_return`.
     task_return_builtin,
+    /// `canon task.return` whose result flattens to >1 core param (e.g. the
+    /// http handler's result<own<response>, error-code> = 8): bound via
+    /// `defineFuncRaw` with the exact flat signature; the trampoline records
+    /// disc + payload.
+    task_return_raw: []const zir_mod.ValType,
     /// A `canon stream.*`/`future.*` builtin (WASI 0.3, ADR-0189 ζ2). `op`
     /// selects the trampoline; `type_index` is the stream/future type. Slice 2
     /// wires `stream.new`/`future.new`; the rest are a later slice.
@@ -2088,7 +2117,27 @@ fn synthDef(arena: Allocator, info: *const ctypes.TypeInfo, built: []const ?Buil
             },
             // task.return (CM-async) is satisfied by the P3 runner's host
             // builtin (ADR-0189 ζ2); it records the task's delivered result.
-            .task_return => return .task_return_builtin,
+            // A result flattening to >1 core param (payload-carrying variants
+            // like the http handler's result<own<response>, error-code>)
+            // takes the raw-signature route (ADR-0205 D-3).
+            .task_return => |tr| {
+                if (tr.result) |vt| {
+                    var flat_types: std.ArrayList(canon.CoreType) = .empty;
+                    const ct = canon.canonTypeFromDecoded(arena, info, vt) catch return .task_return_builtin;
+                    canon.flattenType(arena, ct, &flat_types) catch return .task_return_builtin;
+                    if (flat_types.items.len > 1) {
+                        const params = try arena.alloc(zir_mod.ValType, flat_types.items.len);
+                        for (flat_types.items, 0..) |ft, i| params[i] = switch (ft) {
+                            .i32 => .i32,
+                            .i64 => .i64,
+                            .f32 => .f32,
+                            .f64 => .f64,
+                        };
+                        return .{ .task_return_raw = params };
+                    }
+                }
+                return .task_return_builtin;
+            },
             // waitable-set.new/join/poll/drop are host-wired (ADR-0190 E2b +
             // ADR-0205 phase A); `wait` is the stackful path (zwasm stackless
             // re-enters via the callback WAIT return, not a guest wait call).
@@ -2170,6 +2219,19 @@ fn p2GuestResourceDrop(caller: *Caller, handle: u32) WasiP2Error!void {
 /// runner reads `ctx.task_return` after the callback loop exits.
 fn p2TaskReturn(caller: *Caller, val: i32) WasiP2Error!void {
     caller.data(WasiP2Ctx).task_return = @bitCast(val);
+}
+
+/// The raw-signature `task.return` (result flattens to >1 core param):
+/// slot 0 is the result discriminant, slot 1 the ok-payload (e.g. the
+/// response handle of the http `handler.handle` export); the error-case
+/// junk slots are ignored — the harness reads the payload only when
+/// disc == 0.
+fn p2TaskReturnRaw(caller: *Caller, args: []const rt_value.Value, results: []rt_value.Value) anyerror!void {
+    _ = results;
+    const ctx = caller.data(WasiP2Ctx);
+    ctx.task_return = if (args.len > 0) @bitCast(args[0].i32) else 0;
+    ctx.task_return_payload = if (args.len > 1) @as(u32, @bitCast(args[1].i32)) else null;
+    if (dbg.on("async.host")) std.debug.print("[host] task-return-raw n={d} disc={?d} payload={?d}\n", .{ args.len, ctx.task_return, ctx.task_return_payload });
 }
 
 /// `canon stream.new` (ADR-0189 ζ2): mint a readable+writable end pair over a
@@ -2445,6 +2507,18 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     // by write/read-via-stream. A host stream peer always succeeds → a guest
     // `future.read` COMPLETES with the `ok` discriminant (0, 1 byte) — no
     // rendezvous, no general typed marshalling.
+    // Harness-resolved trailers future (ADR-0205 D-3): completes with
+    // `ok(none)` — result disc @0 AND the option disc must both be
+    // written (a bare ok byte leaves the option disc as garbage). The
+    // payload offset is 8: `error-code` carries u64 cases (align 8).
+    if (abc.ctx.host_trailer_ok_futures.contains(handle)) {
+        const mem = try abc.ctx.memory();
+        const buf = mem.sliceAt(ptr, 9) catch return WasiP2Error.OutOfBounds;
+        buf[0] = 0;
+        buf[8] = 0;
+        _ = abc.ctx.host_trailer_ok_futures.remove(handle);
+        return (async_mod.ReturnCode{ .completed = 0 }).encode();
+    }
     if (abc.ctx.host_result_futures.get(handle)) |outcome| {
         const mem = try abc.ctx.memory();
         if (outcome) |code| {
@@ -2550,6 +2624,35 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
             return (async_mod.ReturnCode{ .dropped = 0 }).encode();
         }
         return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
+    }
+    // Harness request-body source (ADR-0205 D-3): serve bytes from the
+    // stored buffer; exhausted → the stream closes (DROPPED).
+    if (abc.ctx.host_body_bytes.getPtr(end.shared)) |body| {
+        if (end.side != .readable) return WasiP2Error.InvalidHandle;
+        const mem = try abc.ctx.memory();
+        const remaining = body.data.len - body.pos;
+        if (remaining == 0) {
+            switch ((try abc.ctx.shared.get(end.shared)).*) {
+                .stream => |*sh_s| sh_s.dropped = true,
+                .future, .subtask => return WasiP2Error.InvalidHandle,
+            }
+            end.state = .done;
+            return (async_mod.ReturnCode{ .dropped = 0 }).encode();
+        }
+        const n = @min(remaining, count * abc.elem_size);
+        const buf = mem.sliceAt(ptr, @intCast(n)) catch return WasiP2Error.OutOfBounds;
+        @memcpy(buf, body.data[body.pos..][0..n]);
+        body.pos += n;
+        return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
+    }
+    // Harness capture sink (ADR-0205 D-3): a guest write appends to the
+    // harness's buffer and completes — the response-body collector.
+    if (abc.ctx.host_capture_sinks.get(end.shared)) |cap| {
+        if (end.side != .writable) return WasiP2Error.InvalidHandle;
+        const mem = try abc.ctx.memory();
+        const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
+        cap.appendSlice(abc.ctx.alloc, bytes) catch return WasiP2Error.OutOfMemory;
+        return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
     }
     // WASI-0.3 TCP send sink (phase C): drain the guest's bytes into the
     // connected socket.
@@ -2743,6 +2846,7 @@ fn defineSynth(lk: *Linker, ns: []const u8, e: SynthExport, ctx: *WasiP2Ctx) !vo
             }
         },
         .task_return_builtin => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, i32) WasiP2Error!void, p2TaskReturn),
+        .task_return_raw => |params| try lk.defineFuncRaw(ns, e.name, @ptrCast(ctx), params, &.{}, p2TaskReturnRaw),
         .waitable_set_builtin => |op| switch (op) {
             .new => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller) WasiP2Error!u32, p2WaitableSetNew),
             .join => try lk.defineFuncCtx(ns, e.name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, p2WaitableJoin),
@@ -4611,7 +4715,7 @@ fn http3FieldsClone(caller: *Caller, self: u32) WasiP2Error!u32 {
 /// Release a stream/future end TRANSFERRED into a request/response at
 /// `new` time (the guest's own handle moved to the host): the peer must
 /// observe DROPPED or its writer task never completes.
-fn http3DropTransferredEnd(ctx: *WasiP2Ctx, handle: u32) void {
+pub fn http3DropTransferredEnd(ctx: *WasiP2Ctx, handle: u32) void {
     if (handle == 0) return;
     _ = ctx.host_result_futures.remove(handle);
     _ = ctx.pending_reads.remove(handle);
@@ -4958,6 +5062,61 @@ fn http3ReqoptsBetweenBytesSet(caller: *Caller, self: u32, disc: u32, val: i64, 
     const o = try http3ReqoptsSelf(ctx, self);
     if (!o.immutable) o.between_bytes_timeout_ns = if (disc != 0) @bitCast(val) else null;
     try http3WriteReqoptsSetResult(mem, retptr, o.immutable);
+}
+
+/// `[static]request.consume-body` (this, res future, retptr) →
+/// tuple<stream<u8>, future<result<option<trailers>, error-code>>>: hand
+/// out the stored body ends. A bodiless request gets an immediately-CLOSED
+/// stream (collect → empty) and, when no guest trailers future was
+/// transferred (harness-built requests), a host-resolved `ok(none)` one.
+/// Consumes `this` (handle slot only — headers/options views stay valid)
+/// and releases the guest's error-report future.
+fn http3RequestConsumeBody(caller: *Caller, this: u32, res_fut: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const req = try http3RequestSelf(ctx, this);
+    const contents = req.contents_stream orelse blk: {
+        const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+        // Dropping the writable half closes the stream for the reader.
+        try async_mod.dropEndGuarded(&ctx.streams, &ctx.shared, pair.writable);
+        break :blk pair.readable;
+    };
+    const trailers = if (req.trailers_future != 0) req.trailers_future else blk: {
+        const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
+        try ctx.host_trailer_ok_futures.put(ctx.alloc, fut.readable, {});
+        break :blk fut.readable;
+    };
+    req.contents_stream = null;
+    req.trailers_future = 0;
+    http3DropTransferredEnd(ctx, res_fut);
+    _ = try ctx.resources.drop(WasiP2Ctx.HTTP_REQUEST_RT, this);
+    try mem.write(retptr, contents);
+    try mem.write(retptr + 4, trailers);
+}
+
+/// Register a harness capture sink for `shared_id`, draining a write that
+/// parked before registration (the guest's spawned body writer may run
+/// before the harness learns the response's stream id).
+pub fn http3RegisterCaptureSink(ctx: *WasiP2Ctx, shared_id: u32, cap: *std.ArrayList(u8)) WasiP2Error!void {
+    try ctx.host_capture_sinks.put(ctx.alloc, shared_id, cap);
+    const sh = try ctx.shared.get(shared_id);
+    const pending = switch (sh.*) {
+        .stream => |*st| st.pending orelse return,
+        .future, .subtask => return,
+    };
+    if (pending.side != .writable) return;
+    const pw = ctx.pending_writes.get(pending.waitable) orelse return;
+    const mem = try ctx.memory();
+    const bytes = mem.sliceAt(pw.ptr, pw.count * pw.elem_size) catch return WasiP2Error.OutOfBounds;
+    cap.appendSlice(ctx.alloc, bytes) catch return WasiP2Error.OutOfMemory;
+    const writer = try ctx.streams.get(pending.waitable);
+    writer.state = .idle;
+    writer.setPendingEvent(.{ .code = .stream_write, .index = pending.waitable, .payload = (async_mod.ReturnCode{ .completed = @intCast(pw.count) }).encode() });
+    switch (sh.*) {
+        .stream => |*st| st.pending = null,
+        .future, .subtask => {},
+    }
+    _ = ctx.pending_writes.remove(pending.waitable);
 }
 
 fn http3ReqoptsClone(caller: *Caller, self: u32) WasiP2Error!u32 {

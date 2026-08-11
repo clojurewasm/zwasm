@@ -13,6 +13,7 @@ const std = @import("std");
 
 const async_mod = @import("../feature/component/async.zig");
 const net = std.Io.net;
+const p3http = @import("../wasi/p3_http.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_p2 = @import("component_wasi_p2.zig");
 
@@ -126,6 +127,12 @@ pub fn runWasiP3Main(engine: *Engine, alloc: Allocator, bytes: []const u8, host:
 /// can inspect the result the guest delivered via `task.return`
 /// (`built.ctx.task_return`, ADR-0189 ζ2) after the loop exits.
 pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
+    return driveAsyncCall(built, &.{});
+}
+
+/// Drive the first async-lifted export with explicit core args (the service
+/// world's `handler.handle` takes the request handle; ADR-0205 D-3).
+pub fn driveAsyncCall(built: *wasi_p2.BuiltComponent, args: []const Value) anyerror!void {
     // async is an export property (ADR-0188): the first `canon lift` with
     // `opts.is_async` is the task to drive; its `callback` is the loop re-entry.
     const lift = blk: {
@@ -147,7 +154,7 @@ pub fn driveAsyncMain(built: *wasi_p2.BuiltComponent) anyerror!void {
 
     // Invoke the async task entry once; its packed i32 return seeds the loop.
     var results = [_]Value{.{ .i32 = 0 }};
-    inst.invoke(entry_ref.name, &.{}, &results) catch |err| {
+    inst.invoke(entry_ref.name, args, &results) catch |err| {
         if (err == error.ProcExit) return; // wasi:cli/exit clean unwind
         return err;
     };
@@ -848,6 +855,21 @@ const SockOp = struct {
     payload: []const u8 = "",
 };
 
+/// One manifest `request` operation against a `wasi:http/service` world
+/// (ADR-0205 D-3): the harness plays the HTTP client, building a request
+/// resource and invoking the guest's exported `handler.handle`.
+const HttpReqOp = struct {
+    method: []const u8,
+    path: []const u8,
+    body: []const u8 = "",
+    /// Extra request headers (manifest JSON object, e.g. {"x-echo": "ping"}).
+    headers: ?std.json.Value = null,
+    expect_status: u16 = 200,
+    /// Expected response headers (manifest JSON object).
+    expect_headers: ?std.json.Value = null,
+    expect_body: ?[]const u8 = null,
+};
+
 const OfficialExpect = struct {
     env_keys: std.ArrayList([]const u8) = .empty,
     env_vals: std.ArrayList([]const u8) = .empty,
@@ -862,8 +884,13 @@ const OfficialExpect = struct {
     /// tmp dir per run — the tests mutate it) mapped as guest "/".
     root: ?[]const u8 = null,
     sock_ops: std.ArrayList(SockOp) = .empty,
+    /// True for `"world": "wasi:http/service"` manifests: no cli/run export;
+    /// the harness drives `handler.handle` per `http_reqs` entry.
+    world_service: bool = false,
+    http_reqs: std.ArrayList(HttpReqOp) = .empty,
 
     fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
+        self.http_reqs.deinit(alloc);
         self.env_keys.deinit(alloc);
         self.env_vals.deinit(alloc);
         self.args.deinit(alloc);
@@ -879,6 +906,9 @@ fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value
     // operations form upstream (test_case.py LEGACY_CONFIG_KEYS).
     if (parsed.object.get("root")) |r| out.root = r.string;
     if (parsed.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+    if (parsed.object.get("world")) |w| {
+        if (std.mem.eql(u8, w.string, "wasi:http/service")) out.world_service = true;
+    }
     const ops = parsed.object.get("operations") orelse return;
     for (ops.array.items) |op| {
         const ty = op.object.get("type").?.string;
@@ -908,6 +938,21 @@ fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value
             }
         } else if (std.mem.eql(u8, ty, "wait")) {
             if (op.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+        } else if (std.mem.eql(u8, ty, "request")) {
+            var rop: HttpReqOp = .{
+                .method = op.object.get("method").?.string,
+                .path = op.object.get("path").?.string,
+            };
+            if (op.object.get("body")) |b| rop.body = b.string;
+            if (op.object.get("headers")) |h| rop.headers = h;
+            if (op.object.get("response")) |resp| {
+                if (resp.object.get("status")) |st| rop.expect_status = @intCast(st.integer);
+                if (resp.object.get("headers")) |h| rop.expect_headers = h;
+                if (resp.object.get("body")) |b| rop.expect_body = b.string;
+            }
+            try out.http_reqs.append(alloc, rop);
+        } else if (std.mem.eql(u8, ty, "kill")) {
+            // In-process service driving: nothing to signal.
         } else if (std.mem.eql(u8, ty, "connect")) {
             try out.sock_ops.append(alloc, .{ .kind = .connect });
         } else if (std.mem.eql(u8, ty, "send")) {
@@ -963,6 +1008,125 @@ const ExternalClient = struct {
         return .{ .ip4 = ip4 };
     }
 };
+
+/// The no-progress hook for service driving (ADR-0205 D-3): once the guest
+/// delivered its response via task.return, register the harness capture
+/// sink on the response's contents stream — the guest's spawned body writer
+/// parks BEFORE the harness can know the stream id, so the registration
+/// (which drains the parked write) must happen inside the drive.
+const ServiceCapture = struct {
+    wp2: *wasi_p2.WasiP2Ctx,
+    capture: *std.ArrayList(u8),
+    registered_shared: ?u32 = null,
+    done: bool = false,
+
+    fn step(ptr: *anyopaque) bool {
+        const self: *ServiceCapture = @ptrCast(@alignCast(ptr));
+        if (self.done) return false;
+        if (self.wp2.task_return != 0) return false;
+        const payload = self.wp2.task_return_payload orelse return false;
+        const rep = self.wp2.resources.rep(wasi_p2.WasiP2Ctx.HTTP_RESPONSE_RT, payload) catch return false;
+        if (rep >= self.wp2.http_responses.items.len) return false;
+        const resp = &self.wp2.http_responses.items[rep];
+        // The harness never reads response trailers: release the readable so
+        // the guest's parked trailers writer observes DROPPED.
+        if (resp.trailers_future != 0) {
+            wasi_p2.http3DropTransferredEnd(self.wp2, resp.trailers_future);
+            resp.trailers_future = 0;
+        }
+        if (resp.contents_stream) |cs| {
+            const end = self.wp2.streams.get(cs) catch return false;
+            wasi_p2.http3RegisterCaptureSink(self.wp2, end.shared, self.capture) catch return false;
+            self.registered_shared = end.shared;
+        }
+        self.done = true;
+        return true;
+    }
+};
+
+/// Build a harness-side request resource for one manifest `request` op and
+/// drive the guest's `handler.handle` with it; assert the response.
+fn runServiceRequest(built: *wasi_p2.BuiltComponent, rop: HttpReqOp) !void {
+    const ctx = built.ctx;
+    const alloc = ctx.alloc;
+
+    // Request headers: a fresh immutable fields entry.
+    const fields_idx: u32 = @intCast(ctx.http_fields.items.len);
+    try ctx.http_fields.append(alloc, .{});
+    if (rop.headers) |hs| {
+        var it = hs.object.iterator();
+        while (it.next()) |e| {
+            try ctx.http_fields.items[fields_idx].appendChecked(alloc, e.key_ptr.*, e.value_ptr.string);
+        }
+    }
+    ctx.http_fields.items[fields_idx].immutable = true;
+
+    // Request body: served from the stored buffer by the body-bytes branch.
+    var contents: ?u32 = null;
+    if (rop.body.len > 0) {
+        const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
+        const shared_id = (try ctx.streams.get(pair.readable)).shared;
+        try ctx.host_body_bytes.put(alloc, shared_id, .{ .data = try alloc.dupe(u8, rop.body) });
+        contents = pair.readable;
+    }
+
+    const method: p3http.Method = blk: {
+        inline for (p3http.Method.known_names) |k| {
+            if (std.mem.eql(u8, rop.method, k.name)) break :blk @unionInit(p3http.Method, @tagName(k.tag), {});
+        }
+        return error.TestUnexpectedResult; // manifest methods are all known
+    };
+    const req_idx: u32 = @intCast(ctx.http_requests.items.len);
+    try ctx.http_requests.append(alloc, .{
+        .method = method,
+        .path_with_query = try alloc.dupe(u8, rop.path),
+        .scheme = .http,
+        .authority = try alloc.dupe(u8, "localhost"),
+        .headers_rep = fields_idx,
+        .contents_stream = contents,
+    });
+    const req_handle = try ctx.resources.new(wasi_p2.WasiP2Ctx.HTTP_REQUEST_RT, req_idx);
+
+    // Drive handler.handle(request) with the capture seam installed.
+    ctx.task_return = null;
+    ctx.task_return_payload = null;
+    var capture: std.ArrayList(u8) = .empty;
+    defer capture.deinit(alloc);
+    var svc = ServiceCapture{ .wp2 = ctx, .capture = &capture };
+    ctx.external_sock_step = ServiceCapture.step;
+    ctx.external_sock_ctx = &svc;
+    defer {
+        ctx.external_sock_step = null;
+        ctx.external_sock_ctx = null;
+        if (svc.registered_shared) |sid| _ = ctx.host_capture_sinks.remove(sid);
+    }
+    try driveAsyncCall(built, &.{.{ .i32 = @bitCast(req_handle) }});
+
+    // Assert the delivered response.
+    try testing.expectEqual(@as(?u32, 0), ctx.task_return);
+    const resp_handle = ctx.task_return_payload orelse return error.TestUnexpectedResult;
+    const rep = try ctx.resources.rep(wasi_p2.WasiP2Ctx.HTTP_RESPONSE_RT, resp_handle);
+    const resp = ctx.http_responses.items[rep];
+    try testing.expectEqual(rop.expect_status, resp.status);
+    if (rop.expect_headers) |ehs| {
+        const flds = &ctx.http_fields.items[resp.headers_rep];
+        var it = ehs.object.iterator();
+        while (it.next()) |e| {
+            var got: std.ArrayList([]const u8) = .empty;
+            defer got.deinit(alloc);
+            try flds.get(&got, alloc, e.key_ptr.*);
+            var found = false;
+            for (got.items) |v| {
+                if (std.mem.eql(u8, v, e.value_ptr.string)) found = true;
+            }
+            if (!found) {
+                std.debug.print("[service] missing response header {s}: {s}\n", .{ e.key_ptr.*, e.value_ptr.string });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+    if (rop.expect_body) |eb| try testing.expectEqualStrings(eb, capture.items);
+}
 
 /// Run one vendored official test end-to-end and assert its manifest.
 fn runOfficialWasip3Test(comptime name: []const u8) !void {
@@ -1028,6 +1192,20 @@ fn runOfficialWasip3Test(comptime name: []const u8) !void {
     host.stdout_buffer = &stdout_cap;
     host.stderr_buffer = &stderr_cap;
 
+    if (expect.world_service) {
+        // Service world: no cli/run export — build once, then drive the
+        // exported handler per manifest `request` op (ADR-0205 D-3).
+        var built = try wasi_p2.buildWasiP2Component(&eng, alloc, bytes, &host, .{});
+        defer built.deinit();
+        for (expect.http_reqs.items) |rop| {
+            runServiceRequest(&built, rop) catch |err| {
+                std.debug.print("[official {s}] service request {s} {s} failed: {t}; guest stderr:\n{s}\n", .{ name, rop.method, rop.path, err, stderr_cap.items });
+                return err;
+            };
+        }
+        try testing.expectEqual(@as(?u32, expect.exit_code), host.exit_code orelse 0);
+        return;
+    }
     if (expect.sock_ops.items.len > 0) {
         // Socket-operations manifest (sockets-echo): the harness is the
         // remote client. Build first so the external-actor seam can be
@@ -1174,6 +1352,16 @@ test "wasip3-official: http-request (method/scheme/path/authority validation)" {
 test "wasip3-official: http-response (status code + immutable headers)" {
     try runOfficialWasip3Test("http-response");
 }
+test "wasip3-official: http-service (handler export + body capture)" {
+    try runOfficialWasip3Test("http-service");
+}
+test "wasip3-official: http-service-echo (request body + header reflection)" {
+    try runOfficialWasip3Test("http-service-echo");
+}
+test "wasip3-official: http-service-uri (scheme/authority set by host)" {
+    try runOfficialWasip3Test("http-service-uri");
+}
+
 test "wasip3-official: http-request-options (timeouts + immutable child)" {
     try runOfficialWasip3Test("http-request-options");
 }

@@ -310,6 +310,7 @@ pub const P2Op = enum {
     http3_reqopts_between_bytes_get,
     http3_reqopts_between_bytes_set,
     http3_reqopts_clone,
+    http3_request_consume_body,
     // wasi:io / wasi:cli resource drops a full wasi:cli world imports
     // directly (error / pollable / terminal handles); all route to the
     // generic drop.
@@ -584,6 +585,7 @@ pub fn p1Target(op: P2Op) P1Target {
         .http3_reqopts_between_bytes_get,
         .http3_reqopts_between_bytes_set,
         .http3_reqopts_clone,
+        .http3_request_consume_body,
         => .noop,
         // Poll + subscribe: no P1 facility (always-ready host bookkeeping).
         .poll_pollable_ready,
@@ -846,6 +848,7 @@ const table = [_]Entry{
     .{ .iface = "wasi:http/types", .func = "[method]request.set-authority", .op = .http3_request_set_authority, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[method]request.get-options", .op = .http3_request_get_options, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[method]request.get-headers", .op = .http3_request_get_headers, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[static]request.consume-body", .op = .http3_request_consume_body, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[resource-drop]request", .op = .io_resource_drop, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[static]response.new", .op = .http3_response_new, .gens = p3_only },
     .{ .iface = "wasi:http/types", .func = "[method]response.get-status-code", .op = .http3_response_get_status, .gens = p3_only },
