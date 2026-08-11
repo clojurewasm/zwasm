@@ -72,14 +72,16 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 
 ## Active rework campaign
 
-- **Campaign-ID**: s1-d444-three-way-split (D-444; branch `develop/s1-d444-three-way-split`)
-- **Phase**: II — correctness assurance (of I→V; Phase-I findings live in the D-444 row)
-- **Findings-doc**: D-444 debt row (structural map, 3 reverse deps, three-way shape)
-- **Exit target**: component_wasi_p2.zig → shared substrate + P2 + P3 files, all under
-  ADR-0099 caps or honestly EXEMPT; full test net green at every commit
-- **Correctness net**: 76 (p3) + 61 (component_tests) sibling tests green baseline +
-  characterization of the 3 reverse-dep paths BEFORE any code moves
-- **Next**: coverage map of reverse-dep paths (survey running) → fill gaps as test-only chunks
+- **Campaign-ID**: s1-d444-three-way-split (branch of the same name)
+- **Phase**: II — correctness assurance (of I→V); findings-doc = the D-444 row
+  (structural map, 3 reverse deps, three-way shape)
+- **Exit target**: shared substrate + P2 + P3 files, under ADR-0099 caps or honestly
+  EXEMPT; full net (76 p3 + 61 component_tests + characterization) green every commit
+- **Done**: coverage map (12 pub symbols to preserve); II-1+II-2a pinned
+  (`3c935b12a`, `6fc672a30` — the latter also FIXED dead test discovery:
+  component_wasi_p2.zig in-file tests never ran; S5 gains a discovery-guard axis)
+- **Next**: II-2b — pin pollBlockedUdpReceives→sock3UdpReceiveComplete, the
+  engine's P3 callbacks (fs3Fail/ResolveSend/DirStreamRead), fallthrough
 
 ## Operational invariants (keep using)
 
