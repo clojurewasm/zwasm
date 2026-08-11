@@ -1,5 +1,7 @@
 # CW v1 consumer contracts — enforceable rails for Phase A-F
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S5 — v1-era consumer contract; v2 surfaces superseded it, see docs/zig_api_design.md).
+
 **Date**: 2026-05-24 cycle 37 (post-CW-v1 deep feedback review)
 **Source**: ClojureWasmFromScratch consumer feedback (maintainer-local notes)
 (CW v1 private; gitignored on their side)

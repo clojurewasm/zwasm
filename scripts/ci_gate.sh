@@ -75,6 +75,15 @@ if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     # FP spill stage-2, D-506). Baseline is 0; --gate rejects any regression.
     echo "[ci_gate] extended: spill-aware op-handler check (spill_aware_check --gate)"
     bash scripts/spill_aware_check.sh --gate
+
+    # Sweep S5 (2026-08-12): the growth ratchet gates DELTA on already-over-cap
+    # files (the absolute caps stay advisory per ADR-0099); the discovery guard
+    # compares source test blocks against the compiler's own test listing
+    # (the ADR-0207 II-2a dead-test incident class).
+    echo "[ci_gate] extended: file growth ratchet (file_growth_ratchet --gate)"
+    RATCHET_BASE="${RATCHET_BASE:-origin/main}" bash scripts/file_growth_ratchet.sh --gate
+    echo "[ci_gate] extended: test-discovery guard (check_test_discovery --gate)"
+    bash scripts/check_test_discovery.sh --gate
 fi
 
 echo "[ci_gate] OK ($(uname -s))"

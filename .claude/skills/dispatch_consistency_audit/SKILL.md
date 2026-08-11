@@ -116,9 +116,9 @@ done
 
 ```sh
 # Cross-reference each op file's wasm_level against the canonical mapping.
-python3 scripts/check_wasm_level_mapping.py \
-  src/instruction/wasm_X_Y \
-  .dev/wasm_3_0_zirop_mapping.md
+# (no dedicated checker script exists — cross-reference manually:)
+grep -rh 'wasm_level' src/instruction/wasm_X_Y/*.zig | sort | uniq -c
+# ...and compare the per-level counts against .dev/wasm_3_0_zirop_mapping.md
 ```
 
 (Python helper lands alongside §9.12-G when the mapping doc is

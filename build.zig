@@ -519,6 +519,18 @@ pub fn build(b: *std.Build) void {
     core_p3.addImport("build_options", p3_options_mod);
     core_p3.addIncludePath(b.path("include"));
     core_p3.addImport("zwasm", core_p3);
+    // `zig build test-list` — print every DISCOVERED test name (custom list
+    // runner; sweep S5(c)). Runs on the p3-forced module (the maximal file
+    // set); `scripts/check_test_discovery.sh` diffs this against the named
+    // `test "…"` blocks present in source to catch dead test blocks.
+    const list_tests = b.addTest(.{
+        .root_module = core_p3,
+        .test_runner = .{ .path = b.path("src/test_support/list_tests_runner.zig"), .mode = .simple },
+    });
+    const run_list_tests = b.addRunArtifact(list_tests);
+    const test_list_step = b.step("test-list", "List every discovered test name (S5 test-discovery guard input)");
+    test_list_step.dependOn(&run_list_tests.step);
+
     const p3_tests = b.addTest(.{
         .root_module = core_p3,
         .filters = if (b.option([]const u8, "test-filter", "run only tests whose name contains this string (test-wasi-p3)")) |f| b.dupeStrings(&.{f}) else &.{},

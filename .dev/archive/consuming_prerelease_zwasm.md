@@ -1,6 +1,6 @@
 # Consuming pre-release zwasm reproducibly (for cljw / ClojureWasmFromScratch and others)
 
-> **Doc-state**: ACTIVE. Audience: any downstream that depends on `zwasm` while it
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S5 — premise obsolete: stable v2 line shipped; the rc-era pin guidance is a version fossil). Audience: any downstream that depends on `zwasm` while it
 > is still pre-`v1`-parity / pre-`v2.0.0` final — primarily cljw (`build.zig.zon`
 > `.zwasm`). Answers: *"how do I reference zwasm so it also builds for others,
 > reproducibly?"*

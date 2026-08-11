@@ -158,7 +158,7 @@ overnight autonomous loop runs. If suspend is unavoidable:
   refused`).
 
 For now treat sleep as out-of-scope; if it becomes an issue,
-add a `scripts/wake_ubuntunote.sh` helper.
+add a wake helper script under `scripts/`.
 
 ## Gate integration
 

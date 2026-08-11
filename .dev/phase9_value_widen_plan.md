@@ -211,7 +211,7 @@ green + commit. Windows reconcile at Phase 4 completion.
 
 **CW v1 consumer contract verification** (added cycle 37
 post-CW-v1 feedback; rails per
-[`../docs/cw_v1_consumer_contracts.md`](../docs/cw_v1_consumer_contracts.md)
+[`../docs/cw_v1_consumer_contracts.md`](archive/cw_v1_consumer_contracts.md)
 §6 checklist):
 
 - C-1: `comptime std.debug.assert(@alignOf(FuncEntity) >= 8)`
