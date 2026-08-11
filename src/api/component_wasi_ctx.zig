@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: the ADR-0207 (a) substrate — WasiP2Ctx + tables + poll/park/deliver + host-stream engine form one state machine over shared tables; ADR-0207 M4 measured the three-way split outcome and further extraction has no positive ADR-0099 condition (investigated 2026-08-12).
 //! WASI **Preview 2** host trampolines + the single-component WASI-P2 runner
 //! (CM campaign Phase D). Extracted from `component.zig` (D-309): the
 //! Component-Model orchestration there crossed the file-size smell cap as the
