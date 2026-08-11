@@ -104,22 +104,65 @@ pub const POLL_OUT: i16 = switch (builtin.os.tag) {
 /// `wasi:sockets/tcp` documented state machine.
 pub const TcpState = enum { unbound, bind_started, bound, connect_started, connected, listen_started, listening, closed };
 
-/// The sockets WIT `bind` implementors note: SO_REUSEADDR is implicitly on
-/// (bind must not be affected by a TIME_WAIT peer on the same port) —
-/// except windows, where the default behavior already covers TIME_WAIT
-/// reuse and SO_REUSEADDR instead permits binding over a live listener.
-const listen_reuse_address = builtin.os.tag != .windows;
+/// Default listen backlog when the guest set none (matches the pinned
+/// stdlib's `default_kernel_backlog`).
+const default_backlog: u31 = 128;
 
-/// The pinned stdlib's `reuse_address` couples SO_REUSEPORT on POSIX,
-/// which would let a second bind on an actively LISTENING port succeed —
-/// breaking the spec's address-in-use contract — so it is cleared again
-/// right after the listen (SO_REUSEADDR alone gives exactly the WIT
-/// semantics: TIME_WAIT rebind ok, live-listener bind rejected).
-fn clearReusePort(handle: net.Socket.Handle) !void {
-    if (builtin.os.tag == .windows) return;
-    if (!@hasDecl(posix.SO, "REUSEPORT")) return;
-    const off = std.mem.toBytes(@as(c_int, 0));
-    try posix.setsockopt(handle, posix.SOL.SOCKET, posix.SO.REUSEPORT, &off);
+/// TCP listen honouring the WIT `bind` contract: TIME_WAIT rebind ok,
+/// live-listener rebind rejected with address-in-use.
+///
+/// POSIX gets `posixListen` (raw SO_REUSEADDR **without** SO_REUSEPORT). The
+/// pinned stdlib couples SO_REUSEPORT into `reuse_address`, and clearing it
+/// after bind is INEFFECTIVE on Linux — the bind bucket caches its
+/// `fastreuseport` decision at the first bind, so a later second bind on the
+/// live listener still joins the reuseport group and wrongly succeeds
+/// (confirmed in `private/spikes/linux-reuseport-bind`). Raw composition never
+/// sets SO_REUSEPORT, giving exactly the WIT semantics.
+///
+/// Windows keeps the stdlib path with `reuse_address = false`: its default
+/// bind already covers TIME_WAIT, and enabling reuse there would instead
+/// permit binding over a live listener (the inverse of what the spec wants).
+fn listenReuseAddr(io: std.Io, addr: net.IpAddress, backlog: u31) !net.Server {
+    if (builtin.os.tag == .windows) {
+        return addr.listen(io, .{ .mode = .stream, .protocol = .tcp, .reuse_address = false, .kernel_backlog = backlog });
+    }
+    return posixListen(addr, backlog);
+}
+
+/// POSIX raw socket + SO_REUSEADDR-only + bind + listen, wrapped as a
+/// `net.Server` (the fd then plugs into the stdlib accept path, whose
+/// `AcceptOptions` is `void` on POSIX). See `listenReuseAddr` for why the
+/// stdlib `reuse_address` cannot be used. ADR-0070 amendment: adds
+/// `posix.system.{listen,getsockname}` to the raw-socket family already used
+/// by `rawBoundConnect`.
+fn posixListen(addr: net.IpAddress, backlog: u31) !net.Server {
+    const af: c_uint = switch (addr) {
+        .ip4 => posix.AF.INET,
+        .ip6 => posix.AF.INET6,
+    };
+    const fd = posix.system.socket(af, posix.SOCK.STREAM, 0);
+    if (posix.errno(fd) != .SUCCESS) return error.SystemResources;
+    errdefer _ = posix.system.close(fd);
+    const on = std.mem.toBytes(@as(c_int, 1));
+    try posix.setsockopt(fd, posix.SOL.SOCKET, posix.SO.REUSEADDR, &on);
+    var storage: std.Io.Threaded.PosixAddress = undefined;
+    const len = std.Io.Threaded.addressToPosix(&addr, &storage);
+    switch (posix.errno(posix.system.bind(fd, &storage.any, len))) {
+        .SUCCESS => {},
+        .ADDRINUSE => return error.AddressInUse,
+        .ADDRNOTAVAIL => return error.AddressUnavailable,
+        .ACCES => return error.AccessDenied,
+        else => return error.Unexpected,
+    }
+    switch (posix.errno(posix.system.listen(fd, @intCast(backlog)))) {
+        .SUCCESS => {},
+        .ADDRINUSE => return error.AddressInUse,
+        else => return error.Unexpected,
+    }
+    var resolved: std.Io.Threaded.PosixAddress = undefined;
+    var rlen: posix.socklen_t = @sizeOf(std.Io.Threaded.PosixAddress);
+    if (posix.errno(posix.system.getsockname(fd, &resolved.any, &rlen)) != .SUCCESS) return error.Unexpected;
+    return .{ .socket = .{ .handle = fd, .address = std.Io.Threaded.addressFromPosix(&resolved) }, .options = {} };
 }
 
 /// One live TCP socket: spec state + the `std.Io.net` objects backing it.
@@ -203,16 +246,9 @@ pub const TcpSocket = struct {
         if (self.state != .bound) return error.InvalidState;
         const addr = self.bound_addr.?; // .bound implies a stored address
         self.state = .listen_started;
-        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp, .reuse_address = listen_reuse_address };
-        if (self.backlog) |b| opts.kernel_backlog = b;
-        self.server = addr.listen(io, opts) catch |err| {
+        self.server = listenReuseAddr(io, addr, self.backlog orelse default_backlog) catch |err| {
             self.listen_err = err;
             return;
-        };
-        clearReusePort(self.server.?.socket.handle) catch |err| {
-            self.server.?.deinit(io);
-            self.server = null;
-            self.listen_err = err;
         };
     }
 
@@ -234,15 +270,7 @@ pub const TcpSocket = struct {
     pub fn bindNow(self: *TcpSocket, io: std.Io) !void {
         if (self.state != .bound) return error.InvalidState;
         const addr = self.bound_addr.?;
-        var opts: net.IpAddress.ListenOptions = .{ .mode = .stream, .protocol = .tcp, .reuse_address = listen_reuse_address };
-        if (self.backlog) |b| opts.kernel_backlog = b;
-        self.server = addr.listen(io, opts) catch |err| {
-            self.state = .closed;
-            return err;
-        };
-        clearReusePort(self.server.?.socket.handle) catch |err| {
-            self.server.?.deinit(io);
-            self.server = null;
+        self.server = listenReuseAddr(io, addr, self.backlog orelse default_backlog) catch |err| {
             self.state = .closed;
             return err;
         };
