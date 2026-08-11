@@ -48,26 +48,27 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
 - **B filesystem — DONE/green** (commit 6d95ac124): full `wasi:filesystem@0.3.0`
   (async-eager metadata family + via-stream data plane + read-directory);
   generation-aware `WasiGen` dispatch. Official fs corpus 14/14.
-- **C sockets — COMPLETE/green** (this branch): official corpus 12/12 on
-  POSIX (control + TCP/UDP data planes + ip-name-lookup real DNS). Keys:
-  parked socket reads/udp-receives EXECUTE at readiness, tcp.send future
-  resolves at tx-drop/drain-error (NOT eager), stream-drop halves =
-  SHUT_WR/SHUT_RD, udp connect = real OS dgram connect, explicit-bind
-  connect = raw posix composition (ADR-0070 amendment; windows carve-out =
-  D-569 skip), harness external-actor seam plays echo's remote client.
-- **D http IN PROGRESS** (D-568): D-1 fields resource DONE/green (official
-  http-fields; model = src/wasi/p3_http.zig; nested-list marshalling =
-  per-blob cabi_realloc, `http3AllocBlob`). NEXT: D-2 request/response/
-  request-options resources (official http-request / http-response /
-  http-request-options; bodies are None + `wit_future::new(|| Ok(None))`
-  trailers in these — pure logic, no network). Then D-3 handler export
-  (http-service*), D-5 client.send (http-client, needs harness HTTP_ENDPOINT
-  echo server). Survey notes: handler+client = the only 2 async funcs; WIT
-  source = ~/Documents/OSS/wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit.
-- **D http — NOT STARTED** (D-568): `wasi:http@0.3.0` largest remaining surface.
-- **E claims sweep** — pending C/D.
-28 official tests vendored green. 0.3.1 released 2026-08-11 (WIT diff vs 0.3.0
-= 3 doc lines; release train bi-monthly, tracked per ADR-0205 D6).
+- **C sockets — COMPLETE/green**: official 12/12 on POSIX (control + TCP/UDP
+  data planes + ip-name-lookup real DNS). Keys: parked reads EXECUTE at
+  readiness, tcp.send future non-eager, stream-drop = SHUT_WR/SHUT_RD,
+  udp connect = OS dgram connect, explicit-bind connect = raw posix
+  (ADR-0070 amendment; windows carve-out = D-569 skip).
+- **D http IN PROGRESS** (D-568): D-1+D-2 DONE/green — the full
+  `wasi:http/types` surface (fields / request / response / request-options;
+  official http-fields/-request/-response/-request-options 4/4). Model =
+  src/wasi/p3_http.zig; ownership: `new` consumes headers/options owns
+  (immutable after), get-headers/get-options mint VIEW RTs (no-op drop);
+  request/response drop releases transferred body ends; dropEndGuarded now
+  wakes a parked future WRITER on reader-drop (was AsyncDeadlock). Nested
+  lists marshal per-blob (`http3AllocBlob`). NEXT: D-3 handler EXPORT
+  invocation (http-service / -echo / -uri: harness "request" manifest ops →
+  call guest's exported handler.handle with a request resource, verify
+  response; service world has NO cli/run export) → D-5 client.send on
+  std.http.Client (http-client; harness serves `HTTP_ENDPOINT` echo). WIT =
+  ~/Documents/OSS/wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit.
+- **E claims sweep** — pending D.
+Official corpus: 41/45 vendored, all green (tcp-connect POSIX-only). 0.3.1
+(2026-08-11) WIT diff vs 0.3.0 = 3 doc lines (release train per ADR-0205 D6).
 
 ## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
 
