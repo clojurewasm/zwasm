@@ -2127,25 +2127,40 @@ entries:
     status: "note"
     front: D-wasi03
     description: |-
-      note (OPTIONAL design split — NO LONGER cap-forced). Since ADR-0099
-      (amended 2026-07-03) the file-size cap is ADVISORY (not a commit block), so
-      component_wasi_p2.zig at 2228 lines does NOT have to split — this stays a
-      legitimate DESIGN split (P3 independent change cadence + deep WasiP2Ctx
-      interface), to do when Unit E settles, not a cap obligation.
-      component_wasi_p2.zig crossed the 2000
-      hard cap (FILE-SIZE-EXEMPT marker added, cap→2500, per ADR-0190+0099) as the
-      WASI-0.3 (P3) async host-peer surface grew (task.return + stream/future
-      builtins + write-via-stream + AsyncBuiltinCtx + the ctx async fields). Split
-      the P3 async host trampolines into a sibling `component_wasi_p3_host.zig`
-      (ADR-0190 names this sibling). The WasiP2Ctx async fields stay on the ctx
-      (shared); the trampolines + Def.async_builtin/task_return + AsyncBuiltinCtx
-      move. Do it once the E1..E3 host interfaces have settled (else churn). Split
-      criterion: P3 independent change cadence + a deep WasiP2Ctx interface (P3).
+      Phase-I INVESTIGATED 2026-08-11 (ADR-0153 discipline; structural map by
+      Explore sweep, session 018FgZte). File is now 5470 lines (was 2228 when
+      filed; the wasi03 campaign added fs3/sock3/http3). THE ORIGINAL ONE-WAY
+      PLAN BELOW IS WRONG: moving "the P3 trampolines out" produces a
+      BIDIRECTIONAL pair, because P2/shared code calls INTO P3 in three
+      non-negotiable places — p2ResourceDrop → http3DropTransferredEnd,
+      WasiP2Ctx.pollBlockedUdpReceives → sock3UdpReceiveComplete, and the
+      host-stream peer engine (p2StreamFutureCopyInner ~2516-2856) →
+      fs3FailFileStream / sock3ResolveSendFuture / sockErrToFs3Code /
+      fs3DirStreamRead. The engine is generation-neutral CM-async substrate,
+      not P2 code. Correct shape = THREE-way split: (a) shared substrate
+      (WasiP2Ctx + host-stream engine + async builtins + defineSynth), (b) P2
+      trampolines, (c) P3 trampolines (~2250 lines, NON-CONTIGUOUS — sock3 udp
+      getters + resolveAddresses sit AFTER http3 at 5358-5470), with the three
+      reverse deps inverted via registration/vtable (the zone_deps
+      lower-needs-higher pattern applied at file level). defineClassifiedFunc's
+      exhaustive P2Op switch needs a second registration fn for the P3 arms
+      (~100 lines); defineAsyncLoweredOp moves nearly clean (28/30 entries P3).
+      Shared marshalling helpers that straddle: descriptorFilestat/pathFilestat
+      (8 fs3 callers), decodeIpSocketAddress/writeIpSocketAddressResult (~8
+      sock3 callers). Characterization net for phase II: component_wasi_p3.zig
+      76 tests + component_tests.zig 61 tests (7 import P2 trampolines by name
+      — keep pub). Note P3 extraction alone leaves ~3200 lines in (b) — the
+      split design should anticipate P2 fs/sockets cluster sub-splits.
+      Original row (2026-06-16, premise superseded): OPTIONAL design split, no
+      longer cap-forced (ADR-0099 advisory); split criterion P3 independent
+      change cadence + deep WasiP2Ctx interface; ADR-0190 named the sibling
+      component_wasi_p3_host.zig.
     first_raised: "2026-06-16"
-    last_reviewed: "2026-06-16"
+    last_reviewed: "2026-08-11"
     refs: |-
       src/api/component_wasi_p2.zig (FILE-SIZE-EXEMPT marker line 1);
-      .dev/decisions/0190_wasi_p3_host_stream_peer.md (sibling module)
+      .dev/decisions/0190_wasi_p3_host_stream_peer.md (sibling module);
+      .dev/decisions/0153_* (rework discipline; phase II gate before code)
   - id: "D-445"
     layer: "code"
     status: "note"
