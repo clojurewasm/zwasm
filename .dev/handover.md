@@ -5,15 +5,15 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.5.0 release prep in flight (USER-GRANTED 2026-08-11 per ADR-0156)**:
-this branch bumps `build.zig.zon` → 2.5.0 + cuts the CHANGELOG section
-(headline: WASI 0.3 full coverage on all 3 OSes; also #162 C-API symbols,
-#164 doc sweep, #166 dev-env SSOT). After merge + CI green the USER pushes
-the `v2.5.0` tag → `release.yml` auto-builds + publishes. Prior line
-v2.4.1 (2026-08-04); v1 frozen at `v1.11.1`. Dev model: cut a
-`develop/<slug>` branch from `main` → PR → CI `ci-required` gate green to
-merge. **Release stays user-only (ADR-0156)** — never autonomously tag /
-publish / cut over.
+**v2.5.0 TAG ON HOLD (user 2026-08-11)**: main (`f4157226d`, #167) already
+carries `build.zig.zon = 2.5.0` + the cut CHANGELOG section — prepared but
+NOT tagged (remote tags end at v2.4.1; verified). The user paused the tag to
+run the cleanliness sweep (front below) first; the sweep is internal-only,
+so it ships under the same v2.5.0 when the user tags
+(`git tag v2.5.0 <sha> && git push origin v2.5.0` → release.yml publishes).
+Prior line v2.4.1; v1 frozen at `v1.11.1`. Dev model: `develop/<slug>` from
+`main` → PR → CI `ci-required` green → merge. **Release stays user-only
+(ADR-0156)** — never autonomously tag / publish / cut over.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
@@ -29,14 +29,46 @@ publish / cut over.
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
 
-## Closed front — reproducible-dev-env (SHIPPED 2026-08-11, PR #166 → dc46526c5)
+## Closed fronts (2026-08-11)
 
-ADR-0206: anyone can develop this project. `docs/development.md` SSOT
-(README/CONTRIBUTING link it; honest CI claim — windows leg advisory);
-`scripts/dev_hosts.env.example` per-machine host config for the OPTIONAL
-fan-out; yq guards; 5 dead campaign scripts deleted. Verified by fresh-clone
-Zig-only build/test + two clean-context agent audits (5 findings all fixed).
-post-merge main CI green for both #165 (incl. extended) and #166.
+- **wasi03-full + windows port** (#165, ADR-0205): WASI 0.3 official corpus
+  45/45 on all 3 OSes, 0 skip. **reproducible-dev-env** (#166, ADR-0206):
+  `docs/development.md` SSOT + `dev_hosts.env` config + dead-script sweep.
+  post-merge main CI green (incl. extended) for #165; #166's run was
+  superseded-cancelled by #167's (same content verified on the #166 PR).
+
+## Active front — 完成形 cleanliness sweep (user-directed 2026-08-11, PRE-TAG)
+
+The NEXT session's mandate (user: 腰を据えて — design / build flags / runtime
+options / directory+file organization all genuinely clean, PLUS mechanize
+what failed to prevent the drift). Concrete axes, each → its own PR(s):
+
+- **S1 file/dir organization**: 30 files over ADR-0099 caps (advisory since
+  2026-07-03 — which is exactly why `component_wasi_p2.zig` grew 2228→5470
+  SILENTLY, now over even its exempt cap; `jit_abi.zig` 2027 > hard cap).
+  D-444 Phase-I is DONE (findings in the row, 2026-08-11): the one-way split
+  premise is WRONG — 3 reverse deps + a generation-neutral host-stream
+  engine ⇒ THREE-way split (shared substrate / P2 / P3) with vtable
+  inversion. Run as ADR-0153 rework (II characterization net = 76+61
+  sibling tests BEFORE moving code). Then triage the remaining over-cap
+  list per ADR-0099 P/N conditions (split on positive, EXEMPT with real
+  rationale otherwise).
+- **S2 build-flag surface**: D-525 `-Dgc` is INERT (option exists, reader
+  is dead) — fix or remove; audit the whole `-D` surface for tier
+  coherence (`-Dwasm`/`-Dwasi` orderings, `-Dengine`, `-Dcompiler-rt`,
+  `-Dtask`…) against docs/development.md + README claims.
+- **S3 runtime/CLI option surface**: `zwasm --help` あるべき論 audit —
+  naming/defaults/coverage vs the engine reality (auto/interp/jit), env
+  vars (ZWASM_*) inventoried + documented or removed.
+- **S4 doc/claim fossils**: the class found twice today (CLAUDE.md stuck at
+  v2.0.0-rc.1; ubuntunote_setup referencing deleted scripts) — run
+  `audit_scaffolding` §A–G full pass now that two campaigns closed
+  back-to-back.
+- **S5 mechanization (prevention)**: (a) file-size GROWTH ratchet — advisory
+  cap can stay, but a file ALREADY over cap growing further in a PR should
+  gate (delta-ratchet, not absolute); (b) version/claim fossil guard —
+  extend the doc-truth job pattern; (c) whatever S2/S3 finds systemic.
+- Exit: axes S1–S5 each closed-or-ADR'd, THEN user tags v2.5.0.
 
 ## Operational invariants (keep using)
 
@@ -55,7 +87,7 @@ post-merge main CI green for both #165 (incl. extended) and #166.
 - **D-477/D-478** JIT slivers (build-on-demand); **D-475 residual**
   spec-harness register-table wiring; **D-502** CM string encodings;
   **D-444** split `component_wasi_p2.zig` (grew again in wasi03);
-  **D-526** doc-staleness sweep; D-305/D-464/D-462 long-tail.
+  **D-526** doc-staleness sweep; D-464 long-tail.
 - G-senior-gap G1/G2/G3 COMPLETE
   (`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`).
 
