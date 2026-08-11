@@ -308,7 +308,7 @@ Claims above are anchored to the v2 source tree (paths are repo-relative):
   `src/instruction/wasm_2_0/` are not interpreter-wired; real codegen lives in
   `src/engine/codegen/{arm64,x86_64}/op_simd_*.zig`; the spec SIMD runner
   (`test/spec/simd_assert_runner.zig`) JIT-executes.
-- **Build defaults:** `build.zig` (`-Dwasm` / `-Dwasi` / `-Dengine` / `-Dgc`;
+- **Build defaults:** `build.zig` (`-Dwasm` / `-Dwasi` / `-Dengine`;
   component + P3-async are derived from the `-Dwasi` tier).
 - **WASI confinement:** `src/wasi/path.zig` (`symlinkTargetEscapes`), `src/wasi/fd.zig`.
 

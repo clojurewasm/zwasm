@@ -1041,7 +1041,6 @@ fn winUdpBind(family: AddressFamily, addr: net.IpAddress) !net.Socket {
 // Tests
 // ============================================================
 const testing = std.testing;
-const skip = @import("../test_support/skip.zig");
 
 test "tcp client lifecycle: create → connect → echo against a loopback listener" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});

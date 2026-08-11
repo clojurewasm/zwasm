@@ -1,6 +1,7 @@
 # 0015 — Adopt canonical debug toolkit for Phase 6+
 
 - **Status**: Closed (Phase 6 DONE)
+- **Revision note (2026-08-12, sweep S2)**: Part 4's `zig build run-repro -Dtask=<name>` step was retired — it presupposed the maintainer-local gitignored `private/` tree in the public build script (ADR-0206 contributor-generalization bar). Ad-hoc repros link a standalone `repro.zig` against the `zwasm` module directly; Part 2 (`-Dsanitize`) stays.
 - **Date**: 2026-05-04
 - **Author**: zwasm v2 / continue loop
 - **Tags**: phase-6, debug, tooling, observability, infrastructure

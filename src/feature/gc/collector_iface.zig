@@ -12,9 +12,10 @@
 //!     sweep over the slab; barrier-zero (no write barriers).
 //!     Production-ship per ADR-0115 §10 (β must-ship).
 //!
-//! `-Dgc-collector={null,mark_sweep}` build-option selects;
-//! `-Dgc=false` strips the entire `feature/gc/` directory via
-//! compile-time DCE (WAMR-equivalent nuclear strip).
+//! Selection is programmatic (construct the impl directly) —
+//! the once-planned `-Dgc-collector` / `-Dgc` options were never
+//! introduced; the GC strip lever is the `-Dwasm` level
+//! (ADR-0115 revision note, D-525).
 //!
 //! ADR-0115 §3 specifies `allocObjectFn(ctx, *TypeInfo)`; cycle
 //! 4 (this commit) ships a placeholder size-based shape because

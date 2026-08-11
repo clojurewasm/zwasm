@@ -360,9 +360,9 @@ test "mayUseTypeSubtyping: byte pre-filter true for a 0x50 sub-form module, fals
 }
 
 test {
-    // 10.G-foundation cycles 3+4+6: pull sibling heap.zig +
-    // collector_null.zig + register.zig (enable_gc build-option
-    // seam) tests into the test root walk. needs_heap_detector
+    // 10.G-foundation cycles 3+4: pull sibling heap.zig +
+    // collector_null.zig + register.zig tests into the test
+    // root walk. needs_heap_detector
     // is reached from src/parse/parser.zig directly (cycle 2
     // wiring), so this reference cascades sibling discovery
     // without depending on register.zig's re-export pattern.
