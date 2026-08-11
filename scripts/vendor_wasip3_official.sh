@@ -32,6 +32,8 @@ TESTS=(
   sockets-tcp-bind sockets-tcp-connect sockets-tcp-listen
   sockets-tcp-receive sockets-tcp-send sockets-echo
   sockets-udp-connect sockets-udp-receive sockets-udp-send
+  # phase D — http (types resources first; service/client legs follow)
+  http-fields http-request-options
 )
 
 command -v wasm-tools >/dev/null || { echo "wasm-tools required" >&2; exit 1; }

@@ -276,6 +276,17 @@ pub const P2Op = enum {
     sock3_udp_sndbuf_get,
     sock3_udp_sndbuf_set,
     sock3_resolve_addresses,
+    // wasi:http/types@0.3.0 (ADR-0205 phase D): the `fields` resource.
+    http3_fields_new,
+    http3_fields_from_list,
+    http3_fields_get,
+    http3_fields_has,
+    http3_fields_set,
+    http3_fields_delete,
+    http3_fields_get_and_delete,
+    http3_fields_append,
+    http3_fields_copy_all,
+    http3_fields_clone,
     // wasi:io / wasi:cli resource drops a full wasi:cli world imports
     // directly (error / pollable / terminal handles); all route to the
     // generic drop.
@@ -517,6 +528,16 @@ pub fn p1Target(op: P2Op) P1Target {
         .sock3_udp_sndbuf_get,
         .sock3_udp_sndbuf_set,
         .sock3_resolve_addresses,
+        .http3_fields_new,
+        .http3_fields_from_list,
+        .http3_fields_get,
+        .http3_fields_has,
+        .http3_fields_set,
+        .http3_fields_delete,
+        .http3_fields_get_and_delete,
+        .http3_fields_append,
+        .http3_fields_copy_all,
+        .http3_fields_clone,
         => .noop,
         // Poll + subscribe: no P1 facility (always-ready host bookkeeping).
         .poll_pollable_ready,
@@ -756,6 +777,18 @@ const table = [_]Entry{
     .{ .iface = "wasi:sockets/types", .func = "[method]udp-socket.set-send-buffer-size", .op = .sock3_udp_sndbuf_set, .gens = p3_only },
     .{ .iface = "wasi:sockets/types", .func = "[resource-drop]udp-socket", .op = .io_resource_drop, .gens = p3_only },
     .{ .iface = "wasi:sockets/ip-name-lookup", .func = "resolve-addresses", .op = .sock3_resolve_addresses, .gens = p3_only },
+    // wasi:http/types@0.3.0 rows (ADR-0205 phase D) — the `fields` resource.
+    .{ .iface = "wasi:http/types", .func = "[constructor]fields", .op = .http3_fields_new, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[static]fields.from-list", .op = .http3_fields_from_list, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.get", .op = .http3_fields_get, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.has", .op = .http3_fields_has, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.set", .op = .http3_fields_set, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.delete", .op = .http3_fields_delete, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.get-and-delete", .op = .http3_fields_get_and_delete, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.append", .op = .http3_fields_append, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.copy-all", .op = .http3_fields_copy_all, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[method]fields.clone", .op = .http3_fields_clone, .gens = p3_only },
+    .{ .iface = "wasi:http/types", .func = "[resource-drop]fields", .op = .io_resource_drop, .gens = p3_only },
 };
 
 /// Classify a WASI import `(interface, func, generation)` → the `P2Op` it maps

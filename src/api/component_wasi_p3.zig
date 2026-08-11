@@ -1165,6 +1165,9 @@ test "wasip3-official: sockets-tcp-connect (incl. explicit-bind connect)" {
         return @import("../test_support/skip.zig").blocker(.@"D-569");
     try runOfficialWasip3Test("sockets-tcp-connect");
 }
+test "wasip3-official: http-fields (fields resource, RFC 9110 validation)" {
+    try runOfficialWasip3Test("http-fields");
+}
 test "wasip3-official: sockets-udp-connect" {
     try runOfficialWasip3Test("sockets-udp-connect");
 }

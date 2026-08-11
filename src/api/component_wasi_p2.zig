@@ -26,6 +26,7 @@ const wasi_proc = @import("../wasi/proc.zig");
 const wasi_clocks = @import("../wasi/clocks.zig");
 const wasi_p1 = @import("../wasi/preview1.zig");
 const p2sock = @import("../wasi/p2_sockets.zig");
+const p3http = @import("../wasi/p3_http.zig");
 const adapter = @import("../wasi/adapter.zig");
 const resource_table = @import("../feature/component/resource_table.zig");
 const async_mod = @import("../feature/component/async.zig");
@@ -169,6 +170,10 @@ pub const WasiP2Ctx = struct {
     /// (receive → stream<u8>), `host_tcp_tx` (send's drained data stream).
     /// Values = the tcp socket list index (rep).
     udp_sockets: std.ArrayList(p2sock.UdpSocket) = .empty,
+    /// WASI-0.3 `wasi:http/types` `fields` resources (ADR-0205 phase D);
+    /// a HTTP_FIELDS_RT handle's rep indexes this list. Dropped entries are
+    /// deinit'ed in place (slot stays; reps are never reused).
+    http_fields: std.ArrayList(p3http.HttpFields) = .empty,
     host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_tx: std.AutoHashMapUnmanaged(u32, TcpTxRole) = .empty,
@@ -229,6 +234,9 @@ pub const WasiP2Ctx = struct {
     pub const SOCK_POLLABLE_RT: u32 = 10;
     /// WASI-0.3 `udp-socket` (rep = index into `udp_sockets`).
     pub const UDP_SOCKET3_RT: u32 = 11;
+    /// WASI-0.3 `wasi:http/types` `fields` (rep = index into `http_fields`;
+    /// drop frees the entry's pair storage — no OS handle).
+    pub const HTTP_FIELDS_RT: u32 = 12;
 
     /// Iteration state of one live directory-entry-stream: the directory's
     /// P1 fd + the P1 readdir cookie to resume after.
@@ -261,6 +269,8 @@ pub const WasiP2Ctx = struct {
             for (self.udp_sockets.items) |*u| u.deinit(io2);
         }
         self.udp_sockets.deinit(self.alloc);
+        for (self.http_fields.items) |*f| f.deinit(self.alloc);
+        self.http_fields.deinit(self.alloc);
         self.host_accept_streams.deinit(self.alloc);
         self.host_tcp_rx.deinit(self.alloc);
         self.host_tcp_tx.deinit(self.alloc);
@@ -767,6 +777,18 @@ fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
             WasiP2Ctx.TCP_SOCKET_RT => {
                 const sock = ctxTcpSocket(ctx, h.rep) catch return; // slot already gone
                 if (sock.state != .closed) sock.deinit(try ctxIo(ctx));
+            },
+            // The udp-socket handle owns the OS socket (rep = udp_sockets
+            // index, NOT a P1 fd — the else-branch fdClose would close an
+            // unrelated host fd).
+            WasiP2Ctx.UDP_SOCKET3_RT => {
+                const sock = ctxUdpSocket(ctx, h.rep) catch return;
+                if (sock.socket != null) sock.deinit(try ctxIo(ctx));
+            },
+            // The fields handle owns its (name, value) pair storage.
+            WasiP2Ctx.HTTP_FIELDS_RT => {
+                if (h.rep < ctx.http_fields.items.len)
+                    ctx.http_fields.items[h.rep].deinit(ctx.alloc);
             },
             else => _ = wasi_fd.fdClose(ctx.host, @intCast(h.rep)),
         }
@@ -1813,6 +1835,17 @@ fn defineClassifiedFunc(lk: *Linker, module: []const u8, name: []const u8, op: a
         // The async-func sockets surface (connect / udp send / udp receive /
         // resolve-addresses) arrives ASYNC-lowered — sync lowers unreached.
         .sock3_tcp_connect, .sock3_udp_send, .sock3_udp_receive, .sock3_resolve_addresses => return error.UnsupportedWasiImport,
+        // wasi:http/types@0.3.0 `fields` (sync plain funcs; ADR-0205 phase D).
+        .http3_fields_new => try lk.defineFuncCtx(module, name, ctx, fn (*Caller) WasiP2Error!u32, http3FieldsNew),
+        .http3_fields_from_list => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!void, http3FieldsFromList),
+        .http3_fields_get => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, http3FieldsGet),
+        .http3_fields_has => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32) WasiP2Error!u32, http3FieldsHas),
+        .http3_fields_set => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32) WasiP2Error!void, http3FieldsSet),
+        .http3_fields_delete => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, http3FieldsDelete),
+        .http3_fields_get_and_delete => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32) WasiP2Error!void, http3FieldsGetAndDelete),
+        .http3_fields_append => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, u32, u32, u32, u32) WasiP2Error!void, http3FieldsAppend),
+        .http3_fields_copy_all => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32) WasiP2Error!void, http3FieldsCopyAll),
+        .http3_fields_clone => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32) WasiP2Error!u32, http3FieldsClone),
         // wasi:filesystem@0.3.0 plain funcs (sync-lowered by wit-bindgen).
         .fs3_read_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, i64, u32) WasiP2Error!void, fs3ReadViaStream),
         .fs3_write_via_stream => try lk.defineFuncCtx(module, name, ctx, fn (*Caller, u32, u32, i64) WasiP2Error!u32, fs3WriteViaStream),
@@ -4302,6 +4335,204 @@ fn sock3UdpReceiveComplete(ctx: *WasiP2Ctx, rep: u32, retptr: u32) WasiP2Error!v
             try mem.write(retptr + 40, @as(u32, 0)); // scope-id
         },
     }
+}
+
+// ============================================================
+// wasi:http/types@0.3.0 (ADR-0205 phase D)
+// ============================================================
+// The `fields` resource: data model in src/wasi/p3_http.zig; these
+// trampolines marshal guest memory. Canonical shapes: field-name = string
+// (ptr,len), field-value = list<u8> (ptr,len), entries/copy-all elems =
+// (name_ptr, name_len, val_ptr, val_len) 16 B; `result<_, header-error>` =
+// disc u8@0, err variant disc u8@4, `other`'s option<string> none u8@8.
+
+fn ctxHttpFields(ctx: *WasiP2Ctx, rep: u32) WasiP2Error!*p3http.HttpFields {
+    if (rep >= ctx.http_fields.items.len) return WasiP2Error.InvalidHandle;
+    return &ctx.http_fields.items[rep];
+}
+
+fn http3FieldsSelf(ctx: *WasiP2Ctx, self: u32) WasiP2Error!*p3http.HttpFields {
+    return ctxHttpFields(ctx, try ctx.resources.rep(WasiP2Ctx.HTTP_FIELDS_RT, self));
+}
+
+fn http3MintFields(ctx: *WasiP2Ctx, fields: p3http.HttpFields) WasiP2Error!u32 {
+    const idx: u32 = @intCast(ctx.http_fields.items.len);
+    ctx.http_fields.append(ctx.alloc, fields) catch return WasiP2Error.OutOfMemory;
+    return ctx.resources.new(WasiP2Ctx.HTTP_FIELDS_RT, idx);
+}
+
+/// `result<_, header-error>` (ok = null).
+fn writeHeaderErrResult(mem: Memory, retptr: u32, e: ?p3http.FieldsError) WasiP2Error!void {
+    if (e) |err| {
+        try mem.write(retptr, @as(u8, 1));
+        try mem.write(retptr + 4, p3http.headerErrorOrdinal(err));
+        try mem.write(retptr + 8, @as(u8, 0)); // other's option<string>: none
+    } else {
+        try mem.write(retptr, @as(u8, 0));
+    }
+}
+
+fn http3FieldsNew(caller: *Caller) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    return http3MintFields(ctx, .{});
+}
+
+fn http3FieldsFromList(caller: *Caller, entries_ptr: u32, entries_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    var fields: p3http.HttpFields = .{};
+    var i: u32 = 0;
+    while (i < entries_len) : (i += 1) {
+        const rec = entries_ptr + i * 16;
+        const name = mem.sliceAt(try mem.read(u32, rec), try mem.read(u32, rec + 4)) catch return WasiP2Error.OutOfBounds;
+        const value = mem.sliceAt(try mem.read(u32, rec + 8), try mem.read(u32, rec + 12)) catch return WasiP2Error.OutOfBounds;
+        if (dbg.on("async.host")) std.debug.print("[host] fields.from-list [{d}] name='{s}' value='{s}'\n", .{ i, name, value });
+        fields.appendChecked(ctx.alloc, name, value) catch |e| {
+            fields.deinit(ctx.alloc);
+            try mem.write(retptr, @as(u8, 1));
+            try mem.write(retptr + 4, p3http.headerErrorOrdinal(e));
+            try mem.write(retptr + 8, @as(u8, 0));
+            return;
+        };
+    }
+    const handle = try http3MintFields(ctx, fields);
+    try mem.write(retptr, @as(u8, 0));
+    try mem.write(retptr + 4, handle);
+}
+
+/// Marshal one nested byte blob (string / list<u8>) into its OWN guest
+/// allocation. Nested lists must NOT share the outer table's block: the
+/// guest's lift takes per-element buffer OWNERSHIP (Vec::from_raw_parts)
+/// and frees the outer table separately — a packed single block gets
+/// recycled by the guest allocator mid-lift, corrupting the data. A
+/// zero-length blob writes a 4-aligned dangling pointer (the guest never
+/// dereferences or frees a capacity-0 buffer).
+fn http3AllocBlob(ctx: *WasiP2Ctx, mem: Memory, bytes: []const u8) WasiP2Error!u32 {
+    if (bytes.len == 0) return 4;
+    const p = try ctx.reallocGuest(@intCast(bytes.len), 1);
+    const dest = mem.sliceAt(p, @intCast(bytes.len)) catch return WasiP2Error.OutOfBounds;
+    @memcpy(dest, bytes);
+    return p;
+}
+
+/// Marshal `list<field-value>`: the elem table is one allocation, each
+/// value another (see `http3AllocBlob`); (ptr,len) lands at `retptr`.
+fn http3WriteValueList(ctx: *WasiP2Ctx, mem: Memory, retptr: u32, values: []const []const u8) WasiP2Error!void {
+    const base = if (values.len == 0) 4 else try ctx.reallocGuest(@intCast(values.len * 8), 4);
+    for (values, 0..) |v, i| {
+        const p = try http3AllocBlob(ctx, mem, v);
+        const rec = base + @as(u32, @intCast(i * 8));
+        try mem.write(rec, p);
+        try mem.write(rec + 4, @as(u32, @intCast(v.len)));
+    }
+    try mem.write(retptr, base);
+    try mem.write(retptr + 4, @as(u32, @intCast(values.len)));
+}
+
+fn http3FieldsGet(caller: *Caller, self: u32, name_ptr: u32, name_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    var values: std.ArrayList([]const u8) = .empty;
+    defer values.deinit(ctx.alloc);
+    fields.get(&values, ctx.alloc, name) catch return WasiP2Error.OutOfMemory;
+    try http3WriteValueList(ctx, mem, retptr, values.items);
+}
+
+fn http3FieldsHas(caller: *Caller, self: u32, name_ptr: u32, name_len: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    return @intFromBool(fields.has(name));
+}
+
+fn http3FieldsSet(caller: *Caller, self: u32, name_ptr: u32, name_len: u32, values_ptr: u32, values_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    var values: std.ArrayList([]const u8) = .empty;
+    defer values.deinit(ctx.alloc);
+    var i: u32 = 0;
+    while (i < values_len) : (i += 1) {
+        const rec = values_ptr + i * 8;
+        const v = mem.sliceAt(try mem.read(u32, rec), try mem.read(u32, rec + 4)) catch return WasiP2Error.OutOfBounds;
+        values.append(ctx.alloc, v) catch return WasiP2Error.OutOfMemory;
+    }
+    fields.set(ctx.alloc, name, values.items) catch |e| return writeHeaderErrResult(mem, retptr, e);
+    try writeHeaderErrResult(mem, retptr, null);
+}
+
+fn http3FieldsDelete(caller: *Caller, self: u32, name_ptr: u32, name_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    fields.delete(ctx.alloc, name) catch |e| return writeHeaderErrResult(mem, retptr, e);
+    try writeHeaderErrResult(mem, retptr, null);
+}
+
+fn http3FieldsGetAndDelete(caller: *Caller, self: u32, name_ptr: u32, name_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    var out: std.ArrayList([]u8) = .empty;
+    defer {
+        for (out.items) |v| ctx.alloc.free(v);
+        out.deinit(ctx.alloc);
+    }
+    fields.getAndDelete(&out, ctx.alloc, name) catch |e| {
+        // result<list<field-value>, header-error> err: disc@0, err disc@4,
+        // other's option none@8 (same offsets as the unit form).
+        return writeHeaderErrResult(mem, retptr, e);
+    };
+    try mem.write(retptr, @as(u8, 0));
+    try http3WriteValueList(ctx, mem, retptr + 4, out.items);
+}
+
+fn http3FieldsAppend(caller: *Caller, self: u32, name_ptr: u32, name_len: u32, value_ptr: u32, value_len: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
+    const value = mem.sliceAt(value_ptr, value_len) catch return WasiP2Error.OutOfBounds;
+    fields.append(ctx.alloc, name, value) catch |e| return writeHeaderErrResult(mem, retptr, e);
+    try writeHeaderErrResult(mem, retptr, null);
+}
+
+fn http3FieldsCopyAll(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
+    const ctx = caller.data(WasiP2Ctx);
+    const mem = try ctxMemory(caller);
+    const fields = try http3FieldsSelf(ctx, self);
+    // Elem table = one allocation; each name string and value list its own
+    // (per-element buffer ownership — see http3AllocBlob).
+    const items = fields.entries.items;
+    const base = if (items.len == 0) 4 else try ctx.reallocGuest(@intCast(items.len * 16), 4);
+    for (items, 0..) |p, i| {
+        const np = try http3AllocBlob(ctx, mem, p.name);
+        const vp = try http3AllocBlob(ctx, mem, p.value);
+        const rec = base + @as(u32, @intCast(i * 16));
+        try mem.write(rec, np);
+        try mem.write(rec + 4, @as(u32, @intCast(p.name.len)));
+        try mem.write(rec + 8, vp);
+        try mem.write(rec + 12, @as(u32, @intCast(p.value.len)));
+    }
+    try mem.write(retptr, base);
+    try mem.write(retptr + 4, @as(u32, @intCast(items.len)));
+}
+
+fn http3FieldsClone(caller: *Caller, self: u32) WasiP2Error!u32 {
+    const ctx = caller.data(WasiP2Ctx);
+    const src = try http3FieldsSelf(ctx, self);
+    var copy: p3http.HttpFields = .{};
+    src.cloneInto(ctx.alloc, &copy) catch {
+        copy.deinit(ctx.alloc);
+        return WasiP2Error.OutOfMemory;
+    };
+    return http3MintFields(ctx, copy);
 }
 
 fn sock3UdpLocalAddress(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
