@@ -29,7 +29,7 @@ parse/compile).
 | Flag                       | Effect                                                                                                                                                                                                                                       |
 |----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `--invoke <name>[=a,b,…]` | run the named export instead of `_start`/`main`. Zero-arg form → result surfaces as the exit code. `=args` (comma-separated, parsed by param type i32/i64/f32/f64) → typed results print bare, one per line, on stdout. Works on both the interpreter and the JIT (D-477) |
-| `--engine <interp\|jit>`   | **default (omitted) = `auto`** — prefers the JIT, falls back to the interpreter. `--engine interp` / `jit` force one. BOTH do full WASI; `jit` additionally executes SIMD-128                                                              |
+| `--engine <auto\|interp\|jit>` | default `auto` — prefers the JIT, falls back to the interpreter (`--engine auto` is the explicit spelling of the same). `--engine interp` / `jit` force one. BOTH do full WASI; `jit` additionally executes SIMD-128                    |
 | `--dir <host>[:<guest>]`   | preopen a host directory for WASI (colon separator; guest path mirrors host when omitted)                                                                                                                                                    |
 | `--env KEY=VAL`            | set a WASI environment variable for the guest (repeatable; bare `KEY` sets empty)                                                                                                                                                            |
 | `--fuel <N>`               | trap (`all fuel consumed`) after a deterministic budget. Units are engine-specific by design: interp counts instructions, jit counts function entries + loop iterations                                                                     |
@@ -60,9 +60,9 @@ WASI / sandbox / `--invoke` behaviour to running the source `.wasm`
   `--engine interp` with a `.cwasm` is a contradictory request (the
   artifact is precompiled JIT code) and is refused loudly (exit 2).
 - `.wasm` input → **`auto` by default** (prefers the JIT, transparently falls
-  back to the interpreter). `--engine interp` forces the interpreter;
-  `--engine jit` forces the JIT (full WASI, plus SIMD execution). `auto` is the
-  default only — it is not a spellable `--engine` value.
+  back to the interpreter); `--engine auto` spells the default explicitly.
+  `--engine interp` forces the interpreter; `--engine jit` forces the JIT
+  (full WASI, plus SIMD execution).
 - `--cache` affects `.wasm` runs only (a `.cwasm` input IS the artifact;
   components have no artifact format) and is bypassed under
   `--engine interp`.
@@ -73,8 +73,8 @@ WASI / sandbox / `--invoke` behaviour to running the source `.wasm`
 |------|--------------------------------------------------------------------------------------------------|
 | `0`  | Success — guest returned normally, or called `proc_exit(0)`                                     |
 | `N`  | Guest called `proc_exit(N)` (the guest's own status surfaces verbatim)                           |
-| `1`  | Guest trapped (OOB access, `unreachable`, integer divide-by-zero, fuel/timeout, …), OR a file read / load failure, OR any `compile` error (incl. a `compile` usage error) |
-| `2`  | Usage error at dispatch — unknown subcommand, or a `run` flag parse error / a requested limit refused (loud). (`compile` usage errors exit `1`, not `2`.)                 |
+| `1`  | Guest trapped (OOB access, `unreachable`, integer divide-by-zero, fuel/timeout, …), OR a file read / load failure, OR a `compile` build/IO error                          |
+| `2`  | Usage error — unknown subcommand, a `run` flag parse error, a requested limit refused (loud), or a `compile` usage error                                                  |
 | `70` | Internal zwasm fault — a fatal signal/panic caught by the diagnostic fault handler              |
 
 Source of truth: the `run` exit-code mapping (`src/cli/run.zig`) +
