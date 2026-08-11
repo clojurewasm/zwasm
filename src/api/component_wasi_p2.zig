@@ -45,8 +45,8 @@ pub const runWasiP2Main = ctx_mod.runWasiP2Main;
 pub const runWasiP2MainBuilt = ctx_mod.runWasiP2MainBuilt;
 pub const runWasiMain = ctx_mod.runWasiMain;
 
-// P3-side pubs (consumed by component_wasi_p3.zig; move to the P3 host
-// file at M3, re-export stays per ADR-0207 I1).
-pub const http3DropTransferredEnd = ctx_mod.http3DropTransferredEnd;
-pub const pollPendingClientSends = ctx_mod.pollPendingClientSends;
-pub const http3RegisterCaptureSink = ctx_mod.http3RegisterCaptureSink;
+// P3-side pubs (consumed by component_wasi_p3.zig; re-export per ADR-0207 I1).
+const p3h = @import("component_wasi_p3_host.zig");
+pub const http3DropTransferredEnd = p3h.http3DropTransferredEnd;
+pub const pollPendingClientSends = p3h.pollPendingClientSends;
+pub const http3RegisterCaptureSink = p3h.http3RegisterCaptureSink;

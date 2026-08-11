@@ -427,6 +427,7 @@ test {
     _ = @import("feature/component/value.zig");
     _ = @import("api/component.zig");
     _ = @import("api/component_wasi_ctx.zig");
+    _ = @import("api/component_wasi_p3_host.zig");
     _ = @import("api/component_wasi_p2.zig");
     _ = @import("api/component_tests.zig");
     _ = @import("api/component_async_tests.zig");
