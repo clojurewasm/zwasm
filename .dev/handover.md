@@ -55,8 +55,15 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
   SHUT_WR/SHUT_RD, udp connect = real OS dgram connect, explicit-bind
   connect = raw posix composition (ADR-0070 amendment; windows carve-out =
   D-569 skip), harness external-actor seam plays echo's remote client.
-- **NEXT: D http** (D-568): `wasi:http@0.3.0` types/client/handler + vendor
-  the 8 official http-* tests.
+- **D http IN PROGRESS** (D-568): D-1 fields resource DONE/green (official
+  http-fields; model = src/wasi/p3_http.zig; nested-list marshalling =
+  per-blob cabi_realloc, `http3AllocBlob`). NEXT: D-2 request/response/
+  request-options resources (official http-request / http-response /
+  http-request-options; bodies are None + `wit_future::new(|| Ok(None))`
+  trailers in these — pure logic, no network). Then D-3 handler export
+  (http-service*), D-5 client.send (http-client, needs harness HTTP_ENDPOINT
+  echo server). Survey notes: handler+client = the only 2 async funcs; WIT
+  source = ~/Documents/OSS/wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit.
 - **D http — NOT STARTED** (D-568): `wasi:http@0.3.0` largest remaining surface.
 - **E claims sweep** — pending C/D.
 28 official tests vendored green. 0.3.1 released 2026-08-11 (WIT diff vs 0.3.0
