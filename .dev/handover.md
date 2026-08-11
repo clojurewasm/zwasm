@@ -29,22 +29,17 @@ at `v1.11.1`. Dev model: cut a `develop/<slug>` branch from `main` → PR → CI
 
 ## Active front — reproducible-dev-env (2026-08-11, user-directed)
 
-Branch `develop/reproducible-dev-env` (from `d5824cb8b`). Goal: **anyone can
-develop this project** — remove/generalize every implicit maintainer-
-environment assumption (SSH host aliases ubuntunote/windowsmini, `private/`
-scratch conventions, home-path references, setup docs scattered across
-`.dev/`) into an SSOT contributor story with reproducible setup. CI (3-OS
-`ci-required`) is already the authoritative gate — the local 3-host fan-out
-must be clearly OPTIONAL and parameterized. Steps:
-1. [ ] Inventory sweep (Explore subagent) of implicit assumptions — SSH hosts,
-   abs paths, private/, tooling, setup-doc state, CI-vs-local coupling.
-2. [ ] SSOT doc (docs/development.md or CONTRIBUTING expansion): fresh-clone
-   → build → test → PR path with ZERO maintainer-specific hosts; name what's
-   optional (remote gates, nix gen shells, private/).
-3. [ ] Parameterize/guard remaining hardcoded host/path assumptions in
-   scripts (env-var overrides exist partially: ZWASM_UBUNTU_HOST etc.).
-4. [ ] post-merge main CI verify (run 31487010199; if red → root-cause fix
-   FIRST, this front pauses).
+Branch `develop/reproducible-dev-env` — **DONE, PR #166 open + CI all-green,
+awaiting user merge** (ADR-0206). Goal: anyone can develop this project.
+Delivered: `docs/development.md` SSOT (README/CONTRIBUTING link it; honest
+CI claim — windows leg is advisory); `scripts/dev_hosts.env.example`
+(per-machine host config for the OPTIONAL fan-out; absolute-dir sourcing
+pre-orphan-guard); yq guards (SKIP + pointer); 5 dead campaign scripts
+deleted (D5 list in the ADR); `.dev/README.md` split record-vs-host-setup.
+Verified: fresh-clone Zig-only `zig build test` 3153 pass; subdir-invocation
+config regression test; two clean-context agent audits (walkthrough "story
+holds, no blockers"; adversarial diff review 5 findings → all fixed).
+post-merge main CI for #165 (run 31487010199): **all-green** incl. extended.
 
 ## Operational invariants (keep using)
 
