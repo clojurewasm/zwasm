@@ -519,7 +519,10 @@ pub fn build(b: *std.Build) void {
     core_p3.addImport("build_options", p3_options_mod);
     core_p3.addIncludePath(b.path("include"));
     core_p3.addImport("zwasm", core_p3);
-    const p3_tests = b.addTest(.{ .root_module = core_p3 });
+    const p3_tests = b.addTest(.{
+        .root_module = core_p3,
+        .filters = if (b.option([]const u8, "test-filter", "run only tests whose name contains this string (test-wasi-p3)")) |f| b.dupeStrings(&.{f}) else &.{},
+    });
     const run_p3_tests = b.addRunArtifact(p3_tests);
     const test_wasi_p3_step = b.step("test-wasi-p3", "Run the WASI Preview-3 (async) unit tests under a forced -Dwasi=p3 module (ADR-0193 P3)");
     test_wasi_p3_step.dependOn(&run_p3_tests.step);

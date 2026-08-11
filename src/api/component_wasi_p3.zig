@@ -12,6 +12,7 @@
 const std = @import("std");
 
 const async_mod = @import("../feature/component/async.zig");
+const net = std.Io.net;
 const wasi_host = @import("../wasi/host.zig");
 const wasi_p2 = @import("component_wasi_p2.zig");
 
@@ -83,6 +84,11 @@ const P3CallbackCtx = struct {
     pub fn waitForTimer(self: *P3CallbackCtx) !bool {
         // A ready socket is immediate progress — retry without sleeping.
         if (try self.wp2.pollBlockedSockets()) return true;
+        // External-actor seam (official sockets-echo): let the harness act
+        // as the remote client while the guest is parked.
+        if (self.wp2.external_sock_step) |hook| {
+            if (hook(self.wp2.external_sock_ctx.?)) return true;
+        }
         // Otherwise, if socket reads are still pending, briefly sleep and
         // retry (poll(2) has no scheduler-integrated wakeup here).
         if (self.wp2.blocked_socket_reads.count() > 0) {
@@ -831,6 +837,15 @@ test "WASI 0.3 conformance (wasip3): cli-clocks reads wall+monotonic clocks (rea
 
 /// The flattened expectation set of one official manifest (absent manifest =
 /// upstream default: run with no I/O, expect exit 0).
+/// A manifest socket operation (official sockets-echo): the harness plays
+/// the remote client. `connect`/`send` run at the scheduler's no-progress
+/// seam (the guest is parked waiting for exactly this actor); `recv` runs
+/// after the guest completed (the echoed bytes are buffered on our fd).
+const SockOp = struct {
+    kind: enum { connect, send, recv },
+    payload: []const u8 = "",
+};
+
 const OfficialExpect = struct {
     env_keys: std.ArrayList([]const u8) = .empty,
     env_vals: std.ArrayList([]const u8) = .empty,
@@ -844,6 +859,7 @@ const OfficialExpect = struct {
     /// Legacy flat-manifest "root": the preopen tree name (copied to a fresh
     /// tmp dir per run — the tests mutate it) mapped as guest "/".
     root: ?[]const u8 = null,
+    sock_ops: std.ArrayList(SockOp) = .empty,
 
     fn deinit(self: *OfficialExpect, alloc: std.mem.Allocator) void {
         self.env_keys.deinit(alloc);
@@ -852,6 +868,7 @@ const OfficialExpect = struct {
         self.stdin.deinit(alloc);
         self.stdout.deinit(alloc);
         self.stderr.deinit(alloc);
+        self.sock_ops.deinit(alloc);
     }
 };
 
@@ -889,9 +906,61 @@ fn parseOfficialManifest(alloc: std.mem.Allocator, parsed: *const std.json.Value
             }
         } else if (std.mem.eql(u8, ty, "wait")) {
             if (op.object.get("exit_code")) |ec| out.exit_code = @intCast(ec.integer);
+        } else if (std.mem.eql(u8, ty, "connect")) {
+            try out.sock_ops.append(alloc, .{ .kind = .connect });
+        } else if (std.mem.eql(u8, ty, "send")) {
+            try out.sock_ops.append(alloc, .{ .kind = .send, .payload = op.object.get("payload").?.string });
+        } else if (std.mem.eql(u8, ty, "recv")) {
+            try out.sock_ops.append(alloc, .{ .kind = .recv, .payload = op.object.get("payload").?.string });
         }
     }
 }
+
+/// The harness-side remote client for `SockOp` manifests. `step` is the
+/// `external_sock_step` hook: performs the next in-seam op (connect / send)
+/// against the address the guest printed to stdout; `recv` ops stop the
+/// in-seam phase (verified post-run by the harness).
+const ExternalClient = struct {
+    io: std.Io,
+    stdout: *std.ArrayList(u8),
+    ops: []const SockOp,
+    next: usize = 0,
+    stream: ?net.Stream = null,
+
+    fn step(ctx_ptr: *anyopaque) bool {
+        const self: *ExternalClient = @ptrCast(@alignCast(ctx_ptr));
+        if (self.next >= self.ops.len) return false;
+        switch (self.ops[self.next].kind) {
+            .connect => {
+                const addr = self.parseAddrLine() orelse return false; // not printed yet
+                self.stream = addr.connect(self.io, .{ .mode = .stream, .protocol = .tcp }) catch return false;
+                self.next += 1;
+                return true;
+            },
+            .send => {
+                const s = self.stream orelse return false;
+                const data = [_][]const u8{self.ops[self.next].payload};
+                _ = self.io.vtable.netWrite(self.io.userdata, s.socket.handle, "", &data, 1) catch return false;
+                self.next += 1;
+                return true;
+            },
+            .recv => return false, // post-run phase (runOfficialWasip3Test)
+        }
+    }
+
+    /// Parse the LAST complete stdout line as "a.b.c.d:port" (the echo
+    /// guest's Display for its bound v4 address).
+    fn parseAddrLine(self: *ExternalClient) ?net.IpAddress {
+        const text = self.stdout.items;
+        const nl = std.mem.findScalarLast(u8, text, '\n') orelse return null;
+        const line_start = if (std.mem.findScalarLast(u8, text[0..nl], '\n')) |p| p + 1 else 0;
+        const line = text[line_start..nl];
+        const colon = std.mem.findScalarLast(u8, line, ':') orelse return null;
+        const port = std.fmt.parseInt(u16, line[colon + 1 ..], 10) catch return null;
+        const ip4 = net.Ip4Address.parse(line[0..colon], port) catch return null;
+        return .{ .ip4 = ip4 };
+    }
+};
 
 /// Run one vendored official test end-to-end and assert its manifest.
 fn runOfficialWasip3Test(comptime name: []const u8) !void {
@@ -957,7 +1026,36 @@ fn runOfficialWasip3Test(comptime name: []const u8) !void {
     host.stdout_buffer = &stdout_cap;
     host.stderr_buffer = &stderr_cap;
 
-    wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{}) catch |err| {
+    if (expect.sock_ops.items.len > 0) {
+        // Socket-operations manifest (sockets-echo): the harness is the
+        // remote client. Build first so the external-actor seam can be
+        // installed on the component ctx, then drive.
+        var built = try wasi_p2.buildWasiP2Component(&eng, alloc, bytes, &host, .{});
+        defer built.deinit();
+        var client = ExternalClient{ .io = io, .stdout = &stdout_cap, .ops = expect.sock_ops.items };
+        defer if (client.stream) |s| s.close(io);
+        built.ctx.external_sock_step = ExternalClient.step;
+        built.ctx.external_sock_ctx = &client;
+        driveAsyncMain(&built) catch |err| {
+            std.debug.print("[official {s}] runner error {t}; guest stderr:\n{s}\n", .{ name, err, stderr_cap.items });
+            return err;
+        };
+        // Post-run ops: the echoed bytes (and FIN) are buffered on our fd.
+        for (expect.sock_ops.items[client.next..]) |op| {
+            try testing.expectEqual(@as(@TypeOf(op.kind), .recv), op.kind);
+            const s = client.stream orelse return error.TestUnexpectedResult;
+            const buf = try alloc.alloc(u8, op.payload.len);
+            defer alloc.free(buf);
+            var got: usize = 0;
+            while (got < buf.len) {
+                var bufs = [_][]u8{buf[got..]};
+                const n = try io.vtable.netRead(io.userdata, s.socket.handle, &bufs);
+                if (n == 0) break;
+                got += n;
+            }
+            try testing.expectEqualStrings(op.payload, buf[0..got]);
+        }
+    } else wasi_p2.runWasiMain(&eng, alloc, bytes, &host, .{}) catch |err| {
         // Surface the guest's own report (a rust assert panic lands on
         // stderr) — the raw trap code alone is undebuggable.
         std.debug.print("[official {s}] runner error {t}; guest stderr:\n{s}\n", .{ name, err, stderr_cap.items });
@@ -1053,4 +1151,24 @@ test "wasip3-official: sockets-udp-properties (UDP option store)" {
 }
 test "wasip3-official: sockets-udp-bind (bind + address validation)" {
     try runOfficialWasip3Test("sockets-udp-bind");
+}
+test "wasip3-official: sockets-tcp-bind (REUSEADDR + addrinuse contracts)" {
+    try runOfficialWasip3Test("sockets-tcp-bind");
+}
+// sockets-tcp-connect + the udp data-plane trio are vendored but not yet
+// enabled (D-568): tcp-connect needs connect-from-an-explicitly-bound
+// socket (no bound-connect in the pinned std.Io.net) and the udp trio
+// needs OS-level connect (implicit-bind local-address resolution) +
+// send-path fixes.
+test "wasip3-official: sockets-tcp-listen" {
+    try runOfficialWasip3Test("sockets-tcp-listen");
+}
+test "wasip3-official: sockets-tcp-send" {
+    try runOfficialWasip3Test("sockets-tcp-send");
+}
+test "wasip3-official: sockets-tcp-receive" {
+    try runOfficialWasip3Test("sockets-tcp-receive");
+}
+test "wasip3-official: sockets-echo (join! interleaved data plane)" {
+    try runOfficialWasip3Test("sockets-echo");
 }

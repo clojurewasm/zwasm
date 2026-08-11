@@ -59,6 +59,14 @@ const build_options = @import("build_options");
 /// buffer the delivered bytes are copied into when the source becomes ready.
 pub const PendingRead = struct { ptr: u32, cap: u32, elem_size: u32 = 1 };
 pub const PendingWrite = struct { ptr: u32, count: u32, elem_size: u32 = 1 };
+/// A socket read (accept / tcp-rx) that returned BLOCKED: the tcp socket rep
+/// plus the parked destination span, executed at readiness by
+/// `pollBlockedSockets` (the socket analogue of `PendingRead`).
+pub const ParkedSockRead = struct { rep: u32, ptr: u32, cap: u32, elem_size: u32 = 1 };
+/// A `tcp.send` sink: the tcp socket rep + the send's result-future handle,
+/// so a drain failure (peer reset / shutdown) flips the future to err before
+/// the guest awaits it (official sockets-tcp-receive test_drop_read_half).
+pub const TcpTxRole = struct { rep: u32, fut: u32 };
 
 pub const WasiP2Ctx = struct {
     host: *wasi_host.Host,
@@ -159,12 +167,18 @@ pub const WasiP2Ctx = struct {
     udp_sockets: std.ArrayList(p2sock.UdpSocket) = .empty,
     host_accept_streams: std.AutoHashMapUnmanaged(u32, u32) = .empty,
     host_tcp_rx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
-    host_tcp_tx: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    host_tcp_tx: std.AutoHashMapUnmanaged(u32, TcpTxRole) = .empty,
     /// Socket-read stream ends (accept / rx) that returned BLOCKED and now
     /// await socket readiness — the scheduler's no-progress hook polls them
-    /// (mirrors the D2 timer path). Value = the tcp socket rep. Key = the
+    /// (mirrors the D2 timer path) and EXECUTES the parked read. Key = the
     /// readable end HANDLE (the waitable a set joins).
-    blocked_socket_reads: std.AutoHashMapUnmanaged(u32, u32) = .empty,
+    blocked_socket_reads: std.AutoHashMapUnmanaged(u32, ParkedSockRead) = .empty,
+    /// Optional external-actor seam (official sockets-echo: the conformance
+    /// harness plays the REMOTE CLIENT — connect / send — while the guest
+    /// is parked): called at the scheduler's no-progress point; returns
+    /// true if it performed an action (the scheduler retries).
+    external_sock_step: ?*const fn (*anyopaque) bool = null,
+    external_sock_ctx: ?*anyopaque = null,
     /// WASI-0.3 `open-at`'s REQUESTED `descriptor-flags` per descriptor
     /// handle — `get-flags` reflects the request (official
     /// filesystem-flags-and-type.wasm: an empty-flags open reads back READ
@@ -302,10 +316,13 @@ pub const WasiP2Ctx = struct {
         return self.streams.fireDueTimers(try self.monotonicNowNs());
     }
 
-    /// Poll blocked socket-read ends (accept / tcp-rx); a now-ready socket
-    /// gets a STREAM_READ pending event set on its end so the guest re-reads
-    /// (ADR-0205 phase C — the socket analogue of the D2 timer readiness
-    /// hook). Returns true if any became ready (the scheduler retries).
+    /// Poll blocked socket-read ends (accept / tcp-rx); a now-ready socket's
+    /// PARKED READ EXECUTES here (accept / recv into the parked destination)
+    /// and the event completes with the real element count — the socket
+    /// analogue of `deliverParkedReads`. A bare "re-read" poke (payload 0)
+    /// is NOT an option: the guest stream runtime reads a 0-element
+    /// completion as end-of-stream (`accept.next()` → None). Returns true
+    /// if any completed (the scheduler retries).
     pub fn pollBlockedSockets(self: *WasiP2Ctx) WasiP2Error!bool {
         if (self.blocked_socket_reads.count() == 0) return false;
         var progressed = false;
@@ -313,8 +330,7 @@ pub const WasiP2Ctx = struct {
         var ready_handles: [64]u32 = undefined;
         var n_ready: usize = 0;
         while (it.next()) |entry| {
-            const rep = entry.value_ptr.*;
-            const sock = self.tcpSocketRep(rep) orelse continue;
+            const sock = self.tcpSocketRep(entry.value_ptr.rep) orelse continue;
             if (sock.ready(p2sock.POLL_IN) catch false) {
                 if (n_ready < ready_handles.len) {
                     ready_handles[n_ready] = entry.key_ptr.*;
@@ -323,9 +339,45 @@ pub const WasiP2Ctx = struct {
             }
         }
         for (ready_handles[0..n_ready]) |h| {
+            const pr = self.blocked_socket_reads.get(h) orelse continue;
             const end = self.streams.get(h) catch continue;
-            end.state = .idle;
-            end.setPendingEvent(.{ .code = .stream_read, .index = h, .payload = 0 });
+            const mem = try self.memory();
+            const io = try ctxIo(self);
+            if (dbg.on("async.host")) std.debug.print("[host] sock-ready handle={d} cap={d}\n", .{ h, pr.cap });
+            if (self.host_accept_streams.get(end.shared) != null) {
+                // Accept stream: mint an own<tcp-socket> handle per queued
+                // connection (elements are u32 handles).
+                var filled: u32 = 0;
+                while (filled < pr.cap) {
+                    const listener = self.tcpSocketRep(pr.rep) orelse break;
+                    const conn = listener.accept(io) catch break;
+                    const idx: u32 = @intCast(self.tcp_sockets.items.len);
+                    self.tcp_sockets.append(self.alloc, conn) catch return WasiP2Error.OutOfMemory;
+                    const nh = try self.resources.new(TCP_SOCKET_RT, idx);
+                    try mem.write(pr.ptr + filled * 4, nh);
+                    filled += 1;
+                }
+                if (filled == 0) continue; // spurious readiness — stay parked
+                end.state = .done;
+                end.setPendingEvent(.{ .code = .stream_read, .index = h, .payload = (async_mod.ReturnCode{ .completed = @intCast(filled) }).encode() });
+            } else if (self.host_tcp_rx.get(end.shared) != null) {
+                const sock = self.tcpSocketRep(pr.rep) orelse continue;
+                const buf = mem.sliceAt(pr.ptr, pr.cap * pr.elem_size) catch return WasiP2Error.OutOfBounds;
+                const n = sock.recv(io, buf) catch 0;
+                if (n == 0) {
+                    // Ready-then-zero = peer FIN → the stream closes.
+                    switch ((try self.shared.get(end.shared)).*) {
+                        .stream => |*sh_s| sh_s.dropped = true,
+                        .future, .subtask => continue,
+                    }
+                    end.state = .done;
+                    end.setPendingEvent(.{ .code = .stream_read, .index = h, .payload = (async_mod.ReturnCode{ .dropped = 0 }).encode() });
+                } else {
+                    end.state = .done;
+                    end.setPendingEvent(.{ .code = .stream_read, .index = h, .payload = (async_mod.ReturnCode{ .completed = @intCast(n / pr.elem_size) }).encode() });
+                }
+                if (dbg.on("async.host")) std.debug.print("[host] sock-rx-complete handle={d} n={d}\n", .{ h, n });
+            } else continue;
             _ = self.blocked_socket_reads.remove(h);
             progressed = true;
         }
@@ -2304,8 +2356,11 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         return (async_mod.ReturnCode{ .completed = @intCast(n / abc.elem_size) }).encode();
     }
     // WASI-0.3 TCP accept stream (ADR-0205 phase C): each element is a fresh
-    // `own<tcp-socket>` handle for an accepted connection. The first accept
-    // waits (bounded poll loop); further ready connections batch.
+    // `own<tcp-socket>` handle for an accepted connection; ready connections
+    // batch. No connection queued → PARK (blocked + readiness-hook
+    // registration below) — waiting here would starve the guest's own
+    // concurrent connecting task (the `futures::join!` shape of the official
+    // tcp-listen / echo tests) and livelock the single-threaded runtime.
     if (abc.ctx.host_accept_streams.get(end.shared)) |rep| {
         if (end.side != .readable) return WasiP2Error.InvalidHandle;
         const mem = try abc.ctx.memory();
@@ -2313,16 +2368,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         var filled: u32 = 0;
         while (filled < count) {
             const listener = try ctxTcpSocket(abc.ctx, rep);
-            const conn = listener.accept(io) catch |e| switch (e) {
-                error.WouldBlock => {
-                    if (filled > 0) break;
-                    std.Io.sleep(io, std.Io.Duration.fromNanoseconds(std.time.ns_per_ms), .awake) catch {
-                        break;
-                    };
-                    continue;
-                },
-                else => break,
-            };
+            const conn = listener.accept(io) catch break;
             const idx: u32 = @intCast(abc.ctx.tcp_sockets.items.len);
             abc.ctx.tcp_sockets.append(abc.ctx.alloc, conn) catch return WasiP2Error.OutOfMemory;
             const h = try abc.ctx.resources.new(WasiP2Ctx.TCP_SOCKET_RT, idx);
@@ -2330,7 +2376,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
             filled += 1;
         }
         if (filled == 0) {
-            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, rep);
+            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, .{ .rep = rep, .ptr = ptr, .cap = count, .elem_size = abc.elem_size });
             end.state = .async_copying;
             return (async_mod.ReturnCode{ .blocked = {} }).encode();
         }
@@ -2347,7 +2393,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         // Not ready yet → BLOCKED + register for the readiness hook (do NOT
         // recv, which would block the whole runtime).
         if (!(sock.ready(p2sock.POLL_IN) catch true)) {
-            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, rep);
+            try abc.ctx.blocked_socket_reads.put(abc.ctx.alloc, handle, .{ .rep = rep, .ptr = ptr, .cap = count, .elem_size = abc.elem_size });
             end.state = .async_copying;
             return (async_mod.ReturnCode{ .blocked = {} }).encode();
         }
@@ -2367,15 +2413,20 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     }
     // WASI-0.3 TCP send sink (phase C): drain the guest's bytes into the
     // connected socket.
-    if (abc.ctx.host_tcp_tx.get(end.shared)) |rep| {
+    if (abc.ctx.host_tcp_tx.get(end.shared)) |role| {
         if (end.side != .writable) return WasiP2Error.InvalidHandle;
         const mem = try abc.ctx.memory();
         const io = try ctxIo(abc.ctx);
         const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
-        const sock = try ctxTcpSocket(abc.ctx, rep);
+        const sock = try ctxTcpSocket(abc.ctx, role.rep);
         var off: usize = 0;
         while (off < bytes.len) {
-            const n = sock.send(io, bytes[off..]) catch break;
+            const n = sock.send(io, bytes[off..]) catch |e| {
+                // Peer reset / shutdown: the send's result future carries
+                // the error to the guest's `.await`.
+                try sock3ResolveSendFuture(abc.ctx, role.fut, sockErrToFs3Code(e));
+                break;
+            };
             if (n == 0) break;
             off += n;
         }
@@ -2433,6 +2484,11 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
             // futures::join!) completes it at registration.
             if (end.kind == .stream and end.side == .writable)
                 try abc.ctx.pending_writes.put(abc.ctx.alloc, handle, .{ .ptr = ptr, .count = count, .elem_size = abc.elem_size });
+            // Remember a parked future READ's destination: a late host
+            // resolution (tcp.send outcome at tx-drop / drain-error)
+            // completes it in place (sock3ResolveSendFuture).
+            if (end.kind == .future and end.side == .readable)
+                try abc.ctx.pending_reads.put(abc.ctx.alloc, handle, .{ .ptr = ptr, .cap = count, .elem_size = abc.elem_size });
             break :blk (async_mod.ReturnCode{ .blocked = {} }).encode();
         },
         .dropped => (async_mod.ReturnCode{ .dropped = 0 }).encode(),
@@ -2477,6 +2533,38 @@ fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
     // result-future handle short-circuited a fresh stream's writes to
     // completed(0) — the official cli-stdio-roundtrip hang).
     if (ctx.streams.get(handle)) |end| {
+        // Guest closed the write half of a `tcp.send` data stream =
+        // `shutdown(SHUT_WR)` per the WIT ("closing the stream is
+        // equivalent to shutdown(SHUT_WR)") — the peer must observe FIN or
+        // its `receive` collect hangs (official sockets-tcp-send
+        // test_drop_write_half).
+        if (end.kind == .stream and end.side == .writable) {
+            if (ctx.host_tcp_tx.get(end.shared)) |role| blk: {
+                // The stream is exhausted: resolve the send future (ok
+                // unless a drain error resolved it first).
+                try sock3ResolveSendFuture(ctx, role.fut, null);
+                const sock = ctx.tcpSocketRep(role.rep) orelse break :blk;
+                const io = ctxIo(ctx) catch break :blk;
+                if (dbg.on("async.host")) std.debug.print("[host] tx-drop shutdown(WR) handle={d} rep={d}\n", .{ handle, role.rep });
+                // Destructor path — a shutdown failure (socket already
+                // closed / reset) has no guest-visible surface; the peer
+                // observes the close at socket teardown instead.
+                // EXEMPT-FALLBACK: destructor, no guest surface (D-568)
+                sock.shutdown(io, .send) catch {};
+            }
+        }
+        // Dropping the read half of a `tcp.receive` stream =
+        // `shutdown(SHUT_RD)` per the same WIT note (official
+        // sockets-tcp-receive test_drop_read_half: a peer write after this
+        // must surface an error).
+        if (end.kind == .stream and end.side == .readable) {
+            if (ctx.host_tcp_rx.get(end.shared)) |rep| blk: {
+                const sock = ctx.tcpSocketRep(rep) orelse break :blk;
+                const io = ctxIo(ctx) catch break :blk;
+                // EXEMPT-FALLBACK: destructor, no guest surface (D-568)
+                sock.shutdown(io, .recv) catch {};
+            }
+        }
         _ = ctx.host_result_futures.remove(handle);
         _ = ctx.pending_reads.remove(handle);
         _ = ctx.pending_writes.remove(handle);
@@ -3725,10 +3813,47 @@ fn sock3TcpSend(caller: *Caller, self: u32, data_handle: u32) WasiP2Error!u32 {
         break :blk end.shared;
     };
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
-    try ctx.host_tcp_tx.put(ctx.alloc, shared_id, rep);
-    try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
+    if ((try ctxTcpSocket(ctx, rep)).state != .connected) {
+        // Not connected → err(invalid-state) future (official
+        // sockets-tcp-send test_connected_state; mirrors receive).
+        try ctx.host_result_futures.put(ctx.alloc, fut.readable, sockErrToFs3Code(error.InvalidState));
+        return fut.readable;
+    }
+    // NOT eager: the future resolves at tx-drop / drain-error time
+    // (sock3ResolveSendFuture) — the guest awaits it before writing under
+    // `futures::join!`, so an eager ok would hide later drain failures
+    // (official sockets-tcp-receive test_drop_read_half).
+    try ctx.host_tcp_tx.put(ctx.alloc, shared_id, .{ .rep = rep, .fut = fut.readable });
     try sock3DrainParkedTcpWrite(ctx, shared_id);
     return fut.readable;
+}
+
+/// Resolve a `tcp.send` result future (ok = null / err = 0.3 error-code).
+/// The send future is NOT eager — the guest usually awaits it BEFORE the
+/// data stream is written+dropped (`futures::join!`), so the outcome lands
+/// here at drain-error / tx-drop time: record it for a not-yet-issued read,
+/// and complete an already-parked read in place (marshal + FUTURE_READ
+/// event). First resolution wins (a drain error is not overwritten by the
+/// ok of the subsequent drop).
+fn sock3ResolveSendFuture(ctx: *WasiP2Ctx, fut_handle: u32, outcome: ?u8) WasiP2Error!void {
+    const gop = try ctx.host_result_futures.getOrPut(ctx.alloc, fut_handle);
+    if (gop.found_existing) return;
+    gop.value_ptr.* = outcome;
+    const pr = ctx.pending_reads.get(fut_handle) orelse return;
+    const end = ctx.streams.get(fut_handle) catch return;
+    const mem = try ctx.memory();
+    if (outcome) |code| {
+        const buf = mem.sliceAt(pr.ptr, 9) catch return WasiP2Error.OutOfBounds;
+        buf[0] = 1;
+        buf[4] = code;
+        buf[8] = 0;
+    } else {
+        const buf = mem.sliceAt(pr.ptr, 1) catch return WasiP2Error.OutOfBounds;
+        buf[0] = 0;
+    }
+    end.state = .done;
+    end.setPendingEvent(.{ .code = .future_read, .index = fut_handle, .payload = (async_mod.ReturnCode{ .completed = 0 }).encode() });
+    _ = ctx.pending_reads.remove(fut_handle);
 }
 
 /// A writer parked before `tcp.send` registered the socket sink: drain now.
@@ -3740,14 +3865,17 @@ fn sock3DrainParkedTcpWrite(ctx: *WasiP2Ctx, shared_id: u32) WasiP2Error!void {
     };
     if (pending.side != .writable) return;
     const pw = ctx.pending_writes.get(pending.waitable) orelse return;
-    const rep = ctx.host_tcp_tx.get(shared_id) orelse return;
+    const role = ctx.host_tcp_tx.get(shared_id) orelse return;
     const mem = try ctx.memory();
     const bytes = mem.sliceAt(pw.ptr, pw.count * pw.elem_size) catch return WasiP2Error.OutOfBounds;
-    const sock = try ctxTcpSocket(ctx, rep);
+    const sock = try ctxTcpSocket(ctx, role.rep);
     const io = try ctxIo(ctx);
     var off: usize = 0;
     while (off < bytes.len) {
-        const n = sock.send(io, bytes[off..]) catch break;
+        const n = sock.send(io, bytes[off..]) catch |e| {
+            try sock3ResolveSendFuture(ctx, role.fut, sockErrToFs3Code(e));
+            break;
+        };
         if (n == 0) break;
         off += n;
     }
@@ -3767,15 +3895,19 @@ fn sock3TcpReceive(caller: *Caller, self: u32, retptr: u32) WasiP2Error!void {
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const rep = try ctx.resources.rep(WasiP2Ctx.TCP_SOCKET_RT, self);
-    const connected = (try ctxTcpSocket(ctx, rep)).state == .connected;
+    const sockp = try ctxTcpSocket(ctx, rep);
+    const usable = sockp.state == .connected and !sockp.rx_taken;
     const pair = try async_mod.newStreamPair(&ctx.streams, &ctx.shared, null);
     const fut = try async_mod.newFuturePair(&ctx.streams, &ctx.shared, null);
-    if (connected) {
+    if (usable) {
+        sockp.rx_taken = true;
         try ctx.host_tcp_rx.put(ctx.alloc, (try ctx.streams.get(pair.readable)).shared, rep);
         try ctx.host_result_futures.put(ctx.alloc, fut.readable, null);
     } else {
-        // Not connected → err(invalid-state) future + an immediately-closed
-        // stream (official sockets-tcp-receive test_connected_state).
+        // Not connected (or `receive` already taken — it is single-shot) →
+        // err(invalid-state) future + an immediately-closed stream
+        // (official sockets-tcp-receive test_connected_state /
+        // test_multiple_receive).
         try ctx.host_result_futures.put(ctx.alloc, fut.readable, sockErrToFs3Code(error.InvalidState));
         switch ((try ctx.shared.get((try ctx.streams.get(pair.readable)).shared)).*) {
             .stream => |*st| st.dropped = true,

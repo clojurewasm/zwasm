@@ -27,9 +27,11 @@ TESTS=(
   filesystem-metadata-hash filesystem-mkdir-rmdir filesystem-open-errors
   filesystem-read-directory filesystem-rename filesystem-set-size
   filesystem-stat filesystem-unlink-errors
-  # phase C — sockets control plane (the connected data plane + a few
-  # control-plane edge cases are D-527; only the green tests are vendored)
+  # phase C — sockets (control plane + connected data plane; D-568)
   sockets-tcp-properties sockets-udp-properties sockets-udp-bind
+  sockets-tcp-bind sockets-tcp-connect sockets-tcp-listen
+  sockets-tcp-receive sockets-tcp-send sockets-echo
+  sockets-udp-connect sockets-udp-receive sockets-udp-send
 )
 
 command -v wasm-tools >/dev/null || { echo "wasm-tools required" >&2; exit 1; }

@@ -160,6 +160,11 @@ pub const TcpSocket = struct {
     opt_hop_limit: u8 = 64,
     opt_rcvbuf: u64 = 64 * 1024,
     opt_sndbuf: u64 = 64 * 1024,
+    /// WASI-0.3 `receive` is single-shot per socket: a second call must
+    /// fail invalid-state (official sockets-tcp-receive
+    /// test_multiple_receive). Set by the component layer when it mints
+    /// the rx stream.
+    rx_taken: bool = false,
 
     /// `tcp-create-socket.create-tcp-socket` — records the family; the OS
     /// socket is created by the first connect/listen.
