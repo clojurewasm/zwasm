@@ -4377,37 +4377,43 @@ fn sock3ResolveAddresses(caller: *Caller, name_ptr: u32, name_len: u32, retptr: 
     const ctx = caller.data(WasiP2Ctx);
     const mem = try ctxMemory(caller);
     const name = mem.sliceAt(name_ptr, name_len) catch return WasiP2Error.OutOfBounds;
-    var addr: ?std.Io.net.IpAddress = null;
-    if (std.mem.eql(u8, name, "localhost")) {
-        addr = .{ .ip4 = std.Io.net.Ip4Address.loopback(0) };
-    } else {
-        addr = std.Io.net.IpAddress.parse(name, 0) catch null;
-    }
-    const a = addr orelse {
-        // ip-name-lookup has its OWN error-code variant: name-unresolvable = 2.
+    var addrs: [32]std.Io.net.IpAddress = undefined;
+    const n = p2sock.resolveAddresses(try ctxIo(ctx), name, &addrs) catch |e| {
+        // ip-name-lookup has its OWN error-code variant (ordinals per its
+        // WIT declaration order; `other(option<string>)` = 5, none).
+        const code: u8 = switch (e) {
+            error.InvalidName => 1,
+            error.NameUnresolvable => 2,
+            error.TemporaryResolverFailure => 3,
+            error.PermanentResolverFailure => 4,
+            error.ResolverFailure, error.Canceled => 5,
+        };
         try mem.write(retptr, @as(u8, 1));
-        try mem.write(retptr + 4, @as(u8, 2));
+        try mem.write(retptr + 4, code);
         try mem.write(retptr + 8, @as(u8, 0));
         return SUBTASK_RETURNED;
     };
-    // ok: list<ip-address> with 1 element; ip-address variant = disc u8@0,
-    // payload@2 (ipv4 4×u8 / ipv6 8×u16-le) → elem size 18 align 2.
-    const elem_ptr = try ctx.reallocGuest(18, 2);
-    switch (a) {
-        .ip4 => |v| {
-            try mem.write(elem_ptr, @as(u8, 0));
-            for (v.bytes, 0..) |b, i| try mem.write(elem_ptr + 2 + @as(u32, @intCast(i)), b);
-        },
-        .ip6 => |v| {
-            try mem.write(elem_ptr, @as(u8, 1));
-            for (0..8) |i| {
-                const seg: u16 = (@as(u16, v.bytes[i * 2]) << 8) | v.bytes[i * 2 + 1];
-                try mem.write(elem_ptr + 2 + @as(u32, @intCast(i * 2)), seg);
-            }
-        },
+    // ok: list<ip-address>; ip-address variant = disc u8@0, payload@2
+    // (ipv4 4×u8 / ipv6 8×u16-le) → elem size 18 align 2.
+    const base = try ctx.reallocGuest(@intCast(n * 18), 2);
+    for (addrs[0..n], 0..) |a, i| {
+        const elem_ptr = base + @as(u32, @intCast(i * 18));
+        switch (a) {
+            .ip4 => |v| {
+                try mem.write(elem_ptr, @as(u8, 0));
+                for (v.bytes, 0..) |b, j| try mem.write(elem_ptr + 2 + @as(u32, @intCast(j)), b);
+            },
+            .ip6 => |v| {
+                try mem.write(elem_ptr, @as(u8, 1));
+                for (0..8) |j| {
+                    const seg: u16 = (@as(u16, v.bytes[j * 2]) << 8) | v.bytes[j * 2 + 1];
+                    try mem.write(elem_ptr + 2 + @as(u32, @intCast(j * 2)), seg);
+                }
+            },
+        }
     }
     try mem.write(retptr, @as(u8, 0));
-    try mem.write(retptr + 4, elem_ptr);
-    try mem.write(retptr + 8, @as(u32, 1));
+    try mem.write(retptr + 4, base);
+    try mem.write(retptr + 8, @as(u32, @intCast(n)));
     return SUBTASK_RETURNED;
 }

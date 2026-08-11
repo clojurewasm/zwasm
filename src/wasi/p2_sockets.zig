@@ -561,6 +561,65 @@ fn rawBoundConnect(local: net.IpAddress, remote: net.IpAddress) !net.Socket.Hand
     return fd;
 }
 
+/// `resolve-addresses` failure classes, mirroring the ip-name-lookup WIT's
+/// own error-code variant (mapped to its ordinals by the component layer).
+pub const ResolveError = error{
+    InvalidName,
+    NameUnresolvable,
+    TemporaryResolverFailure,
+    PermanentResolverFailure,
+    ResolverFailure,
+};
+
+/// `wasi:sockets/ip-name-lookup.resolve-addresses` core: IP literals parse
+/// locally (the WIT fast path — no external request); everything else goes
+/// through the pinned stdlib's real resolver (/etc/hosts + resolv.conf DNS
+/// on POSIX). v4-mapped v6 results are dropped per the WIT ("never returns
+/// IPv4-mapped IPv6 addresses"); an empty post-filter result is
+/// name-unresolvable ("never succeeds with 0 results"). Completes eagerly
+/// (async-eager, ADR-0205 D5) — resolver latency blocks the runtime, the
+/// same class as the documented http-send eager path.
+pub fn resolveAddresses(io: std.Io, name: []const u8, out: []net.IpAddress) (ResolveError || error{Canceled})!usize {
+    if (net.IpAddress.parse(name, 0)) |a| {
+        out[0] = a;
+        return 1;
+    } else |_| {
+        // Not a literal — fall through to the resolver.
+    }
+    const hn = net.HostName.init(name) catch return error.InvalidName;
+    var buffer: [32]net.HostName.LookupResult = undefined;
+    var queue: std.Io.Queue(net.HostName.LookupResult) = .init(&buffer);
+    hn.lookup(io, &queue, .{ .port = 0 }) catch |e| return switch (e) {
+        error.UnknownHostName, error.NoAddressReturned => error.NameUnresolvable,
+        error.NameServerFailure => error.TemporaryResolverFailure,
+        error.InvalidDnsARecord, error.InvalidDnsAAAARecord, error.InvalidDnsCnameRecord => error.PermanentResolverFailure,
+        error.Canceled => error.Canceled,
+        else => error.ResolverFailure,
+    };
+    var n: usize = 0;
+    while (queue.getOne(io)) |r| switch (r) {
+        .address => |a| {
+            if (n < out.len and !isV4MappedV6(a)) {
+                out[n] = a;
+                n += 1;
+            }
+        },
+        .canonical_name => {},
+    } else |err| switch (err) {
+        error.Closed => {},
+        error.Canceled => return error.Canceled,
+    }
+    if (n == 0) return error.NameUnresolvable;
+    return n;
+}
+
+fn isV4MappedV6(addr: net.IpAddress) bool {
+    return switch (addr) {
+        .ip4 => false,
+        .ip6 => |a| std.mem.allEqual(u8, a.bytes[0..10], 0) and a.bytes[10] == 0xff and a.bytes[11] == 0xff,
+    };
+}
+
 fn familyMatches(family: AddressFamily, addr: net.IpAddress) bool {
     return switch (addr) {
         .ip4 => family == .ipv4,
@@ -965,6 +1024,34 @@ test "tcp listener state machine: invalid transitions are rejected" {
     try client.startConnect(io, .{ .ip4 = net.Ip4Address.loopback((try sock.localAddress()).getPort()) });
     try client.finishConnect();
     try testing.expect((try client.localAddress()).getPort() != 0);
+}
+
+test "resolve-addresses core: literals parse locally, invalid names reject, localhost resolves" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var out: [8]net.IpAddress = undefined;
+
+    // IP literals: parsed locally, returned as-is (the WIT fast path).
+    try testing.expectEqual(@as(usize, 1), try resolveAddresses(io, "192.0.2.7", &out));
+    try testing.expectEqual(@as(u8, 192), out[0].ip4.bytes[0]);
+    try testing.expectEqual(@as(usize, 1), try resolveAddresses(io, "::1", &out));
+    try testing.expectEqual(@as(u8, 1), out[0].ip6.bytes[15]);
+
+    // Syntactically invalid → invalid-argument class.
+    try testing.expectError(error.InvalidName, resolveAddresses(io, "bad name!", &out));
+
+    // Real resolution via the hosts file (deterministic on POSIX runners;
+    // the windows resolver path is exercised by the same core through the
+    // stdlib but "localhost" hosts-file behavior there is not pinned).
+    if (builtin.os.tag != .windows) {
+        const n = try resolveAddresses(io, "localhost", &out);
+        try testing.expect(n >= 1);
+        for (out[0..n]) |a| switch (a) {
+            .ip4 => |v| try testing.expectEqual(@as(u8, 127), v.bytes[0]),
+            .ip6 => |v| try testing.expectEqual(@as(u8, 1), v.bytes[15]),
+        };
+    }
 }
 
 test "errorToCode: spec ordinals pinned" {
