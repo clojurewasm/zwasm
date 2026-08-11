@@ -1,6 +1,6 @@
 # windowsmini hardening campaign — findings (ADR-0174 Phase I)
 
-> **Doc-state**: ACTIVE
+> **Doc-state**: ARCHIVED-IN-PLACE (2026-08-12 sweep S4 — records the retired campaign-era windows-BATCHED/--suspend machinery; kept as the D-245-era findings ledger)
 > Investigation log for the `spec-assert pass=0` anomaly. Correctness-first:
 > confirm the mechanism on real windows data before any fix. Updated per cycle.
 
