@@ -68,7 +68,12 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
   cap can stay, but a file ALREADY over cap growing further in a PR should
   gate (delta-ratchet, not absolute); (b) version/claim fossil guard —
   extend the doc-truth job pattern; (c) whatever S2/S3 finds systemic.
-- Exit: axes S1–S5 each closed-or-ADR'd, THEN user tags v2.5.0.
+- **S6 README+docs 完成形化 (user 2026-08-11, runs AFTER S1–S5)**: README +
+  every doc it references — delete / archive / update to current state;
+  final-form only (spec・status・guides), no development history (assume
+  ~zero v1 users; cut docs/ sprawl). HARD: public docs get ZERO mentions
+  of the personal 3-host SSH setup or `private/` (PC-local).
+- Exit: axes S1–S6 each closed-or-ADR'd, THEN user tags v2.5.0.
 
 ## Active rework campaign
 
