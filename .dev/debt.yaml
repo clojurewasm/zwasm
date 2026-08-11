@@ -277,27 +277,6 @@ entries:
     last_reviewed: "2026-08-11"
     refs: |-
       ADR-0070 (2026-08-11 revision row); ADR-0205 phase C; D-568.
-  - id: "D-568"
-    layer: "code"
-    status: "note"
-    front: D-wasi03
-    description: |-
-      ADR-0205 phase D residual — the part of the WASI 0.3 coverage claim
-      NOT yet green against the official corpus.
-      **Sockets (phase C): COMPLETE** — official corpus 12/12 green on POSIX
-      (control plane + TCP/UDP data planes + ip-name-lookup real DNS); the
-      only carve-out is windows explicit-bind connect = D-569 (its own row).
-      **HTTP (phase D)**: `wasi:http@0.3.0` (fields / request / response /
-      request-options resources + `client.send` on std.http.Client + the
-      `handler` export wiring) is UNIMPLEMENTED — the largest remaining
-      surface; official http-* tests (8) not vendored. Repro once enabled:
-      `zig build test-wasi-p3 -Dtest-filter=<name>`.
-    first_raised: "2026-08-11"
-    last_reviewed: "2026-08-11"
-    refs: |-
-      ADR-0205 (phases C/D); proposal_watch 2026-08-10; D-335; D-478 (JIT FP
-      host-callback — unrelated socket note). Ground-truth import shapes in
-      the phase-C survey (this session).
   - id: "D-525"
     layer: "build"
     status: "note"

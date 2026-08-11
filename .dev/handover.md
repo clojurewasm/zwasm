@@ -36,28 +36,6 @@ publish / cut over. No active campaign; no cron self-re-arm.
 - **AOT full-fidelity** — CLOSED 2026-07-09 (ADR-0203, v2.2.0). `test-aot-diff`
   63/63. Residual = D-515(2) + D-514.
 
-## Active bundle
-
-- **Bundle-ID**: ADR-0205-D3-handler-export
-- **Cycles-remaining**: ~3
-- **Continuity-memo**: http-service/-echo/-uri need (1) `[static]request.consume-body`
-  returning stored contents stream (None → fresh CLOSED stream) + trailers future
-  (harness-minted futures need an ok(none) resolved kind: result disc@0=0 AND
-  option disc@4=0 — plain host_result_futures writes only @0); (2) task-return
-  for `handle` = 8 core params (result<own<response>, error-code> flatten:
-  disc i32 + payload i32 + 6 junk) — current p2TaskReturn is fixed
-  fn(*Caller,i32); canon `task_return.result: ?ValType` (types.zig:347) can
-  select the variant; capture (disc, payload-handle) into ctx; (3) harness
-  drives the `[async-lift]wasi:http/handler@0.3.0#handle` export (entry sig
-  (i32 request)->i32 packed state; driveAsyncMain currently invokes with 0
-  args — needs an args variant + per-request task) with a host-built request
-  (headers+method+path set via existing http3 model), then reads response
-  status/headers + drains its contents stream while driving the scheduler;
-  (4) manifest ops: run / request{method,path,response{status,headers,body}} /
-  kill(SIGINT = just stop) / wait.
-- **Exit-condition**: official http-service + http-service-echo +
-  http-service-uri green in test-wasi-p3.
-
 ## Active front — wasi03-full (2026-08-10, ADR-0205, user-directed)
 
 Full WASI 0.3 coverage campaign (six 0.3.0 proposals; `@unstable` excluded).
@@ -73,20 +51,20 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
   readiness, tcp.send future non-eager, stream-drop = SHUT_WR/SHUT_RD,
   udp connect = OS dgram connect, explicit-bind connect = raw posix
   (ADR-0070 amendment; windows carve-out = D-569 skip).
-- **D http IN PROGRESS** (D-568): D-1+D-2 DONE/green — full `wasi:http/types`
-  (official http 4/4). Model = src/wasi/p3_http.zig; `new` consumes
-  headers/options owns (immutable after); get-headers/-options mint VIEW RTs
-  (no-op drop); request/response drop releases transferred body ends;
-  dropEndGuarded wakes a parked future WRITER on reader-drop (was
-  AsyncDeadlock); nested lists marshal per-blob (`http3AllocBlob`).
-  NEXT: D-3 handler EXPORT invocation (http-service / -echo / -uri: manifest
-  "request" ops → call the guest's exported handler.handle; service world has
-  NO cli/run export) → D-5 client.send on std.http.Client (http-client;
-  harness serves `HTTP_ENDPOINT` echo). WIT =
-  ~/Documents/OSS/wasmtime/crates/wasi-http/src/p3/wit/deps/http.wit.
-- **E claims sweep** — pending D.
-Official corpus: 41/45 vendored, all green (tcp-connect POSIX-only). 0.3.1
-(2026-08-11) WIT diff vs 0.3.0 = 3 doc lines (release train per ADR-0205 D6).
+- **D http — COMPLETE/green**: full `wasi:http@0.3.0` (types resources +
+  handler EXPORT + client.send). Model = src/wasi/p3_http.zig. Keys: `new`
+  consumes headers/options owns (immutable after); harness drives the guest's
+  exported handler.handle per manifest `request` op (service world = no
+  cli/run); task.return generalizes to >1-flat results via defineFuncRaw;
+  client.send parks as a subtask + real std.http.Client exchange (harness
+  echo endpoint on a bg thread → HTTP_ENDPOINT); `resolveDroppedPeers` (poll
+  seam) completes a parked copy whose peer dropped after it parked.
+- **NEXT: E claims sweep** — README/docs 0.3 coverage table + doc-truth claim
+  guard + ROADMAP/CHANGELOG flips; then confirm all six 0.3 proposals are
+  claimed complete.
+Official corpus: **45/45 vendored, all green** on POSIX (tcp-connect
+windows-skip = D-569). 0.3.1 (2026-08-11) WIT diff vs 0.3.0 = 3 doc lines
+(release train per ADR-0205 D6).
 
 ## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
 
