@@ -95,7 +95,7 @@ ecosystem bar, not because v1 had it):
 | WASI 0.1                    | Complete                                                                                               |
 | **Component Model**         | **wasmtime-equivalent — SHIPPED** (ADR-0170/0181/0182; default-ON via `-Dwasi>=p2`, `-Dwasi=p1` = lean opt-out per ADR-0193; campaign closed 2026-06-13, corpus 158/0/0) |
 | **WASI 0.2 (preview2)**     | **wasmtime-equivalent native host** (ADR-0170/0180; CLI world + fs + sockets-TCP shipped)              |
-| **WASI 0.3 (preview3)**     | **released 2026-06-11; CM-async-based** (async func / stream / future) — **full-coverage campaign in progress** (§9.0 Front D / **D-335** / **ADR-0205** phases A–E: substrate → fs → sockets → http → claims); core + cli/clocks/random host SHIPPED |
+| **WASI 0.3 (preview3)**     | **released 2026-06-11; CM-async-based** (async func / stream / future) — **FULL COVERAGE** of all six 0.3.0 proposals (cli/clocks/random/filesystem/sockets/http), official corpus 45/45 green (§9.0 Front D / **D-335** / **ADR-0205** phases A–E complete; opt-in `-Dwasi=p3`) |
 | 4-platform JIT              | aarch64-darwin / aarch64-linux / x86_64-linux / x86_64-windows                                         |
 | Spec testsuite              | 100 %, 0 skip                                                                                          |
 | **wasm-c-api conformance**  | **Standard `wasm.h`** (the interface wasmtime/wasmer follow) + minimal `wasi.h` / `zwasm.h` extensions |
@@ -1313,12 +1313,15 @@ loop self-selects the next unit by value and proceeds.
   campaign. **2026-08-10 — re-scoped to FULL 0.3 coverage (ADR-0205,
   user-directed)**: official 0.3.0 released 2026-06-11 (six proposals: cli /
   clocks / filesystem / http / random / sockets; 0.3.x release train every two
-  months). Campaign phases A–E per ADR-0205: A substrate (generation-aware
-  dispatch + timer waitable + official-testsuite harness + clocks
-  `wait-until`/`wait-for` + `exit-with-code`), B filesystem-0.3 via-stream,
-  C sockets-0.3 (async TCP/UDP/name-lookup), D `wasi:http`, E claims sweep.
-  Conformance = vendored official `wasi-testsuite` wasip3 binaries
-  (`prod/testsuite-base`, 45 tests, `=0.3.0`-pinned).
+  months). Campaign phases A–E per ADR-0205 — **COMPLETE**: A substrate
+  (generation-aware dispatch + timer waitable + official-testsuite harness +
+  clocks `wait-until`/`wait-for` + `exit-with-code`), B filesystem-0.3
+  via-stream, C sockets-0.3 (async TCP/UDP/name-lookup), D `wasi:http`
+  (types + handler export + `client.send`), E claims sweep (this
+  README/docs/ROADMAP flip + `check_wasi03_coverage_claims.sh` doc-truth
+  guard). Conformance = vendored official `wasi-testsuite` wasip3 binaries
+  (`prod/testsuite-base`, `=0.3.0`-pinned): **45/45 green** on POSIX (one
+  carve-out: windows explicit-bind TCP connect = D-569).
 
 **Genuinely-future bucket** (demand-driven, NO version gate — the §1.3 + §3.3
 set; not a queue):
