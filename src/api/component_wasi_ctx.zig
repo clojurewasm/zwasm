@@ -1,4 +1,3 @@
-// FILE-SIZE-EXEMPT: WASI P2 + growing WASI-0.3 (P3) async host-peer surface; split of the P3 async host to a sibling component_wasi_p3_host.zig is planned (debt D-444), deferred so the E1..E3 host interfaces land first (per ADR-0190, ADR-0099).
 //! WASI **Preview 2** host trampolines + the single-component WASI-P2 runner
 //! (CM campaign Phase D). Extracted from `component.zig` (D-309): the
 //! Component-Model orchestration there crossed the file-size smell cap as the

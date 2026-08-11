@@ -70,19 +70,15 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
   of the personal 3-host SSH setup or `private/` (PC-local).
 - Exit: axes S1–S6 each closed-or-ADR'd, THEN user tags v2.5.0.
 
-## Active rework campaign
+## S1 status (campaign CLOSED 2026-08-12)
 
-- **Campaign-ID**: s1-d444-three-way-split (branch of the same name)
-- **Phase**: IV per ADR-0207; II+III closed (7 characterization tests; the
-  II-2a commit also fixed DEAD test discovery for the file — S5 axis). Exit:
-  3 files under caps or honestly EXEMPT, full net green every commit.
-- **Done**: M1 hooks `86a2381e5` · M2 facade `202fd9c7e` · M3-c P3-host
-  extraction `b3431831d` (fs3/sock3/http3 + registerP3Arms + installP3Hooks)
-- **Next**: IV-M3-b — move P2 trampolines + classifier + defineSynth +
-  orchestration ctx→facade per `private/notes/s1-d444-partition-table.md`
-  §(b); dissolve ctx's transitional a→c import (init self-install → creation
-  sites incl. component.zig + the p2ResourceDrop test). Then M4 measure:
-  ctx 3263 / p3_host 2492 — split-or-EXEMPT.
+- **D-444 DISCHARGED** — ADR-0207 three-way split landed on this branch
+  (M1-M4 + Phase V retrospective in the ADR; ctx 1342 / facade 2017 EXEMPT /
+  p3_host 2493 EXEMPT; hooks inversion; full net green each commit). Branch
+  `develop/s1-d444-three-way-split` → PR to main next.
+- **S1 remainder**: triage the other over-cap files (jit_abi 2027 hard-cap +
+  ~28 WARN-class incl. component_wasi_p3.zig 1471) per ADR-0099 P/N — next
+  branch after this PR merges.
 
 ## Operational invariants (keep using)
 
@@ -100,8 +96,8 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 
 - **D-477/D-478** JIT slivers (build-on-demand); **D-475 residual**
   spec-harness register-table wiring; **D-502** CM string encodings;
-  **D-444** split `component_wasi_p2.zig` (grew again in wasi03);
-  **D-526** doc-staleness sweep; D-464 long-tail.
+  **D-526** doc-staleness sweep; D-464 long-tail. (D-444 discharged
+  2026-08-12, ADR-0207.)
 - G-senior-gap G1/G2/G3 COMPLETE
   (`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`).
 

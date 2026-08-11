@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: the WASI-P2 trampoline surface + classifier + component orchestration (ADR-0207 (b), M4-measured 2026-08-12); the P2 fs/sockets sub-split had no positive ADR-0099 condition (spec-closed clusters but shallow <300-LOC net gains), so honest-exempt over metric-split.
 //! WASI **Preview 2** trampolines + classifier + component orchestration —
 //! ADR-0207 (b). The substrate (`WasiP2Ctx`, engines, straddle helpers)
 //! lives in `component_wasi_ctx.zig`; the 0.3 layer in

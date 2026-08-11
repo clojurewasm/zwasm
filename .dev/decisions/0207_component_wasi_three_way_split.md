@@ -1,6 +1,6 @@
 # ADR-0207: component_wasi_p2.zig three-way split (D-444)
 
-- **Status**: Proposed
+- **Status**: Accepted (M1-M4 landed 2026-08-12; outcome below)
 - **Date**: 2026-08-12
 - **Front**: S1 of the pre-v2.5.0 cleanliness sweep (user-directed 2026-08-11);
   campaign `s1-d444-three-way-split` per ADR-0153 discipline.
@@ -107,3 +107,22 @@ EXEMPT rationale ≤ 2500; full 3-OS CI green; D-444 discharged.
 - `component_wasi_p3.zig` (test file) may keep importing via (b)'s re-exports;
   its import lines are NOT churned in M1/M2.
 - D-444's row gains a discharge pointer to this ADR at campaign close.
+
+## Outcome (Phase V retrospective, 2026-08-12)
+
+- **Landed**: M1 `86a2381e5` · M2 `202fd9c7e` · M3-c `b3431831d` · M3-b
+  `caf5c9cf5`. Final sizes: ctx 1342 (marker removed) / facade 2017 (EXEMPT,
+  no positive sub-split condition) / p3_host 2493 (EXEMPT, N2 pub-leak would
+  follow a per-proposal sub-split). Import graph exactly as designed:
+  (b)→(a),(c); (c)→(a); (a)→none. Full net green at every commit (I2 held);
+  the 12 external pub symbols kept resolving via the facade throughout (I1).
+- **完成形 check**: the 5682-line dual-generation monolith is gone; each file
+  now has one stated responsibility and the substrate names no P3 symbol.
+- **Found along the way**: `component_wasi_p2.zig` was ABSENT from
+  `zwasm.zig` test discovery — its in-file tests (incl. one pre-existing)
+  had never run. Fixed in `6fc672a30`; the sweep's S5 axis gains a
+  discovery-guard mechanization from this.
+- **New debt**: none `now`-class. p3_host sits 7 lines under its exempt cap —
+  the S5 growth-ratchet is the guard against silent regrowth.
+- **Superseded-ADR note**: ADR-0190's "sibling `component_wasi_p3_host.zig`"
+  reservation is now REAL (this ADR delivered it).

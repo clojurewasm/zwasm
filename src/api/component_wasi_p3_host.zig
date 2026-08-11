@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: the complete wasi 0.3 host layer (fs3/sock3/http3 + async-lowered table + hook targets; ADR-0207 (c), M4-measured 2026-08-12); a per-proposal 3-way sub-split would force pub-leak of the hook targets through hooksTable/registerP3Arms (ADR-0099 N2), so cohesion wins while under the 2500 exempt cap.
 //! WASI **0.3** (P3) host layer — fs3 / sock3 / http3 trampolines, the
 //! async-lowered binding table, and the classifier's P3 arm registration
 //! (ADR-0207 (c); file name reserved by ADR-0190). Depends ONLY on the

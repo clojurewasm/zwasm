@@ -1,6 +1,7 @@
 # 0190 — WASI-0.3 Unit E: the host stream peer (unlocking guest read/write COMPLETION)
 
 - **Status**: Accepted 2026-06-16
+- **Revision note (2026-08-12)**: the sibling `component_wasi_p3_host.zig` this ADR reserved now exists — ADR-0207 (D-444 three-way split) delivered it; the host-stream peer engine itself stayed in the substrate (`component_wasi_ctx.zig`) reaching P3 via `WasiP2Ctx.P3Hooks`.
 - **Author**: claude (autonomous, WASI-0.3 campaign D-335 Unit E; survey of `component_wasi_p2.zig` host-interface wiring + `async.zig` `SharedStream` + `canon.zig` element store/load + the WASI-P3 `cli/stdio` wit).
 - **Composes with**: ADR-0189 (ζ2 — guest-side canon async builtins; deferred read/write COMPLETION here), ADR-0188 (P3 runner), ADR-0187 (stackless callback ABI). Within ROADMAP §9.0 Front D, Unit E.
 
