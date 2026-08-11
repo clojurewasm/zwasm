@@ -48,13 +48,15 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
 - **B filesystem — DONE/green** (commit 6d95ac124): full `wasi:filesystem@0.3.0`
   (async-eager metadata family + via-stream data plane + read-directory);
   generation-aware `WasiGen` dispatch. Official fs corpus 14/14.
-- **C sockets — control plane DONE/green** (this branch): create / bind
-  (ephemeral resolution) / all TCP+UDP options / address validation / udp-bind;
-  3 official tests vendored green. D-568 barriers 1+2 dissolved (589280108):
-  connected local/remote endpoints truthful (pinned std resolves getsockname
-  into `Stream.socket.address` — NO libc amendment) + WIT SO_REUSEADDR
-  contract (REUSEPORT cleared post-listen). NEXT: vendor the 9 remaining
-  official sockets tests + verify the `futures::join!` echo data plane.
+- **C sockets — TCP COMPLETE/green** (this branch): control plane + connected
+  data plane; official corpus 8/12 (tcp bind/listen/send/receive/echo + 3
+  control). Keys: parked socket reads EXECUTE at readiness (a payload-0
+  "re-read poke" reads as end-of-stream), tcp.send future resolves at
+  tx-drop/drain-error (NOT eager), stream-drop halves = SHUT_WR/SHUT_RD,
+  harness external-actor seam plays echo's remote client. NEXT (D-568 row has
+  full detail): udp trio (OS-level udp connect for implicit-bind local-ip +
+  sendTo EINVAL) → tcp-connect explicit-bind (needs raw bound-connect;
+  darwin = ADR-0070 amendment) → resolve-addresses real DNS.
 - **D http — NOT STARTED** (D-568): `wasi:http@0.3.0` largest remaining surface.
 - **E claims sweep** — pending C/D.
 28 official tests vendored green. 0.3.1 released 2026-08-11 (WIT diff vs 0.3.0

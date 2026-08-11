@@ -267,23 +267,26 @@ entries:
       ephemeral resolution / all TCP + UDP options / address validation
       unicast+v4-mapped guards / udp-bind); official sockets-tcp-properties +
       sockets-udp-properties + sockets-udp-bind vendored green. REMAINING (the
-      connected DATA plane): tcp connect/send/receive + listen/accept stream +
-      echo, udp send/receive, ip-name-lookup — the handlers are written
-      (`sock3*` in component_wasi_p2.zig + UdpSocket in p2_sockets.zig + the
-      `pollBlockedSockets` readiness hook). Of the three structural barriers,
-      (1) getsockname and (2) SO_REUSEADDR are DISSOLVED at unit level
-      (589280108, no libc amendment needed: the pinned stdlib resolves the
-      local sockaddr on every connect path into `Stream.socket.address`, and
-      SO_REUSEADDR-without-REUSEPORT = `reuse_address` + posix.setsockopt
-      clear of the coupled REUSEPORT). REMAINING: (3) the connected
-      send/receive/accept event delivery works via `pollBlockedSockets` for
-      the simple cases but the full `futures::join!` echo interleaving is
-      unverified; 9 official tests un-vendored (tcp bind/connect/listen/
-      receive/send, udp connect/receive/send, echo — `TESTS=` in
-      scripts/vendor_wasip3_official.sh); `sock3ResolveAddresses` is a
-      localhost-only stub (no real DNS; no official test covers it but the
-      coverage claim does). Repro: `zwasm run <sockets-*.wasm>` (no preopen
-      needed).
+      connected DATA plane): TCP is DONE — 8 of 12 official sockets tests
+      green (tcp bind/listen/send/receive/echo + the 3 control-plane ones);
+      all three original barriers dissolved (getsockname: pinned stdlib
+      already resolves it into `Stream.socket.address`; SO_REUSEADDR without
+      the stdlib-coupled REUSEPORT; join! interleaving: parked socket reads
+      now EXECUTE at readiness in `pollBlockedSockets`, tcp.send future
+      resolves at tx-drop/drain-error, stream-drop halves map to
+      SHUT_WR/SHUT_RD, echo runs under the harness external-actor seam).
+      REMAINING (vendored, test decls disabled in component_wasi_p3.zig):
+      (a) sockets-tcp-connect — connect FROM an explicitly bound socket; the
+      pinned std.Io.net has no bound-connect, needs raw socket+bind+connect
+      composition (darwin: std.c → ADR-0070 amendment; linux: std.os.linux;
+      windows: AFD gap); (b) udp trio — udp `connect` must OS-connect
+      (implicit bind resolves the LOCAL ip: official test expects
+      127.0.0.1, wildcard-bound reads back 0.0.0.0) + `sendTo` hits an
+      EINVAL errnoBug panic in netSendOnePosix (p2_sockets.zig:435);
+      (c) `sock3ResolveAddresses` is a localhost-only stub (no real DNS; no
+      official test covers it but the coverage claim does). Repro:
+      `zig build test-wasi-p3 -Dtest-filter=<name>` after re-enabling the
+      test decl.
       **HTTP (phase D)**: `wasi:http@0.3.0` (fields / request / response /
       request-options resources + `client.send` on std.http.Client + the
       `handler` export wiring) is UNIMPLEMENTED — the largest remaining
