@@ -239,6 +239,8 @@ pub const WasiP2Ctx = struct {
     /// When a runner ever multiplexes tasks over one ctx, this moves into
     /// `TaskDescriptor`.
     task_context: [2]u64 = .{ 0, 0 },
+    /// Substrate→P3 fn-pointer set (ADR-0207); see `P3Hooks` below.
+    p3_hooks: ?P3Hooks = null,
 
     /// Resource-type ids for the P2 resources the host models (`pub` for the
     /// in-tree tests that mint handles directly).
@@ -294,10 +296,41 @@ pub const WasiP2Ctx = struct {
     /// the next pread/pwrite uses (advanced per completed copy).
     pub const FileStreamRole = struct { fd: wasi_p1.Fd, pos: u64, result_future: u32 = 0 };
 
+    /// The substrate→P3 reverse-dep inversion (ADR-0207): the shared engine /
+    /// drop / poll paths reach the 0.3 trampoline layer ONLY through these
+    /// fn-pointers, so the substrate never names a P3 symbol. Installed by
+    /// `init` while co-located (M1); moves to the P3 host file's
+    /// `installP3Hooks` at extraction (M2).
+    pub const P3Hooks = struct {
+        drop_transferred_end: *const fn (*WasiP2Ctx, u32) void,
+        udp_receive_complete: *const fn (*WasiP2Ctx, u32, u32) WasiP2Error!void,
+        fail_file_stream: *const fn (*WasiP2Ctx, *async_mod.StreamFutureEnd, *FileStreamRole, wasi_p1.Errno) WasiP2Error!u32,
+        resolve_send_future: *const fn (*WasiP2Ctx, u32, ?u8) WasiP2Error!void,
+        sock_err_code: *const fn (anyerror) u8,
+        dir_stream_read: *const fn (*WasiP2Ctx, u32, *async_mod.StreamFutureEnd, u32, u32) WasiP2Error!u32,
+    };
+
+    /// Reaching an unset hook requires a live P3 resource, which only exists
+    /// once the P3 layer installed the hooks — so this is a programmer error,
+    /// not a runtime condition (`platform_panic_vs_error.md`).
+    fn p3(self: *WasiP2Ctx) *const P3Hooks {
+        if (self.p3_hooks) |*h| return h;
+        @panic("P3 hook uninstalled (ADR-0207)");
+    }
+
     pub fn init(alloc: Allocator, host: *wasi_host.Host) !WasiP2Ctx {
         return .{
             .alloc = alloc,
             .host = host,
+            // M1 (ADR-0207): self-install while the P3 layer is co-located.
+            .p3_hooks = .{
+                .drop_transferred_end = http3DropTransferredEnd,
+                .udp_receive_complete = sock3UdpReceiveComplete,
+                .fail_file_stream = fs3FailFileStream,
+                .resolve_send_future = sock3ResolveSendFuture,
+                .sock_err_code = sockErrToFs3Code,
+                .dir_stream_read = fs3DirStreamRead,
+            },
             .resources = try resource_table.ResourceTable.init(alloc),
             .guest_resources = try resource_table.ResourceTable.init(alloc),
             .streams = try async_mod.StreamFutureTable.init(alloc),
@@ -485,7 +518,7 @@ pub const WasiP2Ctx = struct {
         for (ready_handles[0..n_ready]) |h| {
             const pr = self.blocked_udp_receives.get(h) orelse continue;
             const end = self.streams.get(h) catch continue;
-            try sock3UdpReceiveComplete(self, pr.rep, pr.retptr);
+            try self.p3().udp_receive_complete(self, pr.rep, pr.retptr);
             end.subtask_state = .returned;
             end.setPendingEvent(.{ .code = .subtask, .index = h, .payload = @intFromEnum(async_mod.SubtaskState.returned) });
             _ = self.blocked_udp_receives.remove(h);
@@ -861,8 +894,8 @@ fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
                     const resp = &ctx.http_responses.items[h.rep];
                     if (resp.headers_rep < ctx.http_fields.items.len)
                         ctx.http_fields.items[resp.headers_rep].deinit(ctx.alloc);
-                    http3DropTransferredEnd(ctx, resp.trailers_future);
-                    if (resp.contents_stream) |s| http3DropTransferredEnd(ctx, s);
+                    ctx.p3().drop_transferred_end(ctx, resp.trailers_future);
+                    if (resp.contents_stream) |s| ctx.p3().drop_transferred_end(ctx, s);
                 }
             },
             // The request owns its uri strings, its headers fields storage,
@@ -874,8 +907,8 @@ fn p2ResourceDrop(caller: *Caller, self_handle: u32) WasiP2Error!void {
                     const req = &ctx.http_requests.items[h.rep];
                     if (req.headers_rep < ctx.http_fields.items.len)
                         ctx.http_fields.items[req.headers_rep].deinit(ctx.alloc);
-                    http3DropTransferredEnd(ctx, req.trailers_future);
-                    if (req.contents_stream) |s| http3DropTransferredEnd(ctx, s);
+                    ctx.p3().drop_transferred_end(ctx, req.trailers_future);
+                    if (req.contents_stream) |s| ctx.p3().drop_transferred_end(ctx, s);
                     req.deinit(ctx.alloc);
                 }
             },
@@ -2665,14 +2698,14 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
         if (end.side == .writable) {
             const bytes = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
             const errno: wasi_p1.Errno = if (pos_invalid) .inval else wasi_fd.pwriteSlice(abc.ctx.host, role.fd, bytes, role.pos);
-            if (errno != .success) return fs3FailFileStream(abc.ctx, end, role, errno);
+            if (errno != .success) return abc.ctx.p3().fail_file_stream(abc.ctx, end, role, errno);
             role.pos += bytes.len;
             return (async_mod.ReturnCode{ .completed = @intCast(count) }).encode();
         }
         const buf = mem.sliceAt(ptr, count * abc.elem_size) catch return WasiP2Error.OutOfBounds;
         var n: usize = 0;
         const errno: wasi_p1.Errno = if (pos_invalid) .inval else wasi_fd.preadSlice(abc.ctx.host, role.fd, buf, role.pos, &n);
-        if (errno != .success) return fs3FailFileStream(abc.ctx, end, role, errno);
+        if (errno != .success) return abc.ctx.p3().fail_file_stream(abc.ctx, end, role, errno);
         if (n == 0) {
             // EOF: the writer (host) side drops, so the guest observes a
             // CLOSED stream instead of retrying a 0-byte completion forever.
@@ -2784,7 +2817,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
             const n = sock.send(io, bytes[off..]) catch |e| {
                 // Peer reset / shutdown: the send's result future carries
                 // the error to the guest's `.await`.
-                try sock3ResolveSendFuture(abc.ctx, role.fut, sockErrToFs3Code(e));
+                try abc.ctx.p3().resolve_send_future(abc.ctx, role.fut, abc.ctx.p3().sock_err_code(e));
                 break;
             };
             if (n == 0) break;
@@ -2796,7 +2829,7 @@ fn p2StreamFutureCopyInner(caller: *Caller, handle: u32, ptr: u32, count: u32) W
     // `directory-entry` records from the registered P1 readdir cursor.
     if (abc.ctx.host_dir_streams.get(end.shared)) |state_index| {
         if (end.side != .readable) return WasiP2Error.InvalidHandle;
-        return fs3DirStreamRead(abc.ctx, state_index, end, ptr, count);
+        return abc.ctx.p3().dir_stream_read(abc.ctx, state_index, end, ptr, count);
     }
     // Host stream peer (Unit E, ADR-0190): the host is the always-ready reader,
     // so a guest write COMPLETES immediately — marshal the `count` u8s from guest
@@ -2902,7 +2935,7 @@ fn p2StreamFutureDropInner(caller: *Caller, handle: u32) WasiP2Error!void {
             if (ctx.host_tcp_tx.get(end.shared)) |role| blk: {
                 // The stream is exhausted: resolve the send future (ok
                 // unless a drain error resolved it first).
-                try sock3ResolveSendFuture(ctx, role.fut, null);
+                try ctx.p3().resolve_send_future(ctx, role.fut, null);
                 const sock = ctx.tcpSocketRep(role.rep) orelse break :blk;
                 const io = ctxIo(ctx) catch break :blk;
                 if (dbg.on("async.host")) std.debug.print("[host] tx-drop shutdown(WR) handle={d} rep={d}\n", .{ handle, role.rep });
