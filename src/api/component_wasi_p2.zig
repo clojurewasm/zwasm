@@ -6,7 +6,6 @@
 //! external importers keep resolving every historical pub symbol here.
 
 const std = @import("std");
-const dbg = @import("../support/dbg.zig");
 
 const decode = @import("../feature/component/decode.zig");
 const ctypes = @import("../feature/component/types.zig");
@@ -33,7 +32,6 @@ const Instance = @import("../zwasm/instance.zig").Instance;
 const Linker = @import("../zwasm/linker.zig").Linker;
 const Value = @import("../zwasm.zig").Value;
 const zir_mod = @import("../ir/zir.zig");
-const rt_value = @import("../runtime/value.zig");
 const build_options = @import("build_options");
 
 const ctx_mod = @import("component_wasi_ctx.zig");

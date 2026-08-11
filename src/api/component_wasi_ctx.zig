@@ -13,20 +13,13 @@
 const std = @import("std");
 const dbg = @import("../support/dbg.zig");
 
-const decode = @import("../feature/component/decode.zig");
-const ctypes = @import("../feature/component/types.zig");
-const canon = @import("../feature/component/canon.zig");
-const wit_type = @import("../feature/component/wit_type.zig");
-const cvalidate = @import("../feature/component/validate.zig");
 const wasi_host = @import("../wasi/host.zig");
 const wasi_fd = @import("../wasi/fd.zig");
 const wasi_path = @import("../wasi/path.zig");
-const wasi_proc = @import("../wasi/proc.zig");
 const wasi_clocks = @import("../wasi/clocks.zig");
 const wasi_p1 = @import("../wasi/preview1.zig");
 const p2sock = @import("../wasi/p2_sockets.zig");
 const p3http = @import("../wasi/p3_http.zig");
-const adapter = @import("../wasi/adapter.zig");
 const resource_table = @import("../feature/component/resource_table.zig");
 const async_mod = @import("../feature/component/async.zig");
 const Caller = @import("../zwasm/caller.zig").Caller;
@@ -37,9 +30,7 @@ const Module = @import("../zwasm/module.zig").Module;
 const Instance = @import("../zwasm/instance.zig").Instance;
 const Linker = @import("../zwasm/linker.zig").Linker;
 const Value = @import("../zwasm.zig").Value;
-const zir_mod = @import("../ir/zir.zig");
 const rt_value = @import("../runtime/value.zig");
-const build_options = @import("build_options");
 
 // ============================================================
 // WASI Preview 2 host trampolines (CM campaign chunk D1-2)
