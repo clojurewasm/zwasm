@@ -73,17 +73,16 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 ## Active rework campaign
 
 - **Campaign-ID**: s1-d444-three-way-split (branch of the same name)
-- **Phase**: IV — implementation per ADR-0207 (M1 hooks → M2 extract P3 →
-  M3 extract substrate → M4 measure/sub-split), each commit full-net green.
-  Phase II closed (7 characterization tests); Phase III closed (ADR-0207)
-- **Exit target**: shared substrate + P2 + P3 files, under ADR-0099 caps or honestly
-  EXEMPT; full net (76 p3 + 61 component_tests + characterization) green every commit
-- **Done**: coverage map (12 pub symbols to preserve); II-1+II-2a pinned
-  (`3c935b12a`, `6fc672a30` — the latter also FIXED dead test discovery:
-  component_wasi_p2.zig in-file tests never ran; S5 gains a discovery-guard axis)
-- **Next**: IV-M3 — per-cluster moves out of ctx (M1 `86a2381e5`, M2 facade
-  `202fd9c7e`). Order: partition table (survey) → orchestration+classifier+P2
-  trampolines → (b) w/ transitional pubs → P3 cluster → (c), pubs dissolved
+- **Phase**: IV per ADR-0207; II+III closed (7 characterization tests; the
+  II-2a commit also fixed DEAD test discovery for the file — S5 axis). Exit:
+  3 files under caps or honestly EXEMPT, full net green every commit.
+- **Done**: M1 hooks `86a2381e5` · M2 facade `202fd9c7e` · M3-c P3-host
+  extraction `b3431831d` (fs3/sock3/http3 + registerP3Arms + installP3Hooks)
+- **Next**: IV-M3-b — move P2 trampolines + classifier + defineSynth +
+  orchestration ctx→facade per `private/notes/s1-d444-partition-table.md`
+  §(b); dissolve ctx's transitional a→c import (init self-install → creation
+  sites incl. component.zig + the p2ResourceDrop test). Then M4 measure:
+  ctx 3263 / p3_host 2492 — split-or-EXEMPT.
 
 ## Operational invariants (keep using)
 
