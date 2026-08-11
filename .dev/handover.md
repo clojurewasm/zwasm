@@ -25,17 +25,12 @@ Prior line v2.4.1; v1 frozen at `v1.11.1`. Dev model: `develop/<slug>` from
   windows own NT/AFD socket control plane + NT hardlinks + pre-OS empty-path
   noent. Mechanism notes = code comments (`p2_sockets.zig` AFD section,
   `path.zig` winPathLink) + ADR-0205 F.
+- **reproducible-dev-env** (#166, ADR-0206): `docs/development.md` SSOT +
+  `dev_hosts.env` config + dead-script sweep. Post-merge main CI green
+  (incl. extended) for #165; #166's run superseded-cancelled by #167's.
 - Doc-truth gaps #153/#154 + #163 CLOSED (prose gates live in the always-on
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
-
-## Closed fronts (2026-08-11)
-
-- **wasi03-full + windows port** (#165, ADR-0205): WASI 0.3 official corpus
-  45/45 on all 3 OSes, 0 skip. **reproducible-dev-env** (#166, ADR-0206):
-  `docs/development.md` SSOT + `dev_hosts.env` config + dead-script sweep.
-  post-merge main CI green (incl. extended) for #165; #166's run was
-  superseded-cancelled by #167's (same content verified on the #166 PR).
 
 ## Active front — 完成形 cleanliness sweep (user-directed 2026-08-11, PRE-TAG)
 
