@@ -59,12 +59,14 @@ manifest-driven harness in `component_wasi_p3.zig` (`test-wasi-p3`).
   client.send parks as a subtask + real std.http.Client exchange (harness
   echo endpoint on a bg thread → HTTP_ENDPOINT); `resolveDroppedPeers` (poll
   seam) completes a parked copy whose peer dropped after it parked.
-- **NEXT: E claims sweep** — README/docs 0.3 coverage table + doc-truth claim
-  guard + ROADMAP/CHANGELOG flips; then confirm all six 0.3 proposals are
-  claimed complete.
-Official corpus: **45/45 vendored, all green** on POSIX (tcp-connect
-windows-skip = D-569). 0.3.1 (2026-08-11) WIT diff vs 0.3.0 = 3 doc lines
-(release train per ADR-0205 D6).
+- **E claims sweep — DONE**: README/migration/ROADMAP/CHANGELOG flipped to
+  full-coverage; `check_wasi03_coverage_claims.sh` doc-truth guard wired into
+  CI. ADR-0205 = COMPLETE.
+Official corpus **45/45 green** on POSIX (tcp-connect windows-skip = D-569).
+**Campaign done — branch ready for a PR to `main`** (CI `ci-required` 3-OS
+gate is the authoritative check for the branch; local ubuntu gate syncs
+`origin/main` so it does NOT cover this branch). 0.3.1 (2026-08-11) WIT diff
+vs 0.3.0 = 3 doc lines (release train per ADR-0205 D6).
 
 ## G-senior-gap front (2026-07-06) — G1/G2/G3 all COMPLETE
 

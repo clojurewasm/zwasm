@@ -1,6 +1,8 @@
 # ADR-0205: WASI 0.3 full-coverage campaign (wasi03-full)
 
-- **Status**: Accepted — campaign in progress
+- **Status**: Accepted — campaign COMPLETE (phases A–E landed on
+  `develop/wasi-03-full`; official corpus 45/45 green on POSIX, windows
+  explicit-bind TCP connect carved out as D-569)
 - **Date**: 2026-08-10
 - **Front**: D-wasi03 (D-335 / D-523 / D-524; user-directed 2026-08-10)
 - **Findings base**: `~/Documents/OSS/WASI` tag `v0.3.0` WIT inventory +
@@ -100,14 +102,19 @@ certification meanwhile.
   the connected DATA plane + `getsockname`-dependent local-address +
   SO_REUSEADDR are **D-568**, blocked on a libc-boundary getsockname
   amendment + socket-readiness scheduler integration.)*
-- **D — http 0.3**: `types` resources (fields/request/response/
-  request-options), `client.send` on `std.http.Client`, `handler` wiring
-  (guest↔guest chaining + host-side invoke API). A `zwasm serve`-style CLI
-  entry for the `service` world is QoI, demand-driven (not part of the
-  coverage claim, which is interface-level). Exit: official http tests green
-  (network-dependent ones behind the same opt-in used elsewhere).
-- **E — claims sweep**: README / docs coverage table, `doc-truth`-anchored
-  claim guard, handover/ROADMAP flips.
+- **D — http 0.3 — DONE/green**: `types` resources (fields/request/response/
+  request-options), `client.send` on `std.http.Client`, `handler` EXPORT
+  invocation (the harness plays the HTTP client per manifest `request` op).
+  Official http-fields/-request/-response/-request-options/-service/-echo/
+  -uri/-client all green. Substrate additions: `task.return` generalized to
+  >1-flat results via `defineFuncRaw`; `WaitableSet.resolveDroppedPeers`
+  (completes a parked copy whose peer dropped after it parked). A
+  `zwasm serve`-style CLI entry for the `service` world is QoI,
+  demand-driven (not part of the interface-level coverage claim).
+- **E — claims sweep — DONE**: README §WASI / migration doc / ROADMAP widget
+  flipped to full-coverage; `scripts/check_wasi03_coverage_claims.sh`
+  doc-truth guard (anchored on the http-client conformance test) wired into
+  the always-on CI `doc-truth` job; CHANGELOG Added entry.
 
 ### D5 — Async-eager host completion (keeps ADR-0187 stackless design)
 
