@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: 53% in-file C-ABI round-trip tests (P4-alone insufficient); impl is the closed §13.2 constructor set (investigated 2026-08-12, per ADR-0099)
 //! Runtime-entity construction layer of the C ABI (§13.2): the
 //! `wasm_{func,global,table,memory}_as_extern[_const]` conversions
 //! (entity → Extern) + the host-side `wasm_{global,table,memory}_new`

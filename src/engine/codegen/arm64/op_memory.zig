@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-instruction-class catalog of the ADR-0021 9-module emit split, same class as its marked siblings (investigated 2026-08-12, per ADR-0099)
 //! ARM64 emit pass — memory load / store handlers.
 //!
 //! Per ADR-0021 sub-deliverable b (emit.zig

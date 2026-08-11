@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: already the ADR-0079 Step-2 carve-out from runner.zig; per-section init helpers share compile state (N2) (investigated 2026-08-12, per ADR-0099)
 // AUTO-EXTRACTED from src/engine/runner.zig at ADR-0079 Step 2
 // (close-plan §6 (g)). Carve-out: `compileWasm` + per-section
 // helpers (`applyDefinedGlobalsInit`, `resolveFuncrefGlobals`,

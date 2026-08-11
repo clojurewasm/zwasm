@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single structural walk with 56 private per-node helpers sharing walker state (N2); no closed ≥300-LOC sub-language (investigated 2026-08-12, per ADR-0099)
 //! Component-Model validation (ADR-0176) — structural-first, incremental.
 //!
 //! Walks the decoded `TypeInfo` (NO re-parse — the deliberate divergence from

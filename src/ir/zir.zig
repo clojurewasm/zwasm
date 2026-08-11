@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: ZIR container-type identity catalog (§P13); ZirOp data already lives in zir_ops.zig, remaining carve-outs are N3-shallow (investigated 2026-08-12, per ADR-0099)
 //! ZIR (Zwasm Intermediate Representation) — container types only.
 //!
 //! Phase 1 / task 1.1 declares the **type identities** required by

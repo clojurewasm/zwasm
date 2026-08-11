@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: 50% in-file CLI e2e tests (P4-alone insufficient); the impl half is one cohesive run driver (investigated 2026-08-12, per ADR-0099)
 //! `zwasm run` CLI helper (Phase 4 / §9.4 / 4.8 chunk a).
 //!
 //! Houses `runWasm` — the Zig-callable entry that drives a

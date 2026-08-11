@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform 48-trampoline C-ABI catalog for JIT host dispatch; a split yields N3-shallow siblings (investigated 2026-08-12, per ADR-0099)
 //! WASI snapshot-preview1 dispatch trampolines for the JIT path
 //! (chunk 7.9-d-2). C-ABI function pointers planted into
 //! `JitRuntime.host_dispatch_base[idx]` by `runner.zig` when an
