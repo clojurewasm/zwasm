@@ -177,9 +177,8 @@ identity of the x86_64-Linux host has).
 Once `ubuntunote` is verified green for the full corpus, the
 OrbStack-side scaffolding becomes legacy:
 
-- `scripts/orb_test_all_with_d134_retry.sh` — retain as
-  reference (D-134 mitigation history); not invoked from
-  LOOP.md any longer.
+- `scripts/orb_test_all_with_d134_retry.sh` — DELETED (ADR-0206 D5;
+  git history retains the D-134 mitigation record).
 - `.dev/orbstack_setup.md` — retain; OrbStack is still a
   useful dev-convenience host for interactive scratch.
 - `.dev/debt.yaml` D-134 row — flip Status to `closed (root

@@ -194,16 +194,15 @@ zig build test-all     # all enabled test layers
 zig build -Dtarget=x86_64-windows-gnu
 ```
 
-Run `zig build test-all` on each platform you care about — macOS, Linux,
-and Windows are all first-class. Multi-OS verification is handled
-automatically by CI; the `scripts/run_remote_*.sh` helpers are a
-maintainer convenience for driving the gate across a personal host farm
-over SSH (host aliases are configurable via `ZWASM_UBUNTU_HOST` /
-`ZWASM_WINDOWS_HOST`).
+**You only need Zig 0.16.0** — multi-OS verification is handled
+automatically by CI on every pull request. The full development story
+(test layers, optional tools, git hooks, what's maintainer-only) is in
+**[`docs/development.md`](docs/development.md)**; the contribution flow is in
+[`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md).
 
-Nix + direnv is the supported dev environment. `direnv allow` loads
-the pinned Zig 0.16.0 and tool surface (`flake.nix`: hyperfine,
-wasm-tools, wasmtime, yq-go, lldb, nasm).
+Nix is optional: `nix develop` (or direnv) loads the pinned Zig 0.16.0
+and tool surface (`flake.nix`: hyperfine, wasm-tools, wasmtime, yq-go,
+lldb, nasm).
 
 ## Layout
 
@@ -219,7 +218,7 @@ docs/        Migration guide + design docs
 scripts/     gate_commit, zone_check, file_size_check, bench, run_remote_*
 test/        per-layer suites; unified `zig build test-all`
 bench/       benchmark history (append-only)
-private/     gitignored agent scratch
+private/     gitignored maintainer scratch (never required; docs/development.md)
 ```
 
 ## Documentation

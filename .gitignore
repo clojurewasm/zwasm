@@ -41,8 +41,8 @@ include/wasm.h.upstream
 # Bench rolling per-commit results (history.yaml is committed; recent.yaml is local)
 bench/results/recent.yaml
 
-# Per-developer windowsmini gate state (recorded by scripts/should_gate_windows.sh
-# --record after a successful windowsmini run; per-clone, not authoritative)
-.dev/last_windowsmini_sha
+# Per-machine SSH host config for the optional local gate fan-out
+# (template: scripts/dev_hosts.env.example; ADR-0206)
+scripts/dev_hosts.env
 scripts/spec_distill/__pycache__/
 test/component/wasip3/target/

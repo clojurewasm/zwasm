@@ -21,6 +21,13 @@
 
 set -uo pipefail
 
+# yq (mikefarah v4) is not part of the base toolchain (Zig-only clones lack
+# it). Absent -> SKIP with a pointer, never a bash stack trace (ADR-0206).
+if ! command -v yq >/dev/null 2>&1; then
+  echo "[check_skip_taxonomy_pairing] SKIP — yq (mikefarah v4) not found; install it (https://github.com/mikefarah/yq) or use 'nix develop'" >&2
+  exit 0
+fi
+
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   sed -n '2,20p' "$0"
   exit 0

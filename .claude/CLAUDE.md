@@ -82,8 +82,10 @@ text or code identifiers.
   local `scripts/gate_merge.sh` (3-host SSH fan-out) + `scripts/gate_commit.sh`
   (pre-commit) are now **optional pre-PR pre-flight** mirroring CI — no longer
   load-bearing for merge safety. The campaign-era Windows-BATCHED / `--suspend`
-  cadence is RETIRED (`should_gate_windows.sh` = deprecation stub; ADR-0174
-  superseded-in-part; the `.dev/windows_gate_suspended` sentinel is dead).
+  cadence is RETIRED (its scripts are deleted; ADR-0174 superseded-in-part).
+  Per-machine host aliases for the optional fan-out live in
+  `scripts/dev_hosts.env` (gitignored; template `dev_hosts.env.example` —
+  ADR-0206).
   `file_size_check` is **advisory** (ADR-0099 2026-07-03, not a commit block);
   `spill_aware_check` is wired into `gate_commit.sh` + CI `ci_gate.sh` extended
   (D-505 triage done; BASELINE=0). OrbStack retired per ADR-0067 (D-134); scratch only.

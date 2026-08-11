@@ -312,10 +312,10 @@ batched in the background; verify its verdict at the next Step 0.7.
 7. **Remote kicks (background; ADR-0076 D3+D5-b+D6+D8)**. `run_in_background: true`,
    do NOT wait. **ubuntu = always** (D6): `bash scripts/run_remote_ubuntu.sh test-all
    > /tmp/ubuntu.log 2>&1` (x86_64, every turn). **windows = BATCHED** (D8 — windows
-   is the slow host; batch it, NEVER poll-wait on it): run
-   `bash scripts/should_gate_windows.sh`; **exit 0 →**
-   `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (Win64), then
-   after the next-cycle green verify `scripts/should_gate_windows.sh --record`. The
+   is the slow host; batch it, NEVER poll-wait on it): when the batch cadence
+   fires (RETIRED mechanism — its `should_gate_windows.sh` helper is deleted,
+   ADR-0206 D5), kick
+   `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (Win64). The
    batched cadence (≥6 commits if the batch touched ABI/calling-convention/frame-layout
    paths, else ≥12; ABI-risk no longer immediate) keeps iteration fast on Mac+ubuntu
    while still catching Win64 drift per batch. **Do NOT end a turn or re-arm merely to
