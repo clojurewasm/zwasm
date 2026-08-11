@@ -81,8 +81,9 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 - **Done**: coverage map (12 pub symbols to preserve); II-1+II-2a pinned
   (`3c935b12a`, `6fc672a30` — the latter also FIXED dead test discovery:
   component_wasi_p2.zig in-file tests never ran; S5 gains a discovery-guard axis)
-- **Next**: IV-M2 — git mv → component_wasi_ctx.zig + recreate p2 as facade
-  (M1 hooks landed `86a2381e5`; then M3 per-cluster moves, straddlers stay pub in ctx)
+- **Next**: IV-M3 — per-cluster moves out of ctx (M1 `86a2381e5`, M2 facade
+  `202fd9c7e`). Order: partition table (survey) → orchestration+classifier+P2
+  trampolines → (b) w/ transitional pubs → P3 cluster → (c), pubs dissolved
 
 ## Operational invariants (keep using)
 
