@@ -83,12 +83,10 @@ rows tracked in debt.yaml (D-314(a), D-509, D-444, D-506, D-502/D-475).
   x86_64-linux JIT bugs. JIT-codegen fix → verify arm64 AND x86_64-macos.
 - **Step-0.7 NOTE**: `failed command: …--listen=-` / host-example exe lines are
   COSMETIC (exit 0); trust `[run_remote_*] OK/FAIL` + `N passed, 0 failed`.
-- CI `ci_gate.sh` runs `zig fmt` + `test-all` + (core) `run-rust-host` on the Linux
-  leg (D-254) + (extended, push-to-main) lint/DCE/AOT/`zone_check`/`spill_aware_check`
-  (promoted E-段2 + D-505). `file_size_check` is advisory-only (ADR-0099). NOTE:
-  extended runs only on push-to-main, so `zone_check`/`spill_aware` enforce
-  post-merge, not as a PR blocker. Doc-only PRs skip `gate` entirely — the
-  always-on `doc-truth` job is the only PR-blocking leg they get.
+- CI `ci_gate.sh` = `zig fmt` + `test-all` + (core) `run-rust-host` + (extended,
+  push-to-main only) lint/DCE/AOT/`zone_check`/`spill_aware`. Doc-only PRs skip
+  `gate`; the always-on `doc-truth` job is their only PR-blocking leg (now runs
+  both `check_engine_default_claims` + `check_wasi03_coverage_claims`).
 
 ## Parked / gated — do NOT speculatively grind (see debt.yaml)
 
@@ -98,27 +96,20 @@ rows tracked in debt.yaml (D-314(a), D-509, D-444, D-506, D-502/D-475).
 - **D-475 residual**: spec-harness cross-module register-table wiring only
   (applyImportedTablesFromRegistered + TableAlias pointer-sharing); the table64
   feature itself is COMPLETE on both engines.
-- **D-502** CM utf16/latin1 canonical-ABI string encodings; **D-444** split
-  `component_wasi_p2.zig` (2228 > 2000) — both Batch B (Component域).
-- **validator.zig at 3392/3510** — next validator edit extracts per the marker plan first.
-- D-305 long-tail (niche CM shapes; `component_graph.zig` 1895/2000 split first);
-  D-464 async adversarial; D-462 feature-separation (user-gated). blocked-by rows = parked.
-- **D-526** — external-contributor reproducibility / doc-staleness sweep (full
-  gap list in the row; companion ClojureWasm D-565; mechanisable parts → CI
-  `doc-truth` job, see #163 above).
+- **D-502** CM string encodings; **D-444** split `component_wasi_p2.zig`
+  (now 4700+ > 2000; grew in this campaign — Batch B Component域); **D-526**
+  external-contributor doc-staleness sweep; **validator.zig 3392/3510**;
+  D-305 / D-464 / D-462 long-tail. blocked-by rows = parked.
 
 ## State (release = USER-ONLY, ADR-0156)
 
-- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM** default-ON;
-  **0.3 core** done. Sandbox triad (fuel / interrupt / memory+table cap) cross-engine.
-- **Surfaces**: C-API · Zig-API (full WASI parity) · lean CLI · memory-safety sound ·
-  dogfooded into cljw (pins zwasm by git tag-hash). Runners ReleaseSafe.
-- **EH**: cross-instance JIT EH both arches; interp+JIT corpus green. Realworld 56
-  fixtures interp 56/0; JIT diff-gated.
-- **Debt**: 69 entries — **0 `now`-class** (D-505 DONE; follow-on D-506 = FP spill
-  stage-2, note-class). 完成形 plateau (all dims confirmed, surface audits clean,
-  interp+JIT fuzz 0-crash, v1-JIT parity D-265 closed).
-- **Proposals**: reviewed 2026-07-03; no phase advances; 3.0 corpora unaffected.
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
+  default-ON; **0.3 FULL** (all six proposals, official 45/45). Sandbox triad
+  cross-engine.
+- **Surfaces**: C-API · Zig-API (full WASI parity) · lean CLI · memory-safety
+  sound · dogfooded into cljw. EH cross-instance JIT both arches. Realworld 56
+  interp 56/0; JIT diff-gated.
+- **Debt**: 76 entries — 0 `now`-class. 完成形 plateau.
 
 ## Key refs
 
