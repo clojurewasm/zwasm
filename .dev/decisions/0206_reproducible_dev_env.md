@@ -90,3 +90,17 @@ campaign-era `.claude/skills/continue/` sub-docs (labeled historical, D4).
 - ROADMAP §A7/A8 gate framing is NOT edited here (campaign-era history);
   the maintenance-mode reality (CI authoritative) is already recorded in
   CLAUDE.md + ADR-0076 D9 and now in the SSOT doc.
+
+## Revision history
+
+- 2026-08-12 (D2 revision, user-directed) — **the two SSH host names lost
+  their in-repo defaults.** `ZWASM_UBUNTU_HOST` / `ZWASM_WINDOWS_HOST` no
+  longer fall back to the maintainer's aliases: unset now means "no such
+  host", so `gate_merge.sh` WARNs and skips that leg and the per-host
+  runners exit 2 pointing at `dev_hosts.env.example`. `ZWASM_REMOTE_DIR`
+  keeps a default, now the neutral `zwasm` instead of the maintainer's
+  `Documents/MyProducts/zwasm`. D2's parameterization stands as written;
+  what changed is that the parameter is genuinely unset out of the box, so
+  a clone carries no machine identity — the same reason D1 exists. The
+  maintainer's own values live in the gitignored `dev_hosts.env`, which
+  D2 already requires.

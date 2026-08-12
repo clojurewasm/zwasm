@@ -12,8 +12,8 @@
     Tools land in %LOCALAPPDATA%\zwasm-tools\<name>-<version>\
     and are added to the user-scoped PATH.
 
-    The sysinternals entry exists to give windowsmini-side JIT
-    debugging the same "actively wired" status as Mac+ubuntunote
+    The sysinternals entry exists to give Windows-side JIT debugging
+    the same "actively wired" status as the Mac and Linux hosts
     (per close-plan §0.2.1 + debug_jit_auto skill Windows recipes).
     Without these tools D-028 / D-136 / future Win64-specific JIT
     bugs are debuggable only via lldb, which lacks process / file

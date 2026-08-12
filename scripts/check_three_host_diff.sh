@@ -2,10 +2,9 @@
 # scripts/check_three_host_diff.sh — §9.7 / 7.11 three-way
 # differential gate.
 #
-# Verifies that the same critical runner totals appear on all
-# three hosts (Mac aarch64, ubuntunote native Linux x86_64,
-# windowsmini x86_64) by reading the most-recent test-all log
-# files at /tmp/{mac,ubuntu,win}.log. Each runner's total line is
+# Verifies that the same critical runner totals appear on all three
+# hosts (Mac aarch64, Linux x86_64, Windows x86_64) by reading the
+# most-recent test-all log files at /tmp/{mac,ubuntu,win}.log. Each runner's total line is
 # grep'd from each log; the script flags any host whose total
 # deviates from the consensus.
 #

@@ -19,7 +19,7 @@ longer receive updates.
 
 **Please do not open a public issue or Discussion for security problems.**
 
-Report privately via GitHub's **[Private Vulnerability Reporting](https://github.com/clojurewasm/zwasm/security/advisories/new)**
+Report privately via GitHub's **[Private Vulnerability Reporting](https://github.com/zwasm/zwasm/security/advisories/new)**
 (the "Report a vulnerability" button under the repository's *Security* tab).
 If that is unavailable to you, open a minimal public Discussion asking a
 maintainer to reach out — **without any exploit detail** — and mention

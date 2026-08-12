@@ -1,7 +1,8 @@
 # Org transfer plan — `clojurewasm/zwasm` → a dedicated `zwasm` org
 
-> **Doc-state**: ACTIVE. Written 2026-08-12, before the transfer. Retire it
-> (ARCHIVED) once the post-transfer checklist below is fully ticked.
+> **Doc-state**: ACTIVE. Written 2026-08-12, before the transfer. Phases 1-3
+> are done (the repo lives at `zwasm/zwasm`); phases 4-5 (tap split, cljw
+> wind-down) are still open. Retire it (ARCHIVED) once they are ticked too.
 
 ## Context
 
@@ -68,13 +69,13 @@ Sequencing matters in one place: **cljw's final zwasm pin should be written
 after the transfer**, so its last commit names the new canonical URL rather
 than relying on a redirect it will never be able to fix.
 
-### Phase 1 — new org
+### Phase 1 — new org ✅
 
 1. Create the `zwasm` GitHub organization; add the co-maintainer as an owner.
 2. Enable Actions for the org and allow the workflow permissions the release
    job needs (`contents: write`).
 
-### Phase 2 — transfer the repo
+### Phase 2 — transfer the repo ✅ (2026-08-12)
 
 3. `Settings → General → Transfer ownership` on `clojurewasm/zwasm` → `zwasm`.
 4. Immediately re-point local clones: `git remote set-url origin
@@ -86,7 +87,10 @@ than relying on a redirect it will never be able to fix.
    `git ls-remote https://github.com/clojurewasm/zwasm.git | head -1` and
    `curl -sIL -o /dev/null -w '%{http_code}\n' https://github.com/clojurewasm/zwasm/releases/download/v2.5.0/SHA256SUMS`.
 
-### Phase 3 — in-repo references
+Post-transfer state: `zwasm/zwasm`, 159 stars, Discussions on, ruleset
+`main branch protection` present.
+
+### Phase 3 — in-repo references ✅ (2026-08-12)
 
 7. Sweep the live (non-historical) references — inventory taken 2026-08-12:
    `README.md` (CI badge, Releases links, brew command, v1 link),
@@ -94,6 +98,13 @@ than relying on a redirect it will never be able to fix.
    `.github/SECURITY.md`, `docs/development.md` (clone URL),
    `scripts/run_remote_ubuntu.sh` (comment).
    `.dev/decisions/**` and `.dev/lessons/**` are dated records — leave them.
+
+   Swept, plus two the inventory missed: `.dev/ubuntunote_setup.md` and
+   `.dev/windows_ssh_setup.md` (both ACTIVE, both carry a `git clone` URL).
+   The **brew command is deliberately still `clojurewasm/tap/zwasm`** — it
+   must not name a tap before phase 4 creates it. Also left alone: the
+   `CHANGELOG.md` 2.3.0 entry naming the old tap (dated record of what that
+   release shipped) and `.dev/archive/**`.
 
 ### Phase 4 — the tap split
 
@@ -108,6 +119,11 @@ than relying on a redirect it will never be able to fix.
 
    as `tap_migrations.json` at the repo root, and trim the README to cljw.
    One commit, e.g. `zwasm: migrate to zwasm/tap`.
+
+   Then flip README.md's install command to `brew install zwasm/tap/zwasm`
+   — it is the one in-repo reference phase 3 could not sweep, because a
+   command naming a tap that does not exist is worse than one naming the
+   old one.
 10. Verify from a clean state: `brew update` on a machine with the old tap
     prints the migration guidance, and `brew install zwasm/tap/zwasm` installs
     2.5.0 (`brew audit --formula --online` clean, version infers from the tag).

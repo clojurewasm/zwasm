@@ -2,7 +2,7 @@
 
 A from-scratch WebAssembly runtime in Zig 0.16.0.
 
-[![CI](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/clojurewasm/zwasm/actions/workflows/ci.yml)
+[![CI](https://github.com/zwasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/zwasm/zwasm/actions/workflows/ci.yml)
 [![Zig](https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white)](https://ziglang.org/)
 [![WebAssembly 3.0](https://img.shields.io/badge/WebAssembly-3.0-654ff0?logo=webassembly&logoColor=white)](https://webassembly.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -13,9 +13,9 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 > (arm64 / x86_64) + AOT (`.cwasm`), and the C / Zig / CLI surfaces are
 > settled. **`v2.0.0` is the first stable release** (SemVer starts here;
 > v1 is frozen at `v1.11.1`); the current line is on
-> [Releases](https://github.com/clojurewasm/zwasm/releases).
+> [Releases](https://github.com/zwasm/zwasm/releases).
 
-v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
+v2 is a ground-up redesign of [zwasm v1](https://github.com/zwasm/zwasm)
 with day-one design for WebAssembly 3.0, wasm-c-api conformance, and
 dual-backend (interpreter + JIT-arm64 + JIT-x86) differential testing.
 v1 ABI compatibility is out of scope (v1 is frozen at `v1.11.1`; the v2
@@ -180,7 +180,7 @@ xattr -d com.apple.quarantine "$(which zwasm)"
 ```
 
 Or grab a prebuilt binary straight from the
-[Releases](https://github.com/clojurewasm/zwasm/releases) page (macOS arm64,
+[Releases](https://github.com/zwasm/zwasm/releases) page (macOS arm64,
 Linux x86_64/aarch64, Windows x86_64). Building from source is in
 [Quick start](#quick-start) below.
 

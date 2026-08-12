@@ -1,30 +1,37 @@
 #!/usr/bin/env bash
-# attach_dump.sh — run zwasm-spec-wasm-2-0-assert on windowsmini against
-# a manifest dir, attach lldb after N seconds, dump register + backtrace
-# + selected memory, detach, kill. Output collected to /tmp/d165-attach.log.
+# attach_dump.sh — run zwasm-spec-wasm-2-0-assert on the Windows gate host
+# against a manifest dir, attach lldb after N seconds, dump register +
+# backtrace + selected memory, detach, kill. Output collected to
+# /tmp/d165-attach.log.
 #
 # Usage:
 #   bash scripts/win64_debug/attach_dump.sh <local-manifest-dir> [wait-sec]
 #
-# Pre-req: windowsmini SSH alias set up per .dev/windows_ssh_setup.md.
-# scratch dir at test/private/d-165/ used on both sides.
+# Pre-req: ZWASM_WINDOWS_HOST set (scripts/dev_hosts.env) for an SSH alias
+# provisioned per .dev/windows_ssh_setup.md. scratch dir at
+# test/private/d-165/ used on both sides.
 
 set -euo pipefail
 
 LOCAL_DIR="${1:-test/private/d-165}"
 WAIT_SEC="${2:-3}"
 [ -f "$(dirname "$0")/../dev_hosts.env" ] && source "$(dirname "$0")/../dev_hosts.env"
-WIN_HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
-WIN_REPO="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+WIN_HOST="${ZWASM_WINDOWS_HOST:-}"
+WIN_REPO="${ZWASM_REMOTE_DIR:-zwasm}"
 REMOTE_DIR="$WIN_REPO/test/private/d-165"
 LOG="/tmp/d165-attach.log"
+
+if [ -z "$WIN_HOST" ]; then
+  echo "ZWASM_WINDOWS_HOST is unset — set it in scripts/dev_hosts.env (see dev_hosts.env.example)" >&2
+  exit 2
+fi
 
 if [ ! -d "$LOCAL_DIR/fac" ]; then
   echo "missing $LOCAL_DIR/fac/" >&2
   exit 2
 fi
 
-# Sync the manifest dir contents to windowsmini.
+# Sync the manifest dir contents to the Windows host.
 scp -q -r "$LOCAL_DIR/fac/" "$WIN_HOST:$REMOTE_DIR/" >&2
 
 # Build a remote bash script (single-quoted heredoc so $vars resolve on remote).

@@ -14,7 +14,7 @@
 # commit `bench/results/history.yaml` INTO THE SAME PR — NOT as a post-merge
 # follow-up (that would need its own PR each merge). Put the PR intent in
 # `--reason`; the entry's commit SHA is the branch tip (cosmetic — reason/PR#/
-# date identify it). Run on Mac; ubuntunote / windowsmini for Linux / Windows
+# date identify it). Run on Mac; the configured Linux / Windows SSH hosts for their
 # rows when needed. Auto-CI (push-triggered bench.yml) stays disabled
 # (2026-05-25; CI was not consumed, auto-runs produced noise).
 #
