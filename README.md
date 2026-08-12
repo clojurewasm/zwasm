@@ -6,7 +6,6 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 [![Zig](https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white)](https://ziglang.org/)
 [![WebAssembly 3.0](https://img.shields.io/badge/WebAssembly-3.0-654ff0?logo=webassembly&logoColor=white)](https://webassembly.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![GitHub Sponsors](https://img.shields.io/github/sponsors/chaploud?logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/chaploud)
 
 > **Status: feature-complete and green on the 3-OS CI matrix**
 > (macOS aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
@@ -238,7 +237,3 @@ bench/       benchmark history (append-only)
 ## License
 
 Copyright 2026 zwasm Contributors. Licensed under Apache-2.0 — see `LICENSE`.
-
----
-
-Developed in spare time alongside a day job. Sponsorship via [GitHub Sponsors](https://github.com/sponsors/chaploud) is welcome and helps keep work going.
