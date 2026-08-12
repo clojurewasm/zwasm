@@ -76,7 +76,3 @@ full `Trap` set, so callers branch on the exact spec condition.
 `StartTrapped` (the `(start)` function trapped) / `MemoryLimitExceeded` /
 `TableLimitExceeded` (declared initial exceeds the `opts` cap) / `InstantiateFailed`
 (any other link/alloc failure).
-
-## Design docs
-
-- [`docs/zig_api_design.md`](../zig_api_design.md) — the rationale + ADR-0109 derivation.

@@ -121,21 +121,18 @@ toolchains — see [`.dev/toolchain_provisioning.md`](../.dev/toolchain_provisio
 
 ## Things you may see referenced but do NOT need
 
-- **SSH gate hosts** (`ubuntunote`, `windowsmini`): the maintainer's private
-  pre-PR mirror of the CI matrix
-  ([`scripts/gate_merge.sh`](../scripts/gate_merge.sh),
-  `scripts/run_remote_*.sh`). Entirely optional — CI is the gate. To run the
-  same fan-out against **your own** hosts (matching architectures: x86_64
-  Linux + x86_64 Windows), copy
+- **Remote pre-flight scripts** (`scripts/gate_merge.sh`,
+  `scripts/run_remote_*.sh`): an *optional* local mirror of the CI matrix for
+  anyone with spare x86_64 Linux / Windows machines. CI is the authoritative
+  gate — you never need these. To use them, copy
   [`scripts/dev_hosts.env.example`](../scripts/dev_hosts.env.example) to
-  `scripts/dev_hosts.env` (gitignored) and edit the three values — every
-  remote-gate script sources it. Host provisioning notes:
-  `.dev/ubuntunote_setup.md` / `.dev/windows_ssh_setup.md`.
-- **`private/`**: a gitignored maintainer scratch directory (spikes, notes,
-  debug repros). No build or test path requires it; scripts that look inside
-  it skip cleanly when it is absent. Never create it for a contribution.
-- **Reference clones** (`~/Documents/OSS/...` paths in `.dev/` docs): the
-  maintainer's local layout for reading other runtimes' source
+  `scripts/dev_hosts.env` (gitignored) and point the three values at your own
+  hosts; every remote-gate script sources it.
+- **Gitignored local scratch**: a few scripts probe gitignored local paths and
+  skip cleanly when they are absent. No build, test, or review path requires
+  any file outside the committed tree.
+- **Reference clones** (`~/Documents/OSS/...` paths in `.dev/` docs): a local
+  layout for reading other runtimes' source
   ([`.dev/reference_clones.md`](../.dev/reference_clones.md)) — not required
   to build, test, or review.
 - **`.claude/`**: AI-agent workflow scaffolding (skills, session rules).

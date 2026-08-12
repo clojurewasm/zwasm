@@ -93,7 +93,8 @@ is configured via [`include/wasi.h`](../include/wasi.h). Runnable:
 [`docs/examples/c_host/`](examples/c_host/). Reference:
 [`reference/c_api.md`](reference/c_api.md).
 
-## 6. Migrating from v1
+## 6. Coming from v1
 
-v2 breaks v1's ABI by design. See
-[`migration_v1_to_v2.md`](migration_v1_to_v2.md).
+v2 breaks v1's ABI by design (v1 is frozen at `v1.11.1`): re-embed against
+the current C / Zig / CLI surfaces documented in
+[`reference/`](reference/).

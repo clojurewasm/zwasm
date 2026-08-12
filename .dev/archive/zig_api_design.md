@@ -1,5 +1,7 @@
 # zwasm v2 — Zig API design spec (target)
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — ADR-0109 design derivation; superseded by docs/reference/zig_api.md).
+
 **Status**: Live consumer spec for the native Zig API. ADR-0109
 **Accepted 2026-05-25** authorizes the rewrite; ROADMAP §10 /
 10.J carries the implementation cycles.

@@ -1,5 +1,7 @@
 # Wasm runtime deep comparison — Value / Globals / 17-dimension audit
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — 2026-05 runtime survey citing maintainer-local sources).
+
 **Date**: 2026-05-24 (post-repo-update audit; HEAD SHAs cited
 per-runtime below).
 **Scope**: 8 runtimes surveyed at internal-representation depth,

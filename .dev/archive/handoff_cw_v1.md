@@ -1,6 +1,6 @@
 # zwasm → ClojureWasm v1 handoff (v2 shipped to main 2026-07-01)
 
-> **Doc-state**: ACTIVE
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — v1-era cljw handoff narrative (campaign pause record)).
 >
 > zwasm v2 shipped to `main` (2026-07-01) and its dev is **demand-driven**,
 > verified green on Mac aarch64 + ubuntu x86_64. The runtime is feature-complete

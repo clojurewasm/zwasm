@@ -1,5 +1,7 @@
 # zwasm v1 — contributor PR / issue history
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — v1 community contributor record; groundwork done).
+
 > **Scope**: this records the *community* contribution history of **zwasm v1**
 > (the published `clojurewasm/zwasm` repository, releases `v1.0.0` → `v1.11.0`),
 > as groundwork for the v2 release. Both now live in `$MY/zwasm` (unified working
