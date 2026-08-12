@@ -31,6 +31,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Same reason as the ci.yml cache: a release build must not be at the
+      # mercy of a transient dep-fetch TLS failure (D-274 keeps zlinter eager).
+      - name: Cache Zig package deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-release-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-pkg-release-
+
       - name: Install Zig 0.16.0
         shell: bash
         run: |
