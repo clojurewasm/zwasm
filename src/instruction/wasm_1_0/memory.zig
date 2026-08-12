@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform 48-handler load/store catalog, itself the §A2 extraction; further split yields N3-shallow siblings (investigated 2026-08-12, per ADR-0099)
 //! MVP memory ops — loads / stores / memory.size / memory.grow
 //! (Phase 2 / §9.2 / 2.2 chunk 5).
 //!

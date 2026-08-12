@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: residual orchestration after the ADR-0079 carve-outs (setup/compile already extracted); pub surface is stability re-exports + one pipeline (investigated 2026-08-12, per ADR-0099)
 //! End-to-end wasm → JIT runner (Step 4 / sub-7.5b-i).
 //!
 //! Loads raw wasm bytes, walks the standard sections, compiles

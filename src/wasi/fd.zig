@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: uniform WASI-0.1 fd_* syscall catalog sharing the bounds-checked memory helpers (N1/N2 on split); 41% tests P4-alone (investigated 2026-08-12, per ADR-0099)
 //! WASI 0.1 fd_* handlers (Phase 4 / §9.4 / 4.4).
 //!
 //! Stdio-only first pass — fds 0 / 1 / 2. Arbitrary file fds

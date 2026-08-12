@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single TcpSocket state machine (ADR-0180 transitions); a mid-machine split forces an N2 pub-leak of state helpers (investigated 2026-08-12, per ADR-0099)
 //! WASI Preview 2 `wasi:sockets` host backing (ADR-0180 Phase 1).
 //!
 //! The TCP-client subset's OS-facing half: a `TcpSocket` state machine
@@ -1041,7 +1042,6 @@ fn winUdpBind(family: AddressFamily, addr: net.IpAddress) !net.Socket {
 // Tests
 // ============================================================
 const testing = std.testing;
-const skip = @import("../test_support/skip.zig");
 
 test "tcp client lifecycle: create → connect → echo against a loopback listener" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});

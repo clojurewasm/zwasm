@@ -77,7 +77,7 @@ structurally broken**:
 
 ## Audit hook
 
-`audit_scaffolding §G` (or a future `scripts/check_rule_size.sh`): flag any
+`audit_scaffolding §G` (or a future rule-size check script): flag any
 `.claude/rules/*.md` whose auto-loaded body exceeds ~60 lines without a
 matching `.claude/references/<name>.md` — that is the stub-pattern regression
 signal.

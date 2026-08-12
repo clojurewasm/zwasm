@@ -178,8 +178,9 @@ zig build test-all      # all enabled layers
 zig fmt src/            # format
 ```
 
-3-host invocation discipline in
-[`GATE.md`](skills/continue/GATE.md).
+Host/CI invocation discipline:
+[`docs/development.md`](../docs/development.md) (ADR-0206 SSOT; the loop-era
+[`GATE.md`](skills/continue/GATE.md) is historical reference).
 
 Realworld `.wasm` fixtures are generated on the **Mac host only** via
 `nix develop .#gen` (emcc / tinygo / rustc-wasm / go / clang+lld, pinned

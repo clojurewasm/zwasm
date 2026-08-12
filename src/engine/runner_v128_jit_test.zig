@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: pure test suite already P1+P3-extracted (D-460/D-461); further slicing duplicates spill fixtures (N4) (investigated 2026-08-12, per ADR-0099)
 //! End-to-end v128-on-JIT tests (D-460 v128-GC field round-trips + D-461 SIMD
 //! register-spill correctness). Split from `runner_gc_test.zig` (P1 spec-defined
 //! sub-language — v128/SIMD lane + load ops under the JIT — + P3 independent

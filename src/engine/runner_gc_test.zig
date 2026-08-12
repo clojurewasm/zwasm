@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: pure test suite already P1+P3-extracted from runner_test.zig (ADR-0128); slicing duplicates fixtures (N4) (investigated 2026-08-12, per ADR-0099)
 //! GC-on-JIT end-to-end tests (ADR-0128 §1 / §2) extracted from
 //! `runner_test.zig` (P1 spec-defined sub-language + P3 independent
 //! change cadence — the gc/ref op family evolves on its own track and

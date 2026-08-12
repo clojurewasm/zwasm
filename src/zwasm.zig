@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: library root: re-export surface + root smoke tests; P4-alone at 44 lines over soft cap (investigated 2026-08-12, per ADR-0099)
 //! zwasm — WebAssembly runtime, library root.
 //!
 //! Per ADR-0024 D-1/D-2: this file is the `root_source_file` of
@@ -402,6 +403,15 @@ test {
     _ = @import("instruction/wasm_2_0/reference_types.zig");
     _ = @import("instruction/wasm_2_0/table_ops.zig");
     _ = @import("api/wasm.zig");
+    // S5 test-discovery guard (check_test_discovery.sh) backfill: these
+    // files carried named tests that no test step discovered.
+    _ = @import("engine/codegen/x86_64/frame_chain.zig");
+    _ = @import("engine/codegen/x86_64/sp_restore.zig");
+    _ = @import("engine/codegen/arm64/sp_restore.zig");
+    _ = @import("engine/codegen/shared/frame_teardown.zig");
+    _ = @import("ir/feature_level_check.zig");
+    _ = @import("test_support/skip.zig");
+    _ = @import("interp/mvp_tests.zig");
     _ = @import("wasi/preview1.zig");
     _ = @import("wasi/host.zig");
     _ = @import("wasi/proc.zig");
@@ -426,6 +436,9 @@ test {
     _ = @import("feature/component/async.zig");
     _ = @import("feature/component/value.zig");
     _ = @import("api/component.zig");
+    _ = @import("api/component_wasi_ctx.zig");
+    _ = @import("api/component_wasi_p3_host.zig");
+    _ = @import("api/component_wasi_p2.zig");
     _ = @import("api/component_tests.zig");
     _ = @import("api/component_async_tests.zig");
     // ADR-0193 P3: the P3 driver + its 28 async tests compile only at

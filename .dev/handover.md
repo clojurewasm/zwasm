@@ -25,17 +25,12 @@ Prior line v2.4.1; v1 frozen at `v1.11.1`. Dev model: `develop/<slug>` from
   windows own NT/AFD socket control plane + NT hardlinks + pre-OS empty-path
   noent. Mechanism notes = code comments (`p2_sockets.zig` AFD section,
   `path.zig` winPathLink) + ADR-0205 F.
+- **reproducible-dev-env** (#166, ADR-0206): `docs/development.md` SSOT +
+  `dev_hosts.env` config + dead-script sweep. Post-merge main CI green
+  (incl. extended) for #165; #166's run superseded-cancelled by #167's.
 - Doc-truth gaps #153/#154 + #163 CLOSED (prose gates live in the always-on
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
-
-## Closed fronts (2026-08-11)
-
-- **wasi03-full + windows port** (#165, ADR-0205): WASI 0.3 official corpus
-  45/45 on all 3 OSes, 0 skip. **reproducible-dev-env** (#166, ADR-0206):
-  `docs/development.md` SSOT + `dev_hosts.env` config + dead-script sweep.
-  post-merge main CI green (incl. extended) for #165; #166's run was
-  superseded-cancelled by #167's (same content verified on the #166 PR).
 
 ## Active front — 完成形 cleanliness sweep (user-directed 2026-08-11, PRE-TAG)
 
@@ -68,7 +63,22 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
   cap can stay, but a file ALREADY over cap growing further in a PR should
   gate (delta-ratchet, not absolute); (b) version/claim fossil guard —
   extend the doc-truth job pattern; (c) whatever S2/S3 finds systemic.
-- Exit: axes S1–S5 each closed-or-ADR'd, THEN user tags v2.5.0.
+- **S6 README+docs 完成形化 (user 2026-08-11, runs AFTER S1–S5)**: README +
+  every doc it references — delete / archive / update to current state;
+  final-form only (spec・status・guides), no development history (assume
+  ~zero v1 users; cut docs/ sprawl). HARD: public docs get ZERO mentions
+  of the personal 3-host SSH setup or `private/` (PC-local).
+- Exit: axes S1–S6 each closed-or-ADR'd, THEN user tags v2.5.0.
+
+## S1 status (campaign CLOSED 2026-08-12)
+
+- **D-444 DISCHARGED** — ADR-0207 three-way split landed on this branch
+  (M1-M4 + Phase V retrospective in the ADR; ctx 1342 / facade 2017 EXEMPT /
+  p3_host 2493 EXEMPT; hooks inversion; full net green each commit). Branch
+  `develop/s1-d444-three-way-split` → PR to main next.
+- **S1 remainder**: triage the other over-cap files (jit_abi 2027 hard-cap +
+  ~28 WARN-class incl. component_wasi_p3.zig 1471) per ADR-0099 P/N — next
+  branch after this PR merges.
 
 ## Operational invariants (keep using)
 
@@ -86,8 +96,8 @@ what failed to prevent the drift). Concrete axes, each → its own PR(s):
 
 - **D-477/D-478** JIT slivers (build-on-demand); **D-475 residual**
   spec-harness register-table wiring; **D-502** CM string encodings;
-  **D-444** split `component_wasi_p2.zig` (grew again in wasi03);
-  **D-526** doc-staleness sweep; D-464 long-tail.
+  **D-526** doc-staleness sweep; D-464 long-tail. (D-444 discharged
+  2026-08-12, ADR-0207.)
 - G-senior-gap G1/G2/G3 COMPLETE
   (`.dev/meta_audits/2026-07-06-senior-runtime-gap-analysis.md`).
 

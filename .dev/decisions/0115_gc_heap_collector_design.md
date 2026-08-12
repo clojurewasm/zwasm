@@ -1,6 +1,7 @@
 # 0115 — WasmGC heap + collector design: per-Store slab + pluggable vtable + needs_gc_heap zero-overhead gate
 
 - **Status**: Accepted (2026-05-25; Phase 10 / 10.D ADR round close)
+- **Revision note (2026-08-12, D-525)**: the §3 `-Dgc` compile-time gate was never adopted by the op handlers — GC ships with `-Dwasm=v3_0` and the wasm level is the strip lever (wasm-level DCE, `check_build_dce.sh`). The flag + its `enable_gc` re-export were retired (sweep S2); §3's heap/collector design itself is unchanged and landed.
 - **Date**: 2026-05-25
 - **Author**: claude (autonomous loop, /continue prep path)
 - **Tags**: wasmgc, wasm-3.0, gc-heap, collector-vtable, mark-sweep,

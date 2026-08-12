@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: ADR-0079 Step-1 carve-out (RuntimeOwned + setupRuntime, one deep op); further split forces N2 (investigated 2026-08-12, per ADR-0099)
 // AUTO-EXTRACTED from src/engine/runner.zig at ADR-0079 Step 1 (close-plan §6 (g)).
 // Carve-out: `RuntimeOwned` + `setupRuntime` + `hostDispatchTrap`. Re-export
 // from runner.zig keeps the public surface stable.

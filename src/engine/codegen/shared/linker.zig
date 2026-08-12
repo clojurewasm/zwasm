@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single compose+patch link pass over EmitOutputs; 41% in-file tests P4-alone (investigated 2026-08-12, per ADR-0099)
 //! JIT module linker (sub-7.4b).
 //!
 //! Composes per-function `EmitOutput`s into a single contiguous

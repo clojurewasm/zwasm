@@ -47,6 +47,12 @@ pub fn build(b: *std.Build) void {
     // Adopted as a weekly Linux x86_64 lane, not per-commit (~2× slower).
     const sanitize = b.option(SanitizeMode, "sanitize", "Sanitizer (off / address / thread). Mac+Linux only.") orelse .off;
     const is_windows = target.result.os.tag == .windows;
+    if (is_windows and sanitize != .off) {
+        // A requested sanitizer must never silently vanish: Windows ucrt has
+        // no ASan/TSan runtime in this toolchain, so reject instead of
+        // building an unsanitized binary the caller believes is sanitized.
+        std.debug.panic("-Dsanitize={s} is not available on Windows targets (Mac+Linux only)", .{@tagName(sanitize)});
+    }
     const sanitize_c: ?std.zig.SanitizeC = if (is_windows) null else switch (sanitize) {
         .off => null,
         .address => .full,
@@ -61,11 +67,6 @@ pub fn build(b: *std.Build) void {
     // instead of `createModule + applySanitize` boilerplate (D-016
     // discharge).
     const sanitize_opts: SanitizeOpts = .{ .c = sanitize_c, .thread = sanitize_thread };
-    // Repro task name for `zig build run-repro -Dtask=<name>` per
-    // ADR-0015 §Decision Part 4. Discovers
-    // `private/dbg/<task>/repro.zig` and links it against the
-    // zwasm-lib module. Step is silent when -Dtask is unset.
-    const repro_task = b.option([]const u8, "task", "Repro task name (private/dbg/<task>/repro.zig)");
 
     // ADR-0028 / D-022: Diagnostic M3-a trace ringbuffer compile-time
     // gate. Default false so release builds emit zero trace code in
@@ -81,19 +82,6 @@ pub fn build(b: *std.Build) void {
     // `-Dtrace-stackprobe=true`.
     const trace_stackprobe = b.option(bool, "trace-stackprobe", "Compile in the [stack_probe]/[d-165] JIT diagnostic prints (default: false)") orelse false;
 
-    // ADR-0115 §3 — `-Dgc=true|false` zero-overhead compile-time
-    // gate. `false` (default for Phase 10 v0.1 since WasmGC ops
-    // aren't dispatched yet) means GC heap allocator + collector
-    // vtable + root walk all skip at runtime; future cycles add
-    // the dispatch-side comptime check that strips op_gc handlers
-    // via DCE when `enable_gc=false` (WAMR-equivalent nuclear
-    // strip per ADR-0115 §3). `true` opts the feature in once
-    // op_gc lands. Pairs with `Module.needs_gc_heap` parse-time
-    // predicate — the runtime gate at instantiate already
-    // skips heap materialisation when needs_gc_heap=false, so
-    // `enable_gc=false` is the additional source-level strip for
-    // module-construction code paths.
-    const enable_gc = b.option(bool, "gc", "Enable WasmGC heap+collector compile-in (default: false; per ADR-0115 §3)") orelse false;
     // Zig does NOT bundle compiler-rt into a static library by default (the
     // implicit default only covers exe + dynamic lib), so a NON-zig linker
     // consuming libzwasm.a is left with undefined `__zig_probe_stack`
@@ -123,7 +111,6 @@ pub fn build(b: *std.Build) void {
     options.addOption(EngineMode, "engine_mode", engine_mode);
     options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
-    options.addOption(bool, "enable_gc", enable_gc);
     options.addOption(bool, "enable_component", enable_component);
     options.addOption(bool, "enable_wasi_p3", enable_wasi_p3);
     options.addOption([]const u8, "version", zon.version);
@@ -452,7 +439,6 @@ pub fn build(b: *std.Build) void {
     comp_options.addOption(EngineMode, "engine_mode", engine_mode);
     comp_options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     comp_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
-    comp_options.addOption(bool, "enable_gc", enable_gc);
     comp_options.addOption(bool, "enable_component", true);
     comp_options.addOption(bool, "enable_wasi_p3", @intFromEnum(comp_wasi_level) >= @intFromEnum(WasiLevel.p3));
     comp_options.addOption([]const u8, "version", zon.version);
@@ -503,7 +489,6 @@ pub fn build(b: *std.Build) void {
     p3_options.addOption(EngineMode, "engine_mode", engine_mode);
     p3_options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     p3_options.addOption(bool, "trace_stackprobe", trace_stackprobe);
-    p3_options.addOption(bool, "enable_gc", enable_gc);
     p3_options.addOption(bool, "enable_component", true);
     p3_options.addOption(bool, "enable_wasi_p3", true);
     p3_options.addOption([]const u8, "version", zon.version);
@@ -519,6 +504,18 @@ pub fn build(b: *std.Build) void {
     core_p3.addImport("build_options", p3_options_mod);
     core_p3.addIncludePath(b.path("include"));
     core_p3.addImport("zwasm", core_p3);
+    // `zig build test-list` — print every DISCOVERED test name (custom list
+    // runner; sweep S5(c)). Runs on the p3-forced module (the maximal file
+    // set); `scripts/check_test_discovery.sh` diffs this against the named
+    // `test "…"` blocks present in source to catch dead test blocks.
+    const list_tests = b.addTest(.{
+        .root_module = core_p3,
+        .test_runner = .{ .path = b.path("src/test_support/list_tests_runner.zig"), .mode = .simple },
+    });
+    const run_list_tests = b.addRunArtifact(list_tests);
+    const test_list_step = b.step("test-list", "List every discovered test name (S5 test-discovery guard input)");
+    test_list_step.dependOn(&run_list_tests.step);
+
     const p3_tests = b.addTest(.{
         .root_module = core_p3,
         .filters = if (b.option([]const u8, "test-filter", "run only tests whose name contains this string (test-wasi-p3)")) |f| b.dupeStrings(&.{f}) else &.{},
@@ -1441,36 +1438,6 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_realworld_run_jit.step);
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
     test_all_step.dependOn(&run_zig_facade.step);
-
-    // `zig build run-repro -Dtask=<name>` — discover
-    // `private/dbg/<task>/repro.zig`, link it against the zwasm
-    // library, and run it. Per ADR-0015 §Decision Part 4 / §9.6 /
-    // 6.K.7. Silent (non-failing) when -Dtask is unset, so
-    // `zig build` itself stays unaffected; running the step
-    // without -Dtask prints the usage hint.
-    const repro_step = b.step("run-repro", "Run private/dbg/<task>/repro.zig (-Dtask=<name>)");
-    if (repro_task) |task| {
-        const repro_path = b.fmt("private/dbg/{s}/repro.zig", .{task});
-        const repro_mod = createSanitizedModule(b, sanitize_opts, .{
-            .root_source_file = b.path(repro_path),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        });
-        repro_mod.addImport("zwasm", zwasm_lib_mod);
-        const repro_exe = b.addExecutable(.{
-            .name = b.fmt("zwasm-repro-{s}", .{task}),
-            .root_module = repro_mod,
-        });
-        const run_repro = b.addRunArtifact(repro_exe);
-        repro_step.dependOn(&run_repro.step);
-    } else {
-        const print_usage = b.addSystemCommand(&.{
-            "/bin/sh",                                                                                     "-c",
-            "echo 'usage: zig build run-repro -Dtask=<name>  (private/dbg/<name>/repro.zig)' >&2; exit 2",
-        });
-        repro_step.dependOn(&print_usage.step);
-    }
 
     // `zig build lint` — zlinter rule chain (ADR-0009 + Phase B
     // expansion). See `private/zlinter-builtins-survey-2026-05-03.md`

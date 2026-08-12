@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: already the P4 test-isolation extraction from component.zig; topic-slicing would duplicate fixtures (N4) (investigated 2026-08-12, per ADR-0099)
 //! Tests for `component.zig` (Zone-3 component host orchestration).
 //! Extracted from `component.zig` per the file-size smell rule (P4
 //! test-isolation; mirrors `validator_tests.zig`). The impl file stays lean.

@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: verified P1 seam (section decode → types_decode.zig) SCHEDULED post-v2.5.0 as D-581 (triage 2026-08-12, per ADR-0099)
 //! Component **type model + type/import/export section decode** (CM campaign
 //! chunk A2; spec `component-model/design/mvp/Binary.md` §type / §import-export).
 //!

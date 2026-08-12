@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: single instantiateGraph recursion; 62 private helpers share graph state — N2 on any cut (investigated 2026-08-12, per ADR-0099; re-triage on growth)
 //! Multi-component **graph** orchestration (Zone 3; D-305).
 //!
 //! `instantiateGraph` evaluates a composed component's outer `instance`

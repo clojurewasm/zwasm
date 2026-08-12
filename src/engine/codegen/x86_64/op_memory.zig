@@ -1,3 +1,4 @@
+// FILE-SIZE-EXEMPT: per-instruction-class catalog (D-030), same class as its 12 marked x86_64 op_* siblings (investigated 2026-08-12, per ADR-0099)
 //! x86_64 emit pass — memory load/store handlers (D-030 chunk-e).
 //!
 //! Extracted from `emit.zig` per ADR-0023 §269-314 + the ARM64
