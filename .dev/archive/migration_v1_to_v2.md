@@ -1,5 +1,7 @@
 # zwasm v1 → v2 migration guide
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — v1→v2 migration guide; audience (~zero v1 users) evaporated post-stable — the live fact (MIT→Apache-2.0 relicense) moved to README).
+
 zwasm **v2** is a ground-up rewrite (releases `v1.0.0`–`v1.11.1` are v1, now
 frozen; v2 ships as `v2.x.x` tags, first stable `v2.0.0`).
 It keeps full Wasm spec coverage (Wasm 1.0/2.0/3.0, WASI 0.1/0.2, plus an

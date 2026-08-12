@@ -33,7 +33,7 @@ cd "$repo_root" || exit 2
 ANCHOR_FILE="src/api/component_wasi_p3.zig"
 
 # Dated records, not live claims.
-EXEMPT_RE='^(bench/|CHANGELOG\.md$|docs/handoff_cw_v1\.md$|\.dev/lessons/|\.dev/decisions/|\.dev/phase_log/|\.dev/meta_audits/|\.dev/debt\.yaml$|\.dev/handover\.md$|\.dev/proposal_watch\.md$|\.devils-advocate/|scripts/check_wasi03_coverage_claims\.sh$)'
+EXEMPT_RE='^(bench/|CHANGELOG\.md$|\.dev/archive/|\.dev/lessons/|\.dev/decisions/|\.dev/phase_log/|\.dev/meta_audits/|\.dev/debt\.yaml$|\.dev/handover\.md$|\.dev/proposal_watch\.md$|\.devils-advocate/|scripts/check_wasi03_coverage_claims\.sh$)'
 
 # Phrasings that assert a WASI 0.3 proposal is NOT served. Matched
 # case-insensitively; the proposal name must co-occur with a not-done word on

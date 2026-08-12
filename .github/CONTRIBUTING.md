@@ -4,7 +4,7 @@ Thanks for your interest in zwasm.
 
 ## How to contribute
 
-zwasm v2 has reached its first release candidate and welcomes contributions.
+zwasm v2 is on its stable release line and welcomes contributions.
 This is a small, resource-limited project, so please keep the following in mind
 to make review sustainable:
 
@@ -54,8 +54,8 @@ zig fmt src/           # format
 
 **[`docs/development.md`](../docs/development.md) is the full development
 reference** — test layers, optional tools (wasmtime oracle, Nix shells,
-`yq`), git-hook activation, and an explicit list of the maintainer-only
-things you do NOT need (SSH gate hosts, `private/`, fixture-regeneration
+`yq`), git-hook activation, and an explicit list of the optional tooling
+you do NOT need (remote pre-flight scripts, fixture-regeneration
 toolchains). CI runs the complete 3-OS gate on every PR, so a single
 machine of any supported OS is enough to contribute.
 

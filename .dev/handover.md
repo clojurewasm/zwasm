@@ -5,15 +5,15 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.5.0 TAG ON HOLD (user 2026-08-11)**: main (`f4157226d`, #167) already
-carries `build.zig.zon = 2.5.0` + the cut CHANGELOG section — prepared but
-NOT tagged (remote tags end at v2.4.1; verified). The user paused the tag to
-run the cleanliness sweep (front below) first; the sweep is internal-only,
-so it ships under the same v2.5.0 when the user tags
-(`git tag v2.5.0 <sha> && git push origin v2.5.0` → release.yml publishes).
-Prior line v2.4.1; v1 frozen at `v1.11.1`. Dev model: `develop/<slug>` from
-`main` → PR → CI `ci-required` green → merge. **Release stays user-only
-(ADR-0156)** — never autonomously tag / publish / cut over.
+**v2.5.0 READY TO TAG (sweep COMPLETE 2026-08-12)**: the user-directed
+pre-tag cleanliness sweep (S1-S6) is DONE — S1-S5 merged as #175, S6
+(docs final-form) is the PR in flight / just merged. main carries
+`build.zig.zon = 2.5.0` + the CHANGELOG section; remote tags end at
+v2.4.1. **The only remaining step is the USER pushing the tag**
+(`git tag v2.5.0 <sha> && git push origin v2.5.0` → release.yml
+publishes; ADR-0156 — never autonomous). Prior line v2.4.1; v1 frozen
+at `v1.11.1`. Dev model: `develop/<slug>` from `main` → PR → CI
+`ci-required` green → merge.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
@@ -32,53 +32,23 @@ Prior line v2.4.1; v1 frozen at `v1.11.1`. Dev model: `develop/<slug>` from
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
 
-## Active front — 完成形 cleanliness sweep (user-directed 2026-08-11, PRE-TAG)
+## Cleanliness sweep S1-S6 — COMPLETE (2026-08-12)
 
-The NEXT session's mandate (user: 腰を据えて — design / build flags / runtime
-options / directory+file organization all genuinely clean, PLUS mechanize
-what failed to prevent the drift). Concrete axes, each → its own PR(s):
-
-- **S1 file/dir organization**: 30 files over ADR-0099 caps (advisory since
-  2026-07-03 — which is exactly why `component_wasi_p2.zig` grew 2228→5470
-  SILENTLY, now over even its exempt cap; `jit_abi.zig` 2027 > hard cap).
-  D-444 Phase-I is DONE (findings in the row, 2026-08-11): the one-way split
-  premise is WRONG — 3 reverse deps + a generation-neutral host-stream
-  engine ⇒ THREE-way split (shared substrate / P2 / P3) with vtable
-  inversion. Run as ADR-0153 rework (II characterization net = 76+61
-  sibling tests BEFORE moving code). Then triage the remaining over-cap
-  list per ADR-0099 P/N conditions (split on positive, EXEMPT with real
-  rationale otherwise).
-- **S2 build-flag surface**: D-525 `-Dgc` is INERT (option exists, reader
-  is dead) — fix or remove; audit the whole `-D` surface for tier
-  coherence (`-Dwasm`/`-Dwasi` orderings, `-Dengine`, `-Dcompiler-rt`,
-  `-Dtask`…) against docs/development.md + README claims.
-- **S3 runtime/CLI option surface**: `zwasm --help` あるべき論 audit —
-  naming/defaults/coverage vs the engine reality (auto/interp/jit), env
-  vars (ZWASM_*) inventoried + documented or removed.
-- **S4 doc/claim fossils**: the class found twice today (CLAUDE.md stuck at
-  v2.0.0-rc.1; ubuntunote_setup referencing deleted scripts) — run
-  `audit_scaffolding` §A–G full pass now that two campaigns closed
-  back-to-back.
-- **S5 mechanization (prevention)**: (a) file-size GROWTH ratchet — advisory
-  cap can stay, but a file ALREADY over cap growing further in a PR should
-  gate (delta-ratchet, not absolute); (b) version/claim fossil guard —
-  extend the doc-truth job pattern; (c) whatever S2/S3 finds systemic.
-- **S6 README+docs 完成形化 (user 2026-08-11, runs AFTER S1–S5)**: README +
-  every doc it references — delete / archive / update to current state;
-  final-form only (spec・status・guides), no development history (assume
-  ~zero v1 users; cut docs/ sprawl). HARD: public docs get ZERO mentions
-  of the personal 3-host SSH setup or `private/` (PC-local).
-- Exit: axes S1–S6 each closed-or-ADR'd, THEN user tags v2.5.0.
-
-## S1 status (campaign CLOSED 2026-08-12)
-
-- **D-444 DISCHARGED** — ADR-0207 three-way split landed on this branch
-  (M1-M4 + Phase V retrospective in the ADR; ctx 1342 / facade 2017 EXEMPT /
-  p3_host 2493 EXEMPT; hooks inversion; full net green each commit). Branch
-  `develop/s1-d444-three-way-split` → PR to main next.
-- **S1 remainder**: triage the other over-cap files (jit_abi 2027 hard-cap +
-  ~28 WARN-class incl. component_wasi_p3.zig 1471) per ADR-0099 P/N — next
-  branch after this PR merges.
+All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
+- **S1** D-444 three-way split (ADR-0207) + full over-cap triage —
+  `file_size_check` 0 WARN repo-wide (was 30); canon/types P1 seams
+  scheduled post-tag (D-580/D-581).
+- **S2** -Dgc + run-repro retired (D-525; ADR-0115/0015 revision notes);
+  Windows sanitize rejects loudly; build-option table in development.md.
+- **S3** --engine auto spellable; usage errors exit 2 uniformly; env
+  surface audited (no hidden flags).
+- **S4** audit fixes: ROADMAP links, blocked-by re-walk (6 dissolved
+  barriers flipped w/ evidence), doc-states.
+- **S5** four guards live: growth ratchet, compiler-truth test-discovery
+  (28 dead tests revived), doc-fossil guard (doc-truth job), blocked-by
+  age ladder. 
+- **S6** README+docs final-form: 6 history docs archived w/ Doc-state,
+  public docs carry ZERO personal-infra/private/ mentions, links verified.
 
 ## Operational invariants (keep using)
 

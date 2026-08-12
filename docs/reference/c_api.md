@@ -35,7 +35,7 @@ Full coverage of the wasm-c-api families:
 Residual *semantic* limits (functions exist + behave honestly, not
 link-stubbed): `wasm_val` `of.ref` = raw payload (D-269); standalone /
 instance / foreign `_copy` → null (D-253-D); `serialize` = source bytes,
-no AOT cache (D-271). Audit: [`.dev/c_api_surface_audit_2026-06-04.md`](../../.dev/c_api_surface_audit_2026-06-04.md).
+no AOT cache (D-271).
 
 ## WASI host-setup (`wasi.h`)
 

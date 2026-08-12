@@ -8,17 +8,19 @@ A from-scratch WebAssembly runtime in Zig 0.16.0.
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/chaploud?logo=githubsponsors&logoColor=white&color=ea4aaa)](https://github.com/sponsors/chaploud)
 
-> **Status: feature-complete and green on the 3-host gate**
-> (Mac aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
-> preview1 & preview2 (Component Model), interpreter + JIT (arm64 / x86_64) +
-> AOT (`.cwasm`), and the C / Zig / CLI surfaces are settled. **`v2.0.0` is the
-> first stable release** (SemVer starts here; v1 is frozen at `v1.11.1`).
+> **Status: feature-complete and green on the 3-OS CI matrix**
+> (macOS aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
+> 0.1, 0.2 (Component Model) and 0.3 (native async), interpreter + JIT
+> (arm64 / x86_64) + AOT (`.cwasm`), and the C / Zig / CLI surfaces are
+> settled. **`v2.0.0` is the first stable release** (SemVer starts here;
+> v1 is frozen at `v1.11.1`); the current line is on
+> [Releases](https://github.com/clojurewasm/zwasm/releases).
 
 v2 is a ground-up redesign of [zwasm v1](https://github.com/clojurewasm/zwasm)
 with day-one design for WebAssembly 3.0, wasm-c-api conformance, and
 dual-backend (interpreter + JIT-arm64 + JIT-x86) differential testing.
-v1 ABI compatibility is out of scope — see the
-[migration guide](docs/migration_v1_to_v2.md).
+v1 ABI compatibility is out of scope (v1 is frozen at `v1.11.1`; the v2
+line also relicensed from v1's MIT to Apache-2.0).
 
 ## Supported platforms
 
@@ -42,9 +44,9 @@ now (demand-driven).
 
 | Spec                                                                                                            | Status  | Notes                                                    |
 |-----------------------------------------------------------------------------------------------------------------|---------|----------------------------------------------------------|
-| Wasm 1.0                                                                                                        | ✅ 100% | spec testsuite green on the 3-host gate                  |
+| Wasm 1.0                                                                                                        | ✅ 100% | spec testsuite green on the 3-OS CI matrix                |
 | Wasm 2.0 (multi-value, SIMD-128, bulk-memory, reference-types, non-trapping FP→int, sign-ext, mutable globals) | ✅ 100% | `skip-impl == 0`; bit-identical across hosts             |
-| Wasm 3.0 (GC, EH, tail-call, memory64, multi-memory, typed func refs, extended-const, relaxed-simd, custom annotations) | ✅ 100% | all 9 proposals; spec testsuite green on the 3-host gate |
+| Wasm 3.0 (GC, EH, tail-call, memory64, multi-memory, typed func refs, extended-const, relaxed-simd, custom annotations) | ✅ 100% | all 9 proposals; spec testsuite green on the 3-OS CI matrix |
 
 ### WASI
 
@@ -212,13 +214,12 @@ src/         Zig sources (parse/ validate/ ir/ runtime/ instruction/ feature/
 include/     Public C headers (wasm.h / wasi.h / zwasm.h)
 build.zig    Build script
 flake.nix    Nix dev shell pinned to Zig 0.16.0
-docs/        Migration guide + design docs
+docs/        Tutorial + API reference + benchmarks
 .dev/        ROADMAP + handover + ADRs + lessons + setup notes
 .claude/     Claude Code settings, skills, rules (auto-loaded)
-scripts/     gate_commit, zone_check, file_size_check, bench, run_remote_*
+scripts/     pre-commit gate + integrity checks + bench tooling
 test/        per-layer suites; unified `zig build test-all`
 bench/       benchmark history (append-only)
-private/     gitignored maintainer scratch (never required; docs/development.md)
 ```
 
 ## Documentation
@@ -227,9 +228,6 @@ private/     gitignored maintainer scratch (never required; docs/development.md)
 - [`docs/reference/`](docs/reference/) — API reference:
   [Zig](docs/reference/zig_api.md) · [C](docs/reference/c_api.md) · [CLI](docs/reference/cli.md)
 - [`docs/benchmarks.md`](docs/benchmarks.md) — performance vs other runtimes + across engines
-- [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md) — v1 → v2 migration + the honest v1-vs-v2 gap analysis
-- [`docs/handoff_cw_v2_zig_api.md`](docs/handoff_cw_v2_zig_api.md) — current-state Zig embedding API (ClojureWasm handoff)
-- [`docs/v1_contributor_history.md`](docs/v1_contributor_history.md) — v1 community contributors + their PRs/issues
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes
 
 ## References

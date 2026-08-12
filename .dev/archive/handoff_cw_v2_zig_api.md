@@ -1,5 +1,7 @@
 # zwasm v2 — Zig embedding API, current-state handoff (ClojureWasm)
 
+> **Doc-state**: ARCHIVED (2026-08-12 sweep S6 — point-in-time cljw handoff (hardcoded release line); superseded by docs/reference/zig_api.md).
+
 > Audience: ClojureWasm (cljw / CWFS) maintainers embedding zwasm **v2** from Zig.
 > This is a **current-state reference** — "here is the API as it stands now",
 > not a changelog. For deep design rationale see

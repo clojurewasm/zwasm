@@ -30,7 +30,7 @@ cd "$repo_root" || exit 2
 ANCHOR_FILE="src/cli/dispatch.zig"
 
 # Paths whose interp-is-default text is a dated record, not a live claim.
-EXEMPT_RE='^(bench/|CHANGELOG\.md$|docs/handoff_cw_v1\.md$|\.dev/lessons/|\.dev/decisions/|\.dev/phase_log/|\.dev/meta_audits/|\.dev/debt\.yaml$|\.devils-advocate/|scripts/check_engine_default_claims\.sh$)'
+EXEMPT_RE='^(bench/|CHANGELOG\.md$|\.dev/archive/|\.dev/lessons/|\.dev/decisions/|\.dev/phase_log/|\.dev/meta_audits/|\.dev/debt\.yaml$|\.devils-advocate/|scripts/check_engine_default_claims\.sh$)'
 
 # Phrasings that assert the interpreter is zwasm's default. Matched
 # case-insensitively; `[`*]*` absorbs the markdown emphasis these names almost
