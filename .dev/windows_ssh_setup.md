@@ -96,13 +96,14 @@ Only the directory name differs.
 ssh windowsmini bash -lc "'
   mkdir -p ~/Documents/MyProducts &&
   cd ~/Documents/MyProducts &&
-  git clone -b main git@github.com:clojurewasm/zwasm.git zwasm
+  git clone -b main git@github.com:zwasm/zwasm.git zwasm
 '"
 ```
 
-`origin` ends up pointing at the same `clojurewasm/zwasm` GitHub
-remote that v1 uses; `main` is the trunk (the long-lived v2
-branch was merged into it).
+`origin` ends up pointing at `zwasm/zwasm`; `main` is the trunk
+(the long-lived v2 branch was merged into it). The clone path must
+match `ZWASM_REMOTE_DIR` in `scripts/dev_hosts.env` (relative to the
+remote `$HOME`) — that is what the runners `cd` into.
 
 ## Phase 0 smoke
 

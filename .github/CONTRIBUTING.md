@@ -9,10 +9,10 @@ This is a small, resource-limited project, so please keep the following in mind
 to make review sustainable:
 
 - **Bugs / feature requests** — open an
-  [Issue](https://github.com/clojurewasm/zwasm/issues/new/choose) using the
+  [Issue](https://github.com/zwasm/zwasm/issues/new/choose) using the
   templates. A minimal `.wasm` / `.wat` reproducer helps enormously.
 - **Questions & ideas** — start a thread in
-  [Discussions](https://github.com/clojurewasm/zwasm/discussions).
+  [Discussions](https://github.com/zwasm/zwasm/discussions).
 - **Pull requests** — welcome. For anything non-trivial, please open an issue
   or discussion first so we can agree on the approach before you invest time.
   Keep PRs focused; make sure `zig build test-all` and `zig fmt src/` are clean.

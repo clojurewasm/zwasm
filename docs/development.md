@@ -13,7 +13,7 @@ machines, SSH hosts, Nix, or any maintainer-specific setup to contribute.
 ## Quick start
 
 ```sh
-git clone https://github.com/clojurewasm/zwasm
+git clone https://github.com/zwasm/zwasm
 cd zwasm
 zig build                # compile the CLI + library
 zig build test           # unit tests
@@ -127,7 +127,9 @@ toolchains — see [`.dev/toolchain_provisioning.md`](../.dev/toolchain_provisio
   gate — you never need these. To use them, copy
   [`scripts/dev_hosts.env.example`](../scripts/dev_hosts.env.example) to
   `scripts/dev_hosts.env` (gitignored) and point the three values at your own
-  hosts; every remote-gate script sources it.
+  hosts; every remote-gate script sources it. No host name is baked into the
+  repo, so until you write that file `gate_merge.sh` simply skips the remote
+  legs.
 - **Gitignored local scratch**: a few scripts probe gitignored local paths and
   skip cleanly when they are absent. No build, test, or review path requires
   any file outside the committed tree.

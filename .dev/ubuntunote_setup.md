@@ -106,13 +106,15 @@ nix flake --help | head -3
 ```bash
 mkdir -p ~/Documents/MyProducts
 cd ~/Documents/MyProducts
-git clone -b main git@github.com:clojurewasm/zwasm.git zwasm
+git clone -b main git@github.com:zwasm/zwasm.git zwasm
 cd zwasm
 nix develop --command zig version   # should print 0.16.0
 ```
 
 The first `nix develop` fetches Zig 0.16.0 + project deps from
-the flake's pinned inputs (~5 min, one-time per host).
+the flake's pinned inputs (~5 min, one-time per host). The clone path
+must match `ZWASM_REMOTE_DIR` in `scripts/dev_hosts.env` (relative to
+the remote `$HOME`) — that is what the runners `cd` into.
 
 ### 5. Per-chunk gate smoke
 

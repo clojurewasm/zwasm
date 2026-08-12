@@ -13,7 +13,7 @@
 #   bash scripts/run_bench.sh --bench=<name>      # single bench by name
 #   bash scripts/run_bench.sh --windows-subset    # 5-fixture fast subset
 #                                                 # (§9.8 / 8.3) — for use on
-#                                                 # windowsmini SSH host where
+#                                                 # the Windows SSH host where
 #                                                 # the full inventory takes
 #                                                 # 5+ hours; ~250-400ms/fixture
 #                                                 # × 5 × 3-runs ≈ 6s total.
@@ -130,8 +130,8 @@ done
 
 # §9.8 / 8.3 — Windows subset: 5 fast fixtures (all <30ms on Linux
 # baseline). At Mac:Win ~12x ratio observed in Phase 7 close, this
-# is ~250-400ms/fixture × 3 quick-runs ≈ 6s total. Use on
-# windowsmini SSH host where the full 26-fixture inventory takes
+# is ~250-400ms/fixture × 3 quick-runs ≈ 6s total. Use on the
+# Windows SSH host where the full 26-fixture inventory takes
 # 5+ hours and is incompatible with inline gate cadence.
 WINDOWS_SUBSET_NAMES=(
     "shootout/nestedloop"

@@ -2,9 +2,10 @@
 # OPTIONAL local pre-PR pre-flight that MIRRORS CI. Runs the commit gate plus a
 # three-host test:
 #   - zig build test-all on Mac native
-#   - zig build test-all on `ubuntunote` Linux x86_64 SSH host
-#     (per ADR-0067; native, not OrbStack-Rosetta)
-#   - zig build test-all on `windowsmini` SSH host (if reachable)
+#   - zig build test-all on the configured Linux x86_64 SSH host
+#     (`ZWASM_UBUNTU_HOST`; per ADR-0067 native, not OrbStack-Rosetta)
+#   - zig build test-all on the configured Windows SSH host
+#     (`ZWASM_WINDOWS_HOST`, if reachable)
 #
 # `main` is ruleset-protected (no direct pushes) — changes land via a
 # develop/<slug> branch → PR → CI. The AUTHORITATIVE 3-OS merge gate is the
@@ -13,8 +14,8 @@
 # hardware so a maintainer CAN verify locally before opening a PR — but it is
 # not required, and green here is not a substitute for green ci-required.
 #
-# Missing ubuntunote SSH or unreachable windowsmini → WARN and continue (the
-# local Mac gate is the firm floor).
+# An unconfigured or unreachable SSH host → WARN and continue (the local Mac
+# gate is the firm floor).
 #
 # `test-all` aggregates every layer in ROADMAP §A13's "v1 regression suite"
 # definition that v2 has stood up:
@@ -63,16 +64,20 @@ bash scripts/check_jit_releasesafe.sh
 echo "[gate_merge] AOT cross-compile portability (§12.3) ..."
 bash scripts/check_aot_cross_compile.sh
 
-# The Linux/Windows SSH hosts default to the maintainer's aliases; override
-# with ZWASM_UBUNTU_HOST / ZWASM_WINDOWS_HOST, or set them once in the
-# per-machine scripts/dev_hosts.env (see dev_hosts.env.example). The cwd
-# is the repo root here (the cd at the top), so the path is literal.
+# The Linux/Windows SSH hosts are per-machine and have no in-repo default:
+# set ZWASM_UBUNTU_HOST / ZWASM_WINDOWS_HOST, or write them once into
+# scripts/dev_hosts.env (see dev_hosts.env.example). The cwd is the repo
+# root here (the cd at the top), so the path is literal.
 [ -f scripts/dev_hosts.env ] && source scripts/dev_hosts.env
-UBUNTU_HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
-WINDOWS_HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
+UBUNTU_HOST="${ZWASM_UBUNTU_HOST:-}"
+WINDOWS_HOST="${ZWASM_WINDOWS_HOST:-}"
+UNCONFIGURED="not configured — set it in scripts/dev_hosts.env (see dev_hosts.env.example)"
 
 # ---- native Linux x86_64 via SSH ----
-if ssh -o ConnectTimeout=5 -o BatchMode=yes "$UBUNTU_HOST" "echo ok" >/dev/null 2>&1; then
+if [ -z "$UBUNTU_HOST" ]; then
+    SKIPPED_HOSTS+=("Linux x86_64 — ZWASM_UBUNTU_HOST $UNCONFIGURED")
+    echo "[gate_merge] WARN: ZWASM_UBUNTU_HOST unset; skipping Linux gate." >&2
+elif ssh -o ConnectTimeout=5 -o BatchMode=yes "$UBUNTU_HOST" "echo ok" >/dev/null 2>&1; then
     echo "[gate_merge] zig build test-all on $UBUNTU_HOST (native x86_64) ..."
     bash scripts/run_remote_ubuntu.sh test-all
 else
@@ -81,7 +86,10 @@ else
 fi
 
 # ---- Windows x86_64 via SSH ----
-if ssh -o ConnectTimeout=5 -o BatchMode=yes "$WINDOWS_HOST" "echo ok" >/dev/null 2>&1; then
+if [ -z "$WINDOWS_HOST" ]; then
+    SKIPPED_HOSTS+=("Windows x86_64 — ZWASM_WINDOWS_HOST $UNCONFIGURED")
+    echo "[gate_merge] WARN: ZWASM_WINDOWS_HOST unset; skipping Windows gate." >&2
+elif ssh -o ConnectTimeout=5 -o BatchMode=yes "$WINDOWS_HOST" "echo ok" >/dev/null 2>&1; then
     echo "[gate_merge] zig build test-all on $WINDOWS_HOST SSH ..."
     bash scripts/run_remote_windows.sh test-all
 else

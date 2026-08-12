@@ -4,13 +4,13 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Questions & general discussion
-    url: https://github.com/clojurewasm/zwasm/discussions
+    url: https://github.com/zwasm/zwasm/discussions
     about: >-
       For questions, ideas, and general discussion, please start a Discussion.
       Use the issue templates above for concrete bug reports and feature
       requests.
   - name: 🔒 Report a security vulnerability (private)
-    url: https://github.com/clojurewasm/zwasm/security/advisories/new
+    url: https://github.com/zwasm/zwasm/security/advisories/new
     about: >-
       Do NOT report security problems in public issues. Use private
       vulnerability reporting — see SECURITY.md.

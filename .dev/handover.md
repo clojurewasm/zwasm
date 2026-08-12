@@ -15,6 +15,13 @@ publishes; ADR-0156 — never autonomous). Prior line v2.4.1; v1 frozen
 at `v1.11.1`. Dev model: `develop/<slug>` from `main` → PR → CI
 `ci-required` green → merge.
 
+**The repo moved to its own org 2026-08-12**: `clojurewasm/zwasm` →
+**`zwasm/zwasm`** (`.dev/org_transfer_plan.md` phases 1-3 done; stars /
+issues / releases / ruleset intact). Still open there: **phase 4** — the
+Homebrew tap split (`zwasm/homebrew-tap` does not exist yet, so README's
+install command deliberately still reads `clojurewasm/tap/zwasm`) and
+**phase 5** (cljw pin + wind-down). Both are user actions.
+
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
 - **wasi03-full + windows port — SHIPPED to main 2026-08-11** (PR #165, merge

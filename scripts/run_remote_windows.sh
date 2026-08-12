@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# scripts/run_remote_windows.sh — drive build/test on the windowsmini SSH host.
+# scripts/run_remote_windows.sh — drive build/test on the configured
+# Windows x86_64 SSH gate host (`ZWASM_WINDOWS_HOST`).
 #
-# `git fetch + reset --hard` the windowsmini clone to the latest
+# `git fetch + reset --hard` the remote clone to the latest
 # pushed `origin/main`, then run the requested
 # `zig build` step there. Phase 15+ may extend this with a
 # `git bundle` path so unpushed commits can also be exercised; for
@@ -19,10 +20,11 @@
 # `develop/value16`) before merging to the trunk
 # (`main`).
 #
-# Prerequisites: SSH alias `windowsmini` configured; Zig 0.16.0
-# installed remotely; the repo cloned at
-# ~/Documents/MyProducts/zwasm (see
-# `.dev/windows_ssh_setup.md`).
+# Prerequisites (all per-machine, none baked into the repo — see
+# `scripts/dev_hosts.env.example`): `ZWASM_WINDOWS_HOST` naming an SSH
+# alias that resolves without a prompt; Zig 0.16.0 installed remotely;
+# this repo cloned at `$ZWASM_REMOTE_DIR` (relative to the remote
+# `$HOME`). Provisioning notes in `.dev/windows_ssh_setup.md`.
 
 # Orphan guard — reap prior orphans + self-bound under timeout before
 # any work (see scripts/orphan_guard.sh + orphan_prevention.md). Must
@@ -35,24 +37,30 @@
 _sd="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$_sd/dev_hosts.env" ] && source "$_sd/dev_hosts.env"
 
+# The host is per-machine and has no in-repo default. Resolving it before
+# the orphan guard also keeps the guard's `pgrep -f "ssh <host>"` reap
+# anchored to a real alias instead of matching every ssh client.
+HOST="${ZWASM_WINDOWS_HOST:-}"
+if [ -z "$HOST" ]; then
+    echo "[run_remote_windows] FAIL: config — ZWASM_WINDOWS_HOST is unset." >&2
+    echo "  cp scripts/dev_hosts.env.example scripts/dev_hosts.env and set your own SSH alias (ADR-0206)." >&2
+    echo "  This local fan-out is OPTIONAL — CI's ci-required check is the authoritative 3-OS gate." >&2
+    exit 2
+fi
+
 _og="$_sd/orphan_guard.sh"
-[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "${ZWASM_WINDOWS_HOST:-windowsmini}" "$@"
+[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "$HOST" "$@"
 
 set -euo pipefail
 cd "$_sd/.."
 
 # SSH keepalive: a dead local client makes the remote sshd drop the
 # channel — and the remote `zig build` — within ~2 min (the "timeout
-# does NOT propagate" caveat; especially load-bearing on windowsmini
-# where Defender scan stalls have wedged runs — D-028).
+# does NOT propagate" caveat; especially load-bearing on the Windows
+# host where Defender scan stalls have wedged runs — D-028).
 SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 
-# Maintainer SSH gate — the Windows x86_64 host and its clone path are
-# env-configurable (defaults are the project maintainer's hosts). Point
-# ZWASM_WINDOWS_HOST at your own SSH alias, or set it once in the
-# per-machine scripts/dev_hosts.env (sourced above).
-HOST="${ZWASM_WINDOWS_HOST:-windowsmini}"
-REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+REMOTE_DIR="${ZWASM_REMOTE_DIR:-zwasm}"
 REMOTE_BRANCH="main"
 if [ "${1:-}" = "--branch" ]; then
     if [ -z "${2:-}" ]; then

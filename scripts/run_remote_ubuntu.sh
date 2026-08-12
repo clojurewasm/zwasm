@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# scripts/run_remote_ubuntu.sh — drive build/test on the
-# ubuntunote SSH host (native x86_64 Linux, real hardware).
+# scripts/run_remote_ubuntu.sh — drive build/test on the configured
+# Linux x86_64 SSH gate host (`ZWASM_UBUNTU_HOST`; native hardware).
 #
 # Replacement for the OrbStack `my-ubuntu-amd64` path
 # (Rosetta-translated x86_64; tripped D-134 SIGSEGV race —
 # closed per ADR-0067). Mirrors `run_remote_windows.sh`:
-# `git fetch + reset --hard` the ubuntunote clone to the
+# `git fetch + reset --hard` the remote clone to the
 # latest pushed `origin/main`, then run the
 # requested `zig build` step. (`main` is the merged trunk — reached only via
 # PR now; CI runs this same gate on each PR head. Pass `--branch develop/<slug>`
@@ -30,11 +30,13 @@
 # passes `--branch` (it expects to verify the just-pushed
 # origin HEAD of the main dev branch per ADR-0076 D3).
 #
-# Prerequisites: SSH alias `ubuntunote` configured; Zig 0.16.0
-# available remotely via the project's flake.nix dev shell;
-# the repo cloned at ~/Documents/MyProducts/zwasm
-# with `origin` pointing at clojurewasm/zwasm. Setup procedure
-# in `.dev/ubuntunote_setup.md`.
+# Prerequisites (all per-machine, none baked into the repo — see
+# `scripts/dev_hosts.env.example`): `ZWASM_UBUNTU_HOST` naming an SSH
+# alias that resolves without a prompt; Zig 0.16.0 available remotely
+# via the project's flake.nix dev shell; this repo cloned at
+# `$ZWASM_REMOTE_DIR` (relative to the remote `$HOME`) with `origin`
+# pointing at `zwasm/zwasm`. Provisioning notes in
+# `.dev/ubuntunote_setup.md`.
 #
 # Failure attribution: each remote step (preflight / sync /
 # build) emits a labelled `[run_remote_ubuntu] FAIL: <step>`
@@ -47,11 +49,22 @@
 _sd="$(cd "$(dirname "$0")" && pwd)"
 [ -f "$_sd/dev_hosts.env" ] && source "$_sd/dev_hosts.env"
 
+# The host is per-machine and has no in-repo default. Resolving it before
+# the orphan guard also keeps the guard's `pgrep -f "ssh <host>"` reap
+# anchored to a real alias instead of matching every ssh client.
+HOST="${ZWASM_UBUNTU_HOST:-}"
+if [ -z "$HOST" ]; then
+    echo "[run_remote_ubuntu] FAIL: config — ZWASM_UBUNTU_HOST is unset." >&2
+    echo "  cp scripts/dev_hosts.env.example scripts/dev_hosts.env and set your own SSH alias (ADR-0206)." >&2
+    echo "  This local fan-out is OPTIONAL — CI's ci-required check is the authoritative 3-OS gate." >&2
+    exit 2
+fi
+
 # Orphan guard — reap prior orphans + self-bound under timeout before
 # any work (see scripts/orphan_guard.sh + orphan_prevention.md). Must
 # run before `set -e` so the reap's empty-pgrep exits don't abort.
 _og="$_sd/orphan_guard.sh"
-[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "${ZWASM_UBUNTU_HOST:-ubuntunote}" "$@"
+[ -f "$_og" ] && source "$_og" && orphan_guard "$0" "$HOST" "$@"
 
 set -euo pipefail
 cd "$_sd/.."
@@ -59,15 +72,10 @@ cd "$_sd/.."
 # SSH keepalive: a dead local client (parent-session kill / timeout)
 # makes the remote sshd drop the channel — and the remote `zig build` —
 # within ~2 min, so a reaped/timed-out gate doesn't leave a build
-# running on ubuntunote (the "timeout does NOT propagate" caveat).
+# running on the gate host (the "timeout does NOT propagate" caveat).
 SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=4"
 
-# Maintainer SSH gate — the Linux x86_64 host and its clone path are
-# env-configurable (defaults are the project maintainer's hosts). Point
-# ZWASM_UBUNTU_HOST at your own SSH alias, or set it once in the
-# per-machine scripts/dev_hosts.env (sourced above).
-HOST="${ZWASM_UBUNTU_HOST:-ubuntunote}"
-REMOTE_DIR="${ZWASM_REMOTE_DIR:-Documents/MyProducts/zwasm}"
+REMOTE_DIR="${ZWASM_REMOTE_DIR:-zwasm}"
 REMOTE_BRANCH="main"
 if [ "${1:-}" = "--branch" ]; then
     if [ -z "${2:-}" ]; then
@@ -107,7 +115,7 @@ ssh $SSH_OPTS "$HOST" bash -lc "'
 #    what was actually tested. `git fetch` failure (network) vs
 #    `reset --hard` failure (concurrent mod) are distinguished
 #    by exit code below.
-echo "[run_remote_ubuntu] sync ubuntunote:~/$REMOTE_DIR to origin/$REMOTE_BRANCH ..."
+echo "[run_remote_ubuntu] sync $HOST:~/$REMOTE_DIR to origin/$REMOTE_BRANCH ..."
 remote_sha="$(ssh $SSH_OPTS "$HOST" bash -lc "'
     cd $REMOTE_DIR || exit 21
     git fetch origin $REMOTE_BRANCH >&2 || exit 22
@@ -151,6 +159,6 @@ esac
 echo "[run_remote_ubuntu] $REMOTE_CMD ..."
 ssh $SSH_OPTS "$HOST" bash -lc "'
     cd $REMOTE_DIR && nix develop --command bash -c \"$REMOTE_CMD\"
-'" || die_step "build — '$REMOTE_CMD' failed on ubuntunote (HEAD=$remote_sha)"
+'" || die_step "build — '$REMOTE_CMD' failed on $HOST (HEAD=$remote_sha)"
 
 echo "[run_remote_ubuntu] OK (HEAD=$remote_sha)."

@@ -37,9 +37,10 @@ of what CI runs anyway (ADR-0076 D9, ADR-0206). A contributor never needs
 them; see [`docs/development.md`](../docs/development.md).
 
 - [`ubuntunote_setup.md`](./ubuntunote_setup.md) — Linux x86_64 SSH gate
-  host (host alias overridable via `ZWASM_UBUNTU_HOST`).
+  host; the alias these docs use is one example of `ZWASM_UBUNTU_HOST`,
+  which the scripts read from `scripts/dev_hosts.env` and never default.
 - [`windows_ssh_setup.md`](./windows_ssh_setup.md) — Windows x86_64 SSH gate
-  host (`ZWASM_WINDOWS_HOST`).
+  host (`ZWASM_WINDOWS_HOST`, same contract).
 - [`orbstack_setup.md`](./orbstack_setup.md) — ARCHIVED (Mac-local scratch
   only, retired from the gate per ADR-0067).
 
