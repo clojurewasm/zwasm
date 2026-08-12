@@ -43,6 +43,15 @@ if [ "$(uname -s)" = "Linux" ]; then
     fi
 fi
 
+# Test-discovery guard (sweep S5): a named test block that no test step
+# discovers never runs. Discovery is HOST-DEPENDENT for the arch-specific
+# codegen files (an arm64-only file is analysed natively on an arm64 host but
+# needs an explicit import to be reached on x86_64), so this has to run per-OS
+# — and on every PR, not just the merge to main, or the first signal is a red
+# `main` instead of a red PR (which is exactly how it first fired).
+echo "[ci_gate] test-discovery guard (check_test_discovery --gate)"
+bash scripts/check_test_discovery.sh --gate
+
 if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zig build lint"
     zig build lint
@@ -82,8 +91,6 @@ if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     # (the ADR-0207 II-2a dead-test incident class).
     echo "[ci_gate] extended: file growth ratchet (file_growth_ratchet --gate)"
     RATCHET_BASE="${RATCHET_BASE:-origin/main}" bash scripts/file_growth_ratchet.sh --gate
-    echo "[ci_gate] extended: test-discovery guard (check_test_discovery --gate)"
-    bash scripts/check_test_discovery.sh --gate
 fi
 
 echo "[ci_gate] OK ($(uname -s))"

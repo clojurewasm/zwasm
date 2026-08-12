@@ -35,12 +35,14 @@ sed -E 's/^.*\.test\.//' "$listing" | sort -u > "$listing.names"
 
 # Name extraction + comparison in python: test names may contain escaped
 # quotes/backslashes, which the listing prints raw.
-findings=$(python3 - "$listing.names" <<'PYEOF'
+findings=$(PYTHONIOENCODING=utf-8 python3 - "$listing.names" <<'PYEOF'
 import re, sys, pathlib
-names = set(pathlib.Path(sys.argv[1]).read_text().splitlines())
+# encoding is explicit: Zig sources and test names are UTF-8, but Python
+# defaults to the locale codec (cp1252 on Windows) and would die on them.
+names = set(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8').splitlines())
 count = 0
 for f in sorted(pathlib.Path('src').rglob('*.zig')):
-    text = f.read_text()
+    text = f.read_text(encoding='utf-8')
     head = "\n".join(text.splitlines()[:5])
     if 'TEST-DISCOVERY-EXEMPT' in head:
         continue

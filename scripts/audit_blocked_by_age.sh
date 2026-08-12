@@ -15,11 +15,11 @@ set -euo pipefail
 MODE="${1:-info}"
 cd "$(dirname "$0")/.."
 
-python3 - "$MODE" <<'PYEOF'
+PYTHONIOENCODING=utf-8 python3 - "$MODE" <<'PYEOF'
 import re, sys, datetime
 
 mode = sys.argv[1]
-text = open('.dev/debt.yaml').read()
+text = open('.dev/debt.yaml', encoding='utf-8').read()  # not the locale codec
 today = datetime.date.today()
 warn = stale = 0
 # rows are "- id:" blocks; a blocked-by row declares status: "blocked-by"

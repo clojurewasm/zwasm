@@ -406,6 +406,7 @@ test {
     // S5 test-discovery guard (check_test_discovery.sh) backfill: these
     // files carried named tests that no test step discovered.
     _ = @import("engine/codegen/x86_64/frame_chain.zig");
+    _ = @import("engine/codegen/arm64/frame_chain.zig");
     _ = @import("engine/codegen/x86_64/sp_restore.zig");
     _ = @import("engine/codegen/arm64/sp_restore.zig");
     _ = @import("engine/codegen/shared/frame_teardown.zig");
