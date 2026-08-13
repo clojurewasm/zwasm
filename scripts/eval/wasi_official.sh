@@ -32,11 +32,16 @@ P1_DIRS=(
 
 cd "$SUITE"
 
-echo "=== WASI 0.1 — zwasm ==="
-ZWASM="${ZWASM:-$ROOT/zig-out/bin/zwasm}" \
-  python3 test-runner/wasi_test_runner.py -t "${P1_DIRS[@]}" \
-    -r adapters/zwasm.py --disable-colors \
-    --json-output-location "$OUT/p1_zwasm.json" | tail -3
+# Both engines, because they differ: the interpreter passes 4 AssemblyScript
+# tests the JIT fails (report §1.7), and the README's WASI 0.1 rating is
+# scoped to the interpreter. An unpinned `auto` run measures the JIT lane.
+for engine in interp jit; do
+  echo "=== WASI 0.1 - zwasm --engine $engine ==="
+  ZWASM="${ZWASM:-$ROOT/zig-out/bin/zwasm}" ZWASM_ENGINE="$engine" \
+    python3 test-runner/wasi_test_runner.py -t "${P1_DIRS[@]}" \
+      -r adapters/zwasm.py --disable-colors \
+      --json-output-location "$OUT/p1_zwasm_$engine.json" | tail -3
+done
 
 if command -v wasmtime >/dev/null; then
   echo "=== WASI 0.1 — wasmtime control ==="

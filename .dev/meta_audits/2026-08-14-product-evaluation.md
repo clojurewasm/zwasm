@@ -1,12 +1,13 @@
-# zwasm product evaluation — measured conformance + binary size (2026-08-14)
+# zwasm product evaluation: measured conformance and binary size (2026-08-14)
 
 > **Doc-state**: ACTIVE
 >
-> Independent measurement, not a re-reading of existing claims. Every number
-> below was produced on the host described in §0 by the scripts in
-> `scripts/eval/` (committed alongside this report). Where a claim in
-> `README.md` / `.dev/handover.md` is contradicted or narrowed by a
-> measurement, the delta is called out explicitly.
+> Every number below was measured on the host in §0 using the scripts in
+> `scripts/eval/`. Claims are separated into three kinds and labelled:
+> **Measured** (a number this session produced), **Read from source** (a fact
+> established by reading committed code or config), and **Not established**
+> (an open question that the measurement did not answer). Statements of the
+> third kind are never used to support a conclusion.
 
 ## 0. Scope and method
 
@@ -15,77 +16,84 @@
 | Host | `x86_64-linux` (Pop!_OS, kernel 7.0.11, 16 cores, 62 GB RAM) |
 | zwasm | `2.5.0`, branch `develop/product-evaluation-2026-08` off `2e40d4314` |
 | Zig | 0.16.0 |
-| wasmtime | **47.0.3** (`5554cc1a6`) — official release binaries + a source build at the same tag |
-| WAMR | **2.4.3** (`a45c42d`), built from source with cmake 4.4.2 / ninja 1.13.2 / gcc |
+| wasmtime | 47.0.3 (`5554cc1a6`), official release binaries |
+| WAMR | 2.4.3 (`a45c42d`), built from source (cmake 4.4.2, ninja 1.13.2, gcc) |
 | wasi-testsuite | `prod/testsuite-base` |
 
 **Single-host caveat.** Everything here is `x86_64-linux`. The project's
-3-OS claims (macOS aarch64 / Windows x86_64) are **not** re-verified here;
-binary sizes in particular are architecture- and linker-specific and do not
-transfer. Where a measurement is expected to be host-independent (spec
-directive pass/fail) it is still only evidence for one host.
+3-OS claims (macOS aarch64, Windows x86_64) are not re-verified. Binary
+sizes are architecture- and linker-specific and do not transfer.
 
-**wasmtime version choice.** v43 predates the WASI 0.3.0 GA line; comparing
-zwasm's full WASI 0.3 surface against it would be meaningless. v47.0.3 is the
-line that carries p3, and it is the exact build the host already had
-installed — so the source build doubles as a control on the build recipe.
+**Why wasmtime 47.0.3.** It is the newest release, it carries WASI 0.3
+support, and it is the exact build already installed on this host, so the
+comparison uses a binary that was not produced for this report.
+
+*Not established*: whether wasmtime 43.0.0 has usable WASI 0.3 support.
+43.0.0 accepts the `-Sp3` flag but does not document it in `run --help`.
+This report makes no claim about 43.0.0 either way.
 
 **Why the official wasmtime binaries are used for the size table.**
-`ci/build-release-artifacts.sh` builds releases with `panic=abort`,
-`strip=debuginfo`, and — for `wasmtime-min` — nightly Rust with
+`ci/build-release-artifacts.sh` builds releases with `panic=abort` and
+`strip=debuginfo`. For `wasmtime-min` it additionally uses nightly Rust with
 `-Zbuild-std`, `opt-level=s`, `lto=true`, `codegen-units=1`,
-`-Zlocation-detail=none`, `--no-default-features`. That is wasmtime's own
-best-effort minimum. Reproducing a worse build locally would understate the
-competition, so the shipped artifacts are used as the wasmtime rows and the
-recipe is disclosed instead.
+`-Zlocation-detail=none` and `--no-default-features`. A local
+`cargo build --release` of the same tag produced a 75,640,176-byte CLI
+against the official 60,742,448-byte artifact, so a locally built row would
+have understated wasmtime by 24%. The shipped artifacts are used instead and
+the recipe is disclosed here.
 
 ---
 
 ## 1. Conformance
 
-### 1.1 Wasm core spec — interpreter lane
+### 1.1 Wasm core spec, interpreter
 
-Run at the **CI-equivalent optimize level** (`zig build <step>` with no
-`-Doptimize`, i.e. what `scripts/ci_gate.sh` actually runs).
+**Measured.** Run with no `-Doptimize`, which is what `scripts/ci_gate.sh`
+runs.
 
 | Corpus | pass | fail | skip | manifests |
 |---|---:|---:|---:|---:|
-| Wasm 1.0 | 212 | **0** | 20 | 11 |
-| Wasm 2.0 (non-SIMD) | 25,539 | **0** | 535 | 86 |
-| SIMD + relaxed-SIMD | 25,075 | **0** | 512 | 66 |
-| threads / atomics | 294 | **0** | 0 | 1 |
-| Wasm 3.0 (6 proposals) | 15,175 directives | **0** | 36 | 86 |
+| Wasm 1.0 | 212 | 0 | 20 | 11 |
+| Wasm 2.0 (non-SIMD) | 25,539 | 0 | 535 | 86 |
+| SIMD and relaxed-SIMD | 25,075 | 0 | 512 | 66 |
+| threads / atomics | 294 | 0 | 0 | 1 |
+| Wasm 3.0 (6 proposals) | 15,175 directives | 0 | 36 | 86 |
 
-**Zero failures across every core corpus on the interpreter.** That part of
-the README holds up.
+Zero failures on every core corpus on the interpreter.
 
-### 1.2 What the skip counts actually are
+**One delta against the README.** The README rates Wasm 2.0 as
+"`skip-impl == 0`". The SIMD corpus, which the README lists inside the Wasm
+2.0 row, reports **1 skip-impl**. The non-SIMD 2.0 corpus is 0.
 
-The skip numbers look alarming until they are decomposed. Every `skip-adr`
-entry in the 1.0 / 2.0 / SIMD corpora resolves to **one** class:
+### 1.2 What the skip counts contain
+
+**Measured.** Every `skip-adr` entry in the 1.0, 2.0 and SIMD corpora is one
+class:
 
 ```
 skip-adr-skip_text_format_parser   directive-assert_malformed-text
 ```
 
-— `assert_malformed` directives whose module is supplied as **WAT text**.
-zwasm has no text-format parser by design (`README.md`: conversion is
-`wasm-tools` / `wabt`'s job), so these are **out of scope, not a conformance
-gap**. 509 of SIMD's 512 and all 20 of 1.0's are this class.
+These are `assert_malformed` directives whose module is given as WAT text.
+**Read from source**: zwasm has no text-format parser, and the README
+assigns text conversion to `wasm-tools` and `wabt`. So these directives are
+outside the implemented surface. 509 of the SIMD corpus's 512 skips and all
+20 of the 1.0 corpus's are this class.
 
-That leaves the genuinely interesting residue:
+The remainder:
 
-| Corpus | real skips | class |
+| Corpus | remaining skips | class |
 |---|---:|---|
 | Wasm 2.0 | 20 | runtime-skip |
-| SIMD | 3 | 1 skip-impl + 2 runtime (`SKIP-JIT-MULTI-MEMORY`, `SKIP-CROSS-MODULE-IMPORTS`) |
-| Wasm 3.0 | 36 | per-proposal, see below |
+| SIMD | 3 | 1 skip-impl, 2 runtime (`SKIP-JIT-MULTI-MEMORY`, `SKIP-CROSS-MODULE-IMPORTS`) |
+| Wasm 3.0 | 36 | per proposal, see §1.3 |
 
-**Recommendation**: report the text-format skips in a separate column
-everywhere. Folding them into a single "512 skipped" number makes a clean
-result look like a dirty one.
+**Recommendation.** Report text-format skips in a separate column. A single
+"512 skipped" figure overstates the gap by about 170x.
 
-### 1.3 Wasm 3.0, per proposal — interpreter
+### 1.3 Wasm 3.0 per proposal, interpreter
+
+**Measured.**
 
 | Proposal | manifests | modules | `assert_return` | `assert_trap` | `assert_invalid` | skip |
 |---|---:|---:|---:|---:|---:|---:|
@@ -96,180 +104,202 @@ result look like a dirty one.
 | tail-call | 2 | 6 | 73 / 0 | 7 / 0 | 27 / 0 | 0 |
 | exception-handling | 1 | 4 | 34 / 0 | 2 / 0 | 7 / 0 | 1 |
 
-(`assert_unlinkable` 30, `assert_malformed` 3, `assert_exception` 4 — all
-pass, all zero-fail.)
+`assert_unlinkable` 30, `assert_malformed` 3 and `assert_exception` 4 also
+pass with zero failures.
 
-**Measurement-integrity caveat — the runner's arithmetic does not close.**
-For `assert_return`, the enumerated directive count exceeds `pass + fail`:
+**Coverage limit of this table.** The README names **9** Wasm 3.0 proposals:
+GC, EH, tail-call, memory64, multi-memory, typed func refs, extended-const,
+relaxed-simd, custom annotations. This table covers 6. relaxed-simd is
+covered separately in the SIMD corpus (7 sub-corpora, §1.1), giving **7 of
+9** with a per-proposal number.
 
-| Proposal | `return=` enumerated | `pass` | unaccounted | printed `skip` |
-|---|---:|---:|---:|---:|
-| gc | 419 | 365 | **54** | 15 |
-| memory64 | 10,315 | 10,299 | **16** | 4 |
-| tail-call | 75 | 73 | **2** | 0 |
-| function-references | 39 | 38 | **1** | 2 |
-| exception-handling | 34 | 34 | 0 | 1 |
-| multi-memory | 407 | 407 | 0 | 14 |
-| **total** | 11,289 | 11,216 | **73** | 36 |
+**Read from source**: extended-const and custom annotations have no
+dedicated sub-corpus. Both are implemented
+(`src/instruction/wasm_3_0/extended_const.zig`) and both appear inside other
+proposals' raw `.wast` files (for example
+`memory64/raw/annotations.wast`), so they are exercised incidentally.
 
-The per-proposal `skip` column does not fully absorb the difference (73
-unaccounted vs 36 skips). Consequently **"0 fail" on Wasm 3.0 does not by
-itself establish that every enumerated directive ran** — up to 73
-`assert_return` directives are neither passed, failed, nor reported as
-skipped. This is a reporting defect in
-`test/spec/spec_assert_runner_wasm_3_0.zig`, not evidence of a runtime bug,
-but it weakens the headline claim until the counters reconcile.
+*Not established*: a per-proposal conformance figure for extended-const and
+custom annotations. This report cannot confirm or refute the README's "all 9
+proposals" for those two.
 
-### 1.4 Wasm 3.0, per proposal — **JIT lane** ← the real gap
+### 1.4 Wasm 3.0 per proposal, JIT
 
-The JIT execution lane over the same corpus is reached with
-`ZWASM_SPEC_ENGINE=jit`. It is **opt-in and not wired into `test-all`**, so
-CI never runs it. Measured per-proposal:
+**Read from source**: the JIT lane is selected by `ZWASM_SPEC_ENGINE=jit`.
+It is not set in `.github/workflows/` or `scripts/ci_gate.sh`, so CI does
+not run it.
 
-| Proposal | JIT `assert_return` pass | fail | skip | verdict |
+**Measured**, per proposal:
+
+| Proposal | JIT `assert_return` pass | fail | skip | result |
 |---|---:|---:|---:|---|
-| memory64 | — | — | — | **process aborts: exit 70, internal fatal signal** |
-| gc | 413 | **1** | 5 | fails `gc/type-subtyping` (returns `Trap`, expected a value) |
-| multi-memory | 0 | 0 | **407** | 100 % skipped — JIT multi-memory deferred (ROADMAP §14) |
-| tail-call | 71 | 0 | 4 | clean |
-| exception-handling | 34 | 0 | 0 | clean |
-| function-references | 36 | 0 | 3 | clean |
+| memory64 | n/a | n/a | n/a | process exits 70, internal fatal signal |
+| gc | 413 | 1 | 5 | fails `gc/type-subtyping`, returns `Trap` where a value was expected |
+| multi-memory | 0 | 0 | 407 | every directive skipped |
+| tail-call | 71 | 0 | 4 | no failures |
+| exception-handling | 34 | 0 | 0 | no failures |
+| function-references | 36 | 0 | 3 | no failures |
 
-**memory64 characterisation.** Reproducible (`exit=70`) on the full
-proposal corpus; **not** reproducible when each of the 21 manifests runs in
-its own process; the interpreter lane over the identical corpus is clean
-(10,299 / 2,176 / 629, zero fail). `vm.max_map_count` is not the limit
-(2,147,483,642 on this host). So it is a cumulative, cross-manifest effect
-inside one process — a focused investigation, not a guess, is what this
-needs.
+**memory64.** Reproducible at `exit=70` on the full proposal corpus. Not
+reproducible when each of the 21 manifests runs in its own process. The
+interpreter over the identical corpus is clean (10,299 / 2,176 / 629, zero
+fail). `vm.max_map_count` is 2,147,483,642 on this host, so map-count
+exhaustion is excluded.
 
-**Consequence for the product claim.** README states Wasm 3.0 "✅ 100 %, all
-9 proposals". That is true *of the interpreter*. For the JIT there is one
-executing miscompile (gc), one crash (memory64), and one wholly-unimplemented
-proposal (multi-memory) — and no gate that would catch a regression in any of
-them.
+*Not established*: the mechanism. The evidence shows only that the abort
+requires more than one manifest in a single process. Whether that is
+accumulated state, address-space pressure, or a codegen fault is open.
 
-### 1.5 The ReleaseFast blind spot
+**multi-memory.** *Not established*: the cause of the 407 skips. The
+`SKIP-JIT-MULTI-MEMORY` token carrying the text "multi-memory on JIT
+deferred to Phase 14 (ROADMAP §14)" was observed in the **SIMD** runner's
+output, not in this run. The 407 figure is measured; attributing it to the
+documented deferral is an inference.
 
-`scripts/ci_gate.sh` runs `zig build test-all` with **no `-Doptimize`**, so
-the spec corpora are only ever validated at Debug/ReleaseSafe. Releases ship
-`ReleaseFast`. Measured at `-Doptimize=ReleaseFast`:
+**Effect on the product claim.** The README's Wasm 3.0 row describes the
+runtime without distinguishing engines. On the JIT there is one executing
+wrong result (gc), one abort (memory64), and one proposal at 0 executed
+directives (multi-memory). No gate covers any of them.
 
-- The Wasm 2.0 spec-assert runner **SEGVs deterministically** (3/3 runs,
-  exit 142, always at `func/func.0.wasm`).
-- The **production path is fine**: the ReleaseFast CLI executes the same
-  module's exports correctly on both `--engine interp` and `--engine jit`
-  (exit 0, correct values).
+### 1.5 ReleaseFast has no spec coverage
 
-So this is a **test-harness limitation, not a runtime miscompile** — the
-harness calls raw `module.entry` fn-ptrs, which `build.zig:174` already
-documents as violating the JIT host-boundary callee-saved contract under an
-optimized host. The consequence survives that distinction, though:
+**Read from source**: `scripts/ci_gate.sh` runs `zig build test-all` with no
+`-Doptimize`, so the spec corpora are validated at Debug and ReleaseSafe
+only. Releases ship ReleaseFast.
 
-> **There is no spec-level evidence for the build configuration users
-> actually download.** `.dev/releasesafe_jit_failures.md` bases its
-> "runners already pass in ReleaseSafe" decision on `spec 212` — that is the
-> *Wasm 1.0* corpus. The 2.0 corpus (25,539 asserts) was not part of that
-> verification, and it is the one that breaks.
+**Measured** at `-Doptimize=ReleaseFast`:
+
+- The Wasm 2.0 spec-assert runner aborts on 3 of 3 runs, exit 142, always
+  after `func/func.0.wasm`.
+- The ReleaseFast CLI executes exports of that same module correctly on both
+  `--engine interp` and `--engine jit` (4 exports checked: `type-use-2`,
+  `local-first-i32`, `local-mixed`, `empty`; exit 0, expected values).
+
+The production path therefore works on the cases checked, and
+`build.zig:174` documents that the harness calls raw `module.entry`
+fn-ptrs, which violates the JIT host-boundary callee-saved contract under an
+optimized host. That is consistent with a harness limitation.
+
+*Not established*: that no ReleaseFast runtime defect exists. Four exports
+of one module is a narrow check. What is established is that the spec
+corpora cannot currently be run at ReleaseFast at all.
+
+**The consequence stands regardless of the cause.** There is no spec-level
+evidence for the configuration users download.
+`.dev/releasesafe_jit_failures.md` justifies its "runners already pass in
+ReleaseSafe" decision with `spec 212`, which is the Wasm 1.0 corpus. The 2.0
+corpus (25,539 asserts) was not in that verification, and it is the one that
+aborts.
 
 ### 1.6 Component Model
 
-`zig build test-component-spec` — **170 passed, 0 failed, 0 skipped.** Clean.
+**Measured**: `zig build test-component-spec` reports 170 passed, 0 failed,
+0 skipped.
 
-### 1.7 WASI 0.1 — the largest gap
+### 1.7 WASI 0.1
 
-Measured with the **official** `WebAssembly/wasi-testsuite` runner and a
-zwasm adapter (`scripts/eval/wasi_adapter_zwasm.py`), against the same
-corpus, on the same host, in the same session as a wasmtime control:
+**Measured** with the official `WebAssembly/wasi-testsuite` runner and the
+adapter in `scripts/eval/wasi_adapter_zwasm.py`, against the same corpus, on
+the same host, with a wasmtime control in the same session.
 
-| Runtime | rust | c | assemblyscript | **total** |
+**The engine matters, so all three lanes are reported.**
+
+| Runtime / engine | rust | c | assemblyscript | total |
 |---|---:|---:|---:|---:|
-| **zwasm 2.5.0** | 33 / 46 | 13 / 14 | 8 / 12 | **54 / 72** |
+| zwasm `--engine interp` | 34 / 46 | 13 / 14 | 12 / 12 | **59 / 72** |
+| zwasm `--engine jit` | 34 / 46 | 13 / 14 | 8 / 12 | **55 / 72** |
+| zwasm default (`auto`) | 34 / 46 | 13 / 14 | 8 / 12 | 55 / 72 |
 | wasmtime 47.0.3 (control) | 46 / 46 | 14 / 14 | 12 / 12 | **72 / 72** |
 
 The control passing 72/72 through the identical harness establishes that the
-18 zwasm failures are real gaps, not adapter artifacts.
+zwasm failures are gaps in zwasm, not adapter artifacts.
 
-Failing tests — **this list is the roadmap**:
+The README scopes its WASI 0.1 rating to the interpreter, so **59 / 72 is
+the figure that corresponds to the README's claim**.
 
-- **filesystem / fd semantics (13, rust)**: `fd_flags_set`,
-  `interesting_paths`, `dir_fd_op_failures`, `renumber`,
-  `truncation_rights`, `dangling_symlink`, `nofollow_errors`,
-  `path_open_read_write`, `fd_readdir`, `directory_seek`,
-  `fd_fdstat_set_rights`, `path_open_preopen`, `poll_oneoff_stdio`
-- **write semantics (1, c)**: `pwrite-with-append`
-- **argv / env / random / stdout (4, assemblyscript)**:
-  `args_get-multiple-arguments`, `environ_get-multiple-variables`,
-  `random_get-zero-length`, `fd_write-to-stdout` — all four abort inside the
-  AssemblyScript allocator (`~lib/rt/tlsf.ts`), which smells like one shared
-  root cause rather than four.
+**13 failures are engine-independent.** These are the WASI-layer gaps:
 
-README currently rates WASI 0.1 "✅ functional". Against the official suite
-it is **75 %**. `test/wasi/` holds 3 hand-written fixtures; that is the whole
-of the in-repo evidence. **Wiring this suite into CI is the single
-highest-value test-infrastructure change available.**
+- filesystem and fd semantics (12, rust): `dir_fd_op_failures`,
+  `directory_seek`, `fd_fdstat_set_rights`, `fd_flags_set`, `fd_readdir`,
+  `interesting_paths`, `nofollow_errors`, `path_open_preopen`,
+  `path_open_read_write`, `poll_oneoff_stdio`, `renumber`,
+  `truncation_rights`
+- write semantics (1, c): `pwrite-with-append`
+
+**4 further failures occur only on the JIT.** All four are AssemblyScript
+tests that pass on the interpreter and fail under `--engine jit`:
+`args_get-multiple-arguments`, `environ_get-multiple-variables`,
+`random_get-zero-length`, `fd_write-to-stdout`. Because the interpreter
+passes them, the defect is in the JIT path, not in the WASI host
+implementation. This is a second JIT correctness gap alongside §1.4.
+
+**One failure was flaky and is excluded.** `dangling_symlink` failed once in
+the first combined run and then passed on 6 of 6 re-runs (3 `auto`, 3
+`interp`). It is not counted above and should not be treated as a gap
+without a repeat.
+
+The README rates WASI 0.1 "✅ functional". Against the official suite the
+interpreter is at **82%** (59/72). `test/wasi/` holds 3 hand-written
+fixtures, which is the whole of the in-repo evidence. Wiring the official
+suite into CI would convert 13 unknown gaps into a tracked list.
 
 ### 1.8 WASI 0.2
 
-**There is no upstream conformance suite for WASI 0.2** — `wasi-testsuite`
-ships `wasm32-wasip1` and `wasm32-wasip3` only. There is also no
-`test-wasi-p2` build step. What exists as evidence:
+**Read from source**: `wasi-testsuite` ships `wasm32-wasip1` and
+`wasm32-wasip3` only, so no upstream conformance suite for WASI 0.2 exists.
+`build.zig` declares no `test-wasi-p2` step.
+
+What exists as evidence instead:
 
 - Component Model spec corpus: 170 / 0 / 0 (§1.6)
-- 85 real `wasm32-wasip2` component fixtures under `test/component/`,
-  exercised from `zig build test`
+- 85 `wasm32-wasip2` component fixtures under `test/component/`, run from
+  `zig build test`
 
-That is a reasonable substitute, but it should be described as such rather
-than as conformance. The honest public phrasing is "no official suite
-exists; here is what we do test".
+That is a reasonable substitute. It should be described as a substitute
+rather than as conformance, because no conformance figure is obtainable.
 
-### 1.9 WASI 0.3 — and the differentiation sentence
+### 1.9 WASI 0.3
 
-The upstream `wasm32-wasip3` corpus has **52** tests. zwasm vendors **45** of
-them (`scripts/vendor_wasip3_official.sh`); the 7 omissions are all
-`http-client-*` variants (`headers`, `method`, `path`, `path-none`,
-`send-errors`, `sent`, `status`).
+**Measured.** The upstream `wasm32-wasip3` corpus has 52 tests. zwasm
+vendors 45 of them (`scripts/vendor_wasip3_official.sh`). The 7 not vendored
+are all `http-client-*` variants: `headers`, `method`, `path`, `path-none`,
+`send-errors`, `sent`, `status`.
 
 | Runtime | denominator | result |
 |---|---|---|
-| zwasm 2.5.0 | its vendored 45 | **45 / 45** (48/48 incl. adjacent tests, verified this session) |
-| wasmtime 47.0.3 | full upstream 52 | 48 / 52 — fails `http-service-uri`, `http-client-path-none`, `filesystem-read-directory`, `http-client-sent` |
-| **on the common 45** | | **zwasm 45 / 45 · wasmtime 43 / 45** |
+| zwasm 2.5.0 | its vendored 45 | 45 / 45 |
+| wasmtime 47.0.3 | full upstream 52 | 48 / 52; fails `http-service-uri`, `http-client-path-none`, `filesystem-read-directory`, `http-client-sent` |
+| both, on the common 45 | | **zwasm 45 / 45, wasmtime 43 / 45** |
 
-wasmtime's two failures inside the common set are `http-service-uri` and
-`filesystem-read-directory`, both of which zwasm passes.
+wasmtime's two failures inside the common 45 are `http-service-uri` and
+`filesystem-read-directory`. zwasm passes both.
 
-> **Differentiation sentence (defensible as measured):**
+> **Differentiation sentence, as measured:**
 > *On the 45 official `wasm32-wasip3` conformance tests both runtimes carry,
-> zwasm 2.5.0 passes 45/45 where wasmtime 47.0.3 passes 43/45 — measured on
+> zwasm 2.5.0 passes 45/45 and wasmtime 47.0.3 passes 43/45. Measured on
 > x86_64-linux, 2026-08-14.*
 
-Two honesty constraints on using it: the denominator is zwasm's vendored
-subset (87 % of upstream), and zwasm's 45/45 is measured through the
-**in-process embedder harness**, not the CLI (§1.10).
+Two constraints on using that sentence: the denominator is zwasm's vendored
+subset, which is 87% of upstream; and zwasm's 45/45 comes from the
+in-process embedder harness, not the CLI (§1.10).
 
 ### 1.10 WASI 0.3 is verified through the embedder API, not the CLI
 
-The 45 official p3 tests are Zig unit tests in
-`src/api/component_wasi_p3.zig` driving the corpus in-process. Driving the
-same component through the `-Dwasi=p3` **CLI** does not reproduce it — e.g.
-`cli-stdout-flush.wasm` fails its own guest assertion
-(`left: Complete(0), right: Complete(1)`) under `zwasm run`, while the
-in-process test for the same binary passes.
+**Read from source**: the 45 official p3 tests are Zig unit tests in
+`src/api/component_wasi_p3.zig` that drive the corpus in-process. The
+build step `test-wasi-p3` reports 48/48 passing, which is the 45 official
+tests plus 3 others matching the same filter.
 
-Worse, driving the full upstream p3 corpus through the CLI with the official
-runner **hangs outright**. A single `zwasm run
-tests/rust/testsuite/wasm32-wasip3/cli-stdout-flush.wasm` stayed live for the
-entire run; the harness was killed by its 900 s bound (`exit 143`) without
-ever reaching a second test, and **wrote no results file at all**. The
-in-process test for the same binary completes in milliseconds.
+**Measured** on the CLI path with a `-Dwasi=p3` build:
 
-The suite is therefore not merely failing on the CLI — it cannot be scored
-on the CLI.
+- A direct `zwasm run` of `cli-stdout-flush.wasm` returns a guest assertion
+  failure (`left: Complete(0), right: Complete(1)`).
+- Under the official runner, the same test held the harness for its full
+  900-second bound (`exit 143`) without reaching a second test and without
+  writing a results file.
 
-So "WASI 0.3 full coverage" is a statement about the **embedding API
-surface**. The CLI's p3 conformance is not merely unmeasured — it does not
-survive the first stdio test of the official suite.
+So the official p3 suite cannot currently be scored through the CLI. "WASI
+0.3 full coverage" is a statement about the embedding API surface.
 
 ---
 
@@ -277,20 +307,21 @@ survive the first stdio test of the official suite.
 
 ### 2.1 What is and is not separable
 
-There is **no CLI-only artifact**. `build.zig` roots the runtime at the
-`core` module (`src/zwasm.zig`), which is *itself* the `root_module` of
-`libzwasm.a`; the CLI is a thin `exe_mod` (`src/cli/main.zig`) that imports
-`core` and links statically. So "the CLI layer's size" can only be a derived
-difference, never a measured artifact.
+**Read from source**: there is no CLI-only artifact. `build.zig` roots the
+runtime at the `core` module (`src/zwasm.zig`), and that same module is the
+`root_module` of `libzwasm.a`. The CLI is a thin `exe_mod`
+(`src/cli/main.zig`) that imports `core` and links it statically. A "CLI
+layer size" can only be a derived difference.
 
-Also: `libzwasm.a` has **2 members** (`libzwasm_zcu.o` + `compiler_rt.o`)
-where WAMR's `libiwasm.a` has 49. Archive size is therefore a poor proxy for
-embedder cost — only the **linked** image is meaningful. All cross-engine
-comparisons below use the same minimal C host
-(`docs/examples/c_host/hello.c`) linked against each runtime's static
-library.
+**Measured**: `libzwasm.a` has 2 members (`libzwasm_zcu.o` and
+`compiler_rt.o`); WAMR's `libiwasm.a` has 49. Archive size is therefore a
+poor proxy for embedder cost. All cross-engine comparisons below use the
+linked image of one minimal C host (`docs/examples/c_host/hello.c`) against
+each runtime's static library.
 
-### 2.2 zwasm matrix — ReleaseFast, as-built vs `strip -s`
+### 2.2 zwasm matrix, ReleaseFast, as-built and after `strip -s`
+
+**Measured**, all 12 `(engine, wasi)` combinations.
 
 | engine | wasi | CLI as-built | CLI stripped | embedder host stripped | `libzwasm.a` |
 |---|---|---:|---:|---:|---:|
@@ -307,14 +338,11 @@ library.
 | both | p2 | 19,548,864 | 3,076,488 | 2,847,920 | 28,431,676 |
 | both | p3 | 24,389,536 | 3,790,360 | 2,847,920 | 28,431,740 |
 
-All twelve `(engine, wasi)` combinations were measured. The `interp` / `jit`
-/ `both` rows differ by 16–96 bytes at every tier — the length of the
-version string, nothing else (§2.4). The stripped CLI takes exactly three
-distinct values across the whole matrix, one per WASI tier
-(2.70 MB / 3.08 MB / 3.79 MB), and the stripped embedder host takes exactly
-one (2,847,920) across all twelve.
+The `interp`, `jit` and `both` rows differ by 16 to 96 bytes at every tier.
+The stripped CLI takes 3 distinct values across the whole matrix, one per
+WASI tier. The stripped embedder host takes 1 value across all 12.
 
-`.text` only, same builds:
+`.text` sizes for the same builds:
 
 | build | CLI `.text` | embedder `.text` |
 |---|---:|---:|
@@ -322,77 +350,79 @@ one (2,847,920) across all twelve.
 | interp/p1 | 2,143,821 | 2,141,722 |
 | interp/p2 | 2,458,365 | 2,141,722 |
 
-**Two findings fall out of this table.**
+**Finding 1: `-Dwasi` changes the CLI but not the embedder image.** Going
+from p1 to p2 adds 314,544 bytes of CLI `.text`. Stated as a reduction, p1
+is **12.8% smaller** than p2. The README advertises "~-8%", so the
+documented figure understates the measured one by about 1.6x. The linked C
+host is `.text`-identical at all four tiers.
 
-1. **`-Dwasi` works for the CLI, and is a no-op for embedders.** p1→p2 costs
-   the CLI +314,544 bytes of `.text` (+14.7 %), matching the documented
-   "~-8 %" lean-build claim in spirit. The linked C host is
-   `.text`-identical at `none` / `p1` / `p2` / `p3` — `--gc-sections`
-   already drops whatever the host does not call. This is not a defect, but
-   it does mean **the WASI tier knob is effectively CLI-only**, and the
-   README's "lean build" framing should say so.
+*Not established*: the mechanism for the embedder image being tier-invariant.
+Linker section garbage collection is the likely explanation but no link map
+was captured. The measured fact is the invariance.
 
-2. **Debug info dominates the shipped artifact.** The default ReleaseFast
-   CLI is 19.5 MB as-built and 3.08 MB stripped — **84 % is debug info**.
-   `bench/results/size_history.yaml` records ReleaseFast `base` as 3,563,960
-   at `698eeff5d`; that series measures the macOS-shaped binary and does not
-   describe what a Linux user downloads.
+**Finding 2: most of the shipped artifact is not code.** The default
+ReleaseFast CLI is 19,548,864 bytes as built and 3,076,488 after `strip -s`,
+so **84% is debug info and symbol table**. `bench/results/size_history.yaml`
+records ReleaseFast `base` as 3,563,960 at `698eeff5d`, which is close to
+the stripped figure and far from the as-built one. *Not established*: which
+host produced that series.
 
-### 2.3 ReleaseSmall — the configuration that should be advertised
+### 2.3 ReleaseSmall
 
-`-Doptimize=ReleaseSmall -Dstrip=true`:
+**Measured** with `-Doptimize=ReleaseSmall -Dstrip=true`:
 
 | engine | wasi | CLI | embedder `.text` |
 |---|---|---:|---:|
-| interp | p1 | **1,516,800** | 1,038,993 |
-| jit | p1 | **1,516,800** | 1,038,993 |
-| both | p2 | **1,789,720** | 1,038,985 |
+| interp | p1 | 1,516,800 | 1,038,993 |
+| jit | p1 | 1,516,800 | 1,038,993 |
+| both | p2 | 1,789,720 | 1,038,985 |
 
-### 2.4 ⚠ `-Dengine` does not change the binary
+ReleaseSmall is 44% smaller than ReleaseFast-plus-`strip` for the same
+`(interp, p1)` configuration (1,516,800 against 2,703,896).
 
-Three CLIs differing **only** in `-Dengine`, ReleaseFast, `-Dwasi=p1`,
-unstripped:
+*Not established*: whether ReleaseSmall passes the test suite. No test layer
+was run at this optimize level, so this report does not recommend it as a
+distribution configuration. Running `test-all` at ReleaseSmall is the
+missing step.
+
+### 2.4 `-Dengine` does not change the binary
+
+**Measured.** Three CLIs differing only in `-Dengine`, ReleaseFast,
+`-Dwasi=p1`, unstripped:
 
 | `-Dengine` | file size | `.text` | `engine.codegen` symbols | backend `emit` symbols |
 |---|---:|---:|---:|---:|
-| `interp` | 16,911,000 | **2,143,821** | **621** | 1 |
-| `jit` | 16,911,096 | **2,143,821** | **621** | 1 |
-| `both` | 16,911,048 | **2,143,821** | **621** | 1 |
+| `interp` | 16,911,000 | 2,143,821 | 621 | 1 |
+| `jit` | 16,911,096 | 2,143,821 | 621 | 1 |
+| `both` | 16,911,048 | 2,143,821 | 621 | 1 |
 
-`.text` is byte-identical and the JIT codegen symbol count is unchanged, so
-**`-Dengine=interp` does not remove the JIT**. The same holds at
-ReleaseSmall/p1, where `interp` and `jit` produce identical 1,516,800-byte
-binaries with identical 1,038,993-byte `.text`.
+`.text` is identical and the JIT codegen symbol count is unchanged, so
+`-Dengine=interp` does not remove the JIT. The same holds at ReleaseSmall/p1,
+where `interp` and `jit` produce identical 1,516,800-byte binaries.
 
-**Mechanism.** `build_options.engine_mode` is consumed at exactly three
-sites in `src/`, all in `src/cli/main.zig`: two build the `--version`
-identity string (`:100`, `:434`), and the third is
-`_ = build_options.engine_mode;` inside `test "build options are wired"`
-(`:490`) — a discard that asserts the option exists. **No comptime gate
-anywhere reads it.** So `-Dengine` does not select a compile-time subset,
-and it does not select a runtime default either; the runtime selector is the
-CLI's separate `--engine auto|interp|jit` flag. It feeds the version string.
+**Read from source**: `build_options.engine_mode` is consumed at 3 sites in
+`src/`, all in `src/cli/main.zig`. Two build the `--version` string
+(`:100`, `:434`). The third is `_ = build_options.engine_mode;` inside
+`test "build options are wired"` (`:490`). No comptime gate reads it. The
+runtime engine selector is the separate `--engine` CLI flag.
 
-**This is an unfinished axis, not a regression.** ADR-0073 (build-option DCE
-substrate) records the identical shape for `wasm_level` as of 2026-05-19 —
-"only consulted at 2 diagnostic sites in `cli/main.zig` +
-`diagnostic/trace.zig`. None of validator / lower / emit / runtime / c_api /
-CLI / WASI applies a build-option feature gate". The substrate was then
-built for the `-Dwasm` and `-Dwasi` axes, and `scripts/check_build_dce.sh`
-gates exactly those two. `-Dengine` was declared in the same ADR's option
-list and never picked up the substrate — so no gate can see it, and nothing
-regressed to get here.
+**This is an unfinished axis, not a regression.** ADR-0073 records the same
+shape for `wasm_level` as of 2026-05-19: "only consulted at 2 diagnostic
+sites in `cli/main.zig` + `diagnostic/trace.zig`. None of validator / lower
+/ emit / runtime / c_api / CLI / WASI applies a build-option feature gate".
+The substrate was then built for the `-Dwasm` and `-Dwasi` axes, and
+`scripts/check_build_dce.sh` gates exactly those two. `-Dengine` appears in
+the same ADR's option list and never received the substrate.
 
-The user-facing problem stands regardless: `docs/development.md` advertises
-`-Dengine` as "Engine selection compiled in", which is the first knob an
-embedder shopping on size would reach for, and it does nothing.
+The user-facing problem stands: `docs/development.md` describes `-Dengine`
+as "Engine selection compiled in", and it does not select anything.
 
-### 2.6 ⚠ `-Dstrip=true` cannot build the default step
+### 2.5 `-Dstrip=true` cannot build the default step
 
-`zig build -Dstrip=true` fails at **both** ReleaseFast and ReleaseSafe, 3/3
-runs each, with three **Zig 0.16.0 compiler SEGVs** (`error: process
-terminated with signal SEGV` out of `zig build-exe`). The crashing artifacts
-are not the product:
+**Measured**: `zig build -Dstrip=true` fails at both ReleaseFast and
+ReleaseSafe, 3 of 3 runs each, with three Zig 0.16.0 compiler aborts
+(`error: process terminated with signal SEGV` from `zig build-exe`). The
+crashing artifacts are:
 
 ```
 compile exe zwasm-spec-wasm-2-0-assert  ReleaseFast native failure
@@ -400,122 +430,137 @@ compile exe zwasm-spec-wasm-3-0-assert  ReleaseFast native failure
 compile exe zwasm-wast-runtime-runner   ReleaseFast native failure
 ```
 
-Two separable problems:
+**Read from source**: those three are `b.installArtifact`'d, so a plain
+`zig build` installs three test runners into `zig-out/bin/` next to `zwasm`.
 
-1. **Packaging** — a plain `zig build` installs three *test runners* into
-   `zig-out/bin/` next to `zwasm`. They are `b.installArtifact`'d, so every
-   product build pays for them and any compiler bug they trigger becomes a
-   product build failure.
-2. **A documented option is unusable** — `-Dstrip` is listed in
-   `docs/development.md` as a supported knob. `zig build static-lib
-   -Dstrip=true -Doptimize=ReleaseFast` *does* succeed (`libzwasm.a`
-   3,412,468 vs 28,431,740 unstripped — the archive is 88 % debug info), so
-   the failure is confined to the default install step.
+**Measured**: `zig build static-lib -Dstrip=true -Doptimize=ReleaseFast`
+succeeds and produces a 3,412,468-byte `libzwasm.a` against 28,431,740
+unstripped. So the failure is confined to the default install step.
 
-Workaround for the product binary is external `strip -s`, which is what
-every measurement in §2.2/§2.3 uses.
+Every stripped figure in §2.2 and §2.3 uses external `strip -s`, which is
+the available workaround.
 
-### 2.5 Cross-engine comparison
+### 2.6 Cross-engine comparison
 
-Same host, same `strip -s`, all stripped unless noted.
+**Measured** on one host with `strip -s` applied uniformly.
 
 | Runtime | configuration | binary | stripped | `.text` |
 |---|---|---:|---:|---:|
-| **WAMR 2.4.3** | classic-interp, MinSizeRel+LTO, no SIMD | 307,208 | **264,216** | 151,573 |
-| **WAMR 2.4.3** | fast-interp, MinSizeRel+LTO | 364,752 | **319,512** | 200,752 |
-| WAMR 2.4.3 | classic-interp, Release, no SIMD | 425,552 | 374,728 | — |
-| WAMR 2.4.3 | fast-interp, Release | 502,696 | 450,504 | — |
-| WAMR 2.4.3 | Fast-JIT, Release, no SIMD | 801,072 | 712,152 | — |
-| **zwasm 2.5.0** | interp, p1, ReleaseSmall+strip | 1,516,800 | **1,516,792** | 1,038,993 |
-| **zwasm 2.5.0** | both, p2, ReleaseSmall+strip | 1,789,720 | **1,789,712** | — |
-| **wasmtime 47.0.3** | `wasmtime-min`, official | 3,191,432 | **2,220,336** | — |
-| zwasm 2.5.0 | interp, p1, ReleaseFast | 16,911,000 | 2,703,896 | 2,143,821 |
-| zwasm 2.5.0 | both, p2, ReleaseFast (default) | 19,548,832 | 3,076,488 | 2,458,365 |
-| wasmtime 47.0.3 | full CLI, official | 60,742,448 | 47,958,568 | — |
+| WAMR 2.4.3 | classic-interp, MinSizeRel+LTO, no SIMD | 307,208 | 264,216 | 151,573 |
+| WAMR 2.4.3 | fast-interp, MinSizeRel+LTO | 364,752 | 319,512 | 200,752 |
+| WAMR 2.4.3 | classic-interp, Release, no SIMD | 425,552 | 374,728 | n/a |
+| WAMR 2.4.3 | fast-interp, Release | 502,696 | 450,504 | n/a |
+| WAMR 2.4.3 | Fast-JIT, Release, no SIMD | 801,072 | 712,152 | n/a |
+| zwasm 2.5.0 | interp/p1, ReleaseSmall+strip | 1,516,800 | 1,516,792 | 1,038,993 |
+| zwasm 2.5.0 | both/p2, ReleaseSmall+strip | 1,789,720 | 1,789,712 | n/a |
+| wasmtime 47.0.3 | `wasmtime-min`, official | 3,191,432 | 2,220,336 | n/a |
+| zwasm 2.5.0 | interp/p1, ReleaseFast | 16,911,000 | 2,703,896 | 2,143,821 |
+| zwasm 2.5.0 | both/p2, ReleaseFast (default) | 19,548,832 | 3,076,488 | 2,458,365 |
+| wasmtime 47.0.3 | full CLI, official | 60,742,448 | 47,958,568 | n/a |
 
-Static libraries (archives — not comparable to linked images, see §2.1):
+Static archives, which are not comparable to linked images (§2.1):
 
 | Runtime | archive | bytes | members |
 |---|---|---:|---:|
 | WAMR | `libiwasm.a` (classic) | 1,122,402 | 49 |
-| WAMR | `libiwasm.a` (Fast-JIT) | 1,945,350 | — |
+| WAMR | `libiwasm.a` (Fast-JIT) | 1,945,350 | n/a |
 | zwasm | `libzwasm.a` | 28,431,740 | 2 |
-| wasmtime | `libwasmtime.a` | 68,705,400 | — |
+| wasmtime | `libwasmtime.a` | 68,705,400 | n/a |
 
-**Reading of the size result.**
+**Reading of the result.**
 
-- Against **wasmtime**, zwasm wins: 1.52 MB vs 2.22 MB for the two projects'
-  respective minimum builds — and zwasm gets there with a stable toolchain
-  where `wasmtime-min` needs nightly Rust and `-Zbuild-std`.
-- Against **WAMR**, zwasm loses by **5.7×** (1.52 MB vs 264 KB). WAMR is the
-  reference point for the deeply-embedded segment, and no zwasm build option
-  closes that gap.
-- The honest positioning is therefore **"substantially smaller than
-  wasmtime, not competitive with WAMR"** — the "lightweight" half of the
-  ADR-0153 完成形 bar holds only against the JIT-class competition.
-- One capability caveat in WAMR's favour is worth recording accurately:
-  upstream WAMR **rejects SIMD + classic-interp and SIMD + Fast-JIT at
-  configure time**, so the 264 KB row has no SIMD. zwasm's interpreter does
-  SIMD (25,075 asserts, zero fail). Part of the size difference is bought
-  capability, not waste.
+- Against wasmtime, zwasm's minimum build is 32% smaller (1,516,792 against
+  2,220,336), and it reaches that with a stable Zig toolchain where
+  `wasmtime-min` requires nightly Rust and `-Zbuild-std`.
+- Against WAMR, zwasm's minimum build is **5.7x larger** (1,516,792 against
+  264,216).
+- One capability difference is worth recording. **Measured**: upstream WAMR
+  rejects `SIMD + CLASSIC_INTERP` and `SIMD + FAST_JIT` at cmake configure
+  time, so the 264,216-byte row has no SIMD. zwasm's interpreter passes
+  25,075 SIMD assertions. Part of the size difference is capability.
+- *Not established*: how much of the 5.7x is capability and how much is
+  implementation overhead. Separating those requires a feature-matched
+  WAMR build that upstream does not currently allow.
 
 ---
 
-## 3. Findings, ordered by product impact
+## 3. Findings
 
 | # | Finding | Evidence | Suggested disposition |
 |---|---|---|---|
-| F1 | WASI 0.1 is 54/72 on the official suite; README says "functional" | §1.7, control 72/72 | Wire the official suite into CI; work the 18-item list. Re-word README. |
-| F2 | JIT lane on Wasm 3.0: memory64 crashes (exit 70), gc miscompiles 1 (`type-subtyping`), multi-memory 407/407 skipped — and CI never runs the lane | §1.4 | Gate the lane; fix or document each. Qualify the "Wasm 3.0 100 %" claim as interpreter-scoped. |
-| F3 | `-Dengine` is wired to nothing but the `--version` string — no comptime gate reads it. Unfinished ADR-0073 axis, not a regression. | §2.4 | Either extend the DCE substrate to the engine axis (+ gate it in `check_build_dce.sh`) or drop the option and fix `docs/development.md`. |
-| F4 | ReleaseFast — the shipped configuration — has no spec coverage | §1.5 | Add a ReleaseFast (or ReleaseSafe) spec leg; fix the 3 raw-entry harness call sites the 2.0 corpus trips. |
-| F5 | Not competitive with WAMR on size (5.7×) | §2.5 | Product decision, not a bug. Stop claiming "lightweight" without naming the comparison class. |
-| F6 | WASI 0.3 45/45 is 45 **of 52** upstream, and is embedder-API-only | §1.9, §1.10 | Disclose the denominator; measure the CLI path. |
-| F7 | Default ReleaseFast artifact is 84 % debug info; ReleaseSmall is 5× smaller and unadvertised | §2.2, §2.3 | Ship/document `ReleaseSmall -Dstrip=true` as the distribution config. |
-| F8 | Skip reporting conflates out-of-scope text-format directives with real gaps | §1.2 | Split the column. 509 of 512 SIMD "skips" are by-design. |
-| F9 | `-Dwasi` is a no-op for C embedders | §2.2 | Documentation fix. |
-| F10 | No official WASI 0.2 suite exists anywhere | §1.8 | Describe the substitute honestly rather than as conformance. |
-| F11 | `-Dstrip=true` cannot build the default step (Zig 0.16.0 SEGV on 3 installed test-runner exes) | §2.6 | Stop `installArtifact`-ing test runners into the product install step; report the compiler crash upstream. |
-| F12 | zwasm CLI hangs indefinitely on the first official WASI 0.3 stdio test — the suite cannot be scored on the CLI at all | §1.10 | Decide whether the CLI is a supported p3 surface; if yes, fix the hang and gate it. |
-| F13 | Wasm 3.0 runner's counters do not reconcile — 73 `assert_return` directives are neither pass, fail, nor skip | §1.3 | Fix the accounting before quoting "0 fail" as coverage. |
+| F1 | WASI 0.1 interpreter is 59/72 on the official suite; 13 failures are engine-independent | §1.7, control 72/72 | Wire the official suite into CI; work the 13-item list. Re-word the README rating. |
+| F2 | Wasm 3.0 JIT: memory64 aborts (exit 70), gc returns a wrong result on `type-subtyping`, multi-memory executes 0 of 407. CI does not run the lane. | §1.4 | Gate the lane. Qualify the Wasm 3.0 claim by engine. |
+| F3 | 4 further WASI 0.1 tests fail on the JIT and pass on the interpreter | §1.7 | Second JIT correctness gap; pairs with F2. |
+| F4 | `-Dengine` is wired to nothing but the `--version` string. Unfinished ADR-0073 axis, not a regression. | §2.4 | Extend the DCE substrate to the engine axis and gate it, or remove the option and fix `docs/development.md`. |
+| F5 | `-Dstrip=true` cannot build the default step (Zig 0.16.0 aborts on 3 installed test-runner exes) | §2.5 | Stop `installArtifact`-ing test runners into the product install step. Report the compiler abort upstream. |
+| F6 | ReleaseFast, the shipped configuration, has no spec coverage | §1.5 | Add a ReleaseFast or ReleaseSafe spec leg. |
+| F7 | zwasm is 5.7x larger than WAMR and 32% smaller than `wasmtime-min` | §2.6 | Product positioning decision. Name the comparison class when claiming "lightweight". |
+| F8 | WASI 0.3 45/45 is 45 of 52 upstream, and is embedder-API-only; the CLI cannot be scored | §1.9, §1.10 | Disclose the denominator. Decide whether the CLI is a supported p3 surface. |
+| F9 | 84% of the default ReleaseFast artifact is debug info and symbols; ReleaseSmall is 44% smaller again but untested | §2.2, §2.3 | Run `test-all` at ReleaseSmall, then decide the distribution configuration. |
+| F10 | Skip reporting mixes out-of-scope text-format directives with real gaps | §1.2 | Split the column. |
+| F11 | The Wasm 3.0 runner's counters do not reconcile | §3.1 | Fix the accounting before quoting "0 fail" as coverage. |
+| F12 | `-Dwasi` does not change the embedder image | §2.2 | Documentation fix. |
+| F13 | No official WASI 0.2 suite exists; the README's Wasm 2.0 `skip-impl == 0` is contradicted by 1 skip-impl in SIMD | §1.8, §1.1 | Describe the p2 substitute as a substitute. Correct or re-scope the skip-impl claim. |
 
-### Which findings still need 3-host confirmation
+### 3.1 An open question that limits F2 and §1.1
 
-This matters because the project's own operating rule is that a single host
-is insufficient for platform-branch claims (`.dev/handover.md`), and the JIT
-carries separate aarch64 and x86_64 backends. Read the table above with this
-split:
+**Measured.** In the Wasm 3.0 runner, the enumerated `assert_return`
+directive count exceeds `pass + fail`:
 
-| Confidence | Findings | Why |
+| Proposal | `return=` enumerated | `pass` | unaccounted | printed `skip` |
+|---|---:|---:|---:|---:|
+| gc | 419 | 365 | 54 | 15 |
+| memory64 | 10,315 | 10,299 | 16 | 4 |
+| tail-call | 75 | 73 | 2 | 0 |
+| function-references | 39 | 38 | 1 | 2 |
+| exception-handling | 34 | 34 | 0 | 1 |
+| multi-memory | 407 | 407 | 0 | 14 |
+| **total** | 11,289 | 11,216 | **73** | 36 |
+
+*Not established*: whether those 73 directives ran. Two explanations fit the
+data equally well. Either the runner executes them and fails to count them,
+which is a reporting defect, or it does not execute them, which would mean
+the interpreter's coverage is 73 directives smaller than reported. This
+report cannot distinguish the two, and that is the reason it matters:
+**"0 fail" does not by itself establish that every enumerated directive
+ran.**
+
+### 3.2 Which findings need 3-host confirmation
+
+The project's operating rule is that one host is insufficient for
+platform-branch claims (`.dev/handover.md`), and the JIT has separate
+aarch64 and x86_64 backends.
+
+| Confidence | Findings | Reason |
 |---|---|---|
-| **Host-independent — established from source** | F3, F6, F8, F10, F13 | Read out of `build.zig` / `src/` / the corpora and manifests; no execution involved. |
-| **Almost certainly universal** | F1, F5, F7, F9 | WASI 0.1 gaps are host-logic-level (Windows may add more, not fewer); sizes differ per arch but the *ordering* vs WAMR/wasmtime will not flip. |
-| **⚠ x86_64-linux only — confirm before acting** | **F2, F4, F11, F12** | F2's memory64 abort and gc miscompile are in JIT-emitted code and could be x86_64-backend-specific — the project's primary dev host is aarch64-macos. F11 is a Zig 0.16.0 compiler crash and is plausibly toolchain/host-bound. |
+| Host-independent, read from source | F4, F8, F10, F12, F13 | Established from `build.zig`, `src/`, corpora and manifests without execution. |
+| Very likely universal | F1, F7, F9 | WASI gaps are host-logic-level. Sizes differ per architecture but the ordering against WAMR and wasmtime will not invert. |
+| **x86_64-linux only, confirm before acting** | **F2, F3, F5, F6** | F2 and F3 are defects in JIT-emitted code and may be x86_64-backend-specific; the primary dev host is aarch64-macos. F5 is a Zig compiler abort and may be toolchain-bound. |
 
 Re-running `scripts/eval/conformance_sweep.sh` on the Mac and Windows hosts
-is the cheapest way to close that column.
+closes the last row.
 
-### What held up
+### 3.3 What held up
 
-Worth stating plainly, because most of this report is deltas: the
-interpreter is **zero-fail across every core corpus measured** — 1.0, 2.0,
-SIMD + relaxed-SIMD, atomics, and all six Wasm 3.0 proposals, 66,000+
-directives. Component Model is 170/0/0. WASI 0.3 is 45/45 and beats
-wasmtime on the common subset. Those are strong results and none of them
-needed qualification.
+The interpreter has zero failures across every core corpus measured: 1.0,
+2.0, SIMD and relaxed-SIMD, atomics, and all six Wasm 3.0 proposals that
+have a sub-corpus, over 66,000 directives. Component Model is 170/0/0. WASI
+0.3 is 45/45 and beats wasmtime on the 45 tests both runtimes carry. None of
+those results needed qualification.
 
 ## 4. Reproduction
 
 ```bash
-bash scripts/eval/conformance_sweep.sh                      # §1.1 – §1.6
+bash scripts/eval/conformance_sweep.sh                      # §1.1 to §1.6
 WASI_TESTSUITE=<clone> bash scripts/eval/wasi_official.sh   # §1.7, §1.9, §1.10
-bash scripts/eval/size_matrix.sh                            # §2.2 – §2.6
+bash scripts/eval/size_matrix.sh                            # §2.2 to §2.6
 ```
 
-`scripts/eval/wasi_adapter_zwasm.py` is the wasi-testsuite runtime adapter
-(`wasi_official.sh` copies it into the clone). The wasmtime control run is
-part of the same script — a failure list without it is not evidence.
+`scripts/eval/wasi_adapter_zwasm.py` is the wasi-testsuite runtime adapter;
+`wasi_official.sh` copies it into the clone and runs the wasmtime control
+alongside. Set `ZWASM_ENGINE=interp` or `jit` to pin the engine, which
+§1.7 shows changes the result by 4 tests.
 
-WASI 0.3's own 45/45 comes from
-`zig build test-wasi-p3 -Dtest-filter=wasip3-official` (in-process), not
-from the CLI; see §1.10 for why those are different measurements.
+WASI 0.3's 45/45 comes from
+`zig build test-wasi-p3 -Dtest-filter=wasip3-official` in-process, not from
+the CLI. See §1.10.

@@ -65,6 +65,14 @@ def compute_argv(test_path: str,
 
     argv += ["run"]
 
+    # Pin the engine. This is load-bearing: the default `auto` lane prefers
+    # the JIT, and the JIT fails 4 WASI 0.1 tests the interpreter passes
+    # (report §1.7), so an unpinned run does not measure what the README's
+    # interpreter-scoped rating claims. Must come after `run`, not before.
+    engine = os.getenv("ZWASM_ENGINE")
+    if engine:
+        argv += ["--engine", engine]
+
     for k, v in env.items():
         argv += ["--env", f"{k}={v}"]  # noqa: E231
 
