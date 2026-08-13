@@ -168,7 +168,7 @@ FFI-capable language, not just C.
 **Homebrew** (macOS arm64 / Linux):
 
 ```sh
-brew install clojurewasm/tap/zwasm
+brew install zwasm/tap/zwasm
 ```
 
 The `zwasm` binary is not code-signed. Homebrew installs it without a
