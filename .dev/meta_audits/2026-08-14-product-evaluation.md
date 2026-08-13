@@ -258,9 +258,14 @@ same component through the `-Dwasi=p3` **CLI** does not reproduce it — e.g.
 in-process test for the same binary passes.
 
 Worse, driving the full upstream p3 corpus through the CLI with the official
-runner **hangs**: `cli-stdout-flush.wasm` was still running after 364 s (the
-run had to be bounded by `timeout`), where the in-process test for the same
-binary completes in milliseconds.
+runner **hangs outright**. A single `zwasm run
+tests/rust/testsuite/wasm32-wasip3/cli-stdout-flush.wasm` stayed live for the
+entire run; the harness was killed by its 900 s bound (`exit 143`) without
+ever reaching a second test, and **wrote no results file at all**. The
+in-process test for the same binary completes in milliseconds.
+
+The suite is therefore not merely failing on the CLI — it cannot be scored
+on the CLI.
 
 So "WASI 0.3 full coverage" is a statement about the **embedding API
 surface**. The CLI's p3 conformance is not merely unmeasured — it does not
@@ -457,7 +462,7 @@ Static libraries (archives — not comparable to linked images, see §2.1):
 | F9 | `-Dwasi` is a no-op for C embedders | §2.2 | Documentation fix. |
 | F10 | No official WASI 0.2 suite exists anywhere | §1.8 | Describe the substitute honestly rather than as conformance. |
 | F11 | `-Dstrip=true` cannot build the default step (Zig 0.16.0 SEGV on 3 installed test-runner exes) | §2.6 | Stop `installArtifact`-ing test runners into the product install step; report the compiler crash upstream. |
-| F12 | zwasm CLI hangs on the first official WASI 0.3 stdio test | §1.10 | Decide whether the CLI is a supported p3 surface; if yes, gate it. |
+| F12 | zwasm CLI hangs indefinitely on the first official WASI 0.3 stdio test — the suite cannot be scored on the CLI at all | §1.10 | Decide whether the CLI is a supported p3 surface; if yes, fix the hang and gate it. |
 | F13 | Wasm 3.0 runner's counters do not reconcile — 73 `assert_return` directives are neither pass, fail, nor skip | §1.3 | Fix the accounting before quoting "0 fail" as coverage. |
 
 ### What held up
