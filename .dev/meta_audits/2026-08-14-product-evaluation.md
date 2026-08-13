@@ -364,14 +364,28 @@ unstripped:
 ReleaseSmall/p1, where `interp` and `jit` produce identical 1,516,800-byte
 binaries with identical 1,038,993-byte `.text`.
 
-The option is documented as "Engine selection compiled in"
-(`docs/development.md`). On this host it selects a *default engine at
-runtime*, not a compile-time subset — which is precisely the axis an
-embedder shopping on size would reach for first.
+**Mechanism.** `build_options.engine_mode` is consumed at exactly three
+sites in `src/`, all in `src/cli/main.zig`: two build the `--version`
+identity string (`:100`, `:434`), and the third is
+`_ = build_options.engine_mode;` inside `test "build options are wired"`
+(`:490`) — a discard that asserts the option exists. **No comptime gate
+anywhere reads it.** So `-Dengine` does not select a compile-time subset,
+and it does not select a runtime default either; the runtime selector is the
+CLI's separate `--engine auto|interp|jit` flag. It feeds the version string.
 
-`scripts/check_build_dce.sh` enforces symbol-absence and `.text`
-monotonicity across the `-Dwasm` and `-Dwasi` axes but **not across
-`-Dengine`**, so the existing gate cannot see this.
+**This is an unfinished axis, not a regression.** ADR-0073 (build-option DCE
+substrate) records the identical shape for `wasm_level` as of 2026-05-19 —
+"only consulted at 2 diagnostic sites in `cli/main.zig` +
+`diagnostic/trace.zig`. None of validator / lower / emit / runtime / c_api /
+CLI / WASI applies a build-option feature gate". The substrate was then
+built for the `-Dwasm` and `-Dwasi` axes, and `scripts/check_build_dce.sh`
+gates exactly those two. `-Dengine` was declared in the same ADR's option
+list and never picked up the substrate — so no gate can see it, and nothing
+regressed to get here.
+
+The user-facing problem stands regardless: `docs/development.md` advertises
+`-Dengine` as "Engine selection compiled in", which is the first knob an
+embedder shopping on size would reach for, and it does nothing.
 
 ### 2.6 ⚠ `-Dstrip=true` cannot build the default step
 
@@ -453,7 +467,7 @@ Static libraries (archives — not comparable to linked images, see §2.1):
 |---|---|---|---|
 | F1 | WASI 0.1 is 54/72 on the official suite; README says "functional" | §1.7, control 72/72 | Wire the official suite into CI; work the 18-item list. Re-word README. |
 | F2 | JIT lane on Wasm 3.0: memory64 crashes (exit 70), gc miscompiles 1 (`type-subtyping`), multi-memory 407/407 skipped — and CI never runs the lane | §1.4 | Gate the lane; fix or document each. Qualify the "Wasm 3.0 100 %" claim as interpreter-scoped. |
-| F3 | `-Dengine=interp` does not remove the JIT | §2.4 | Either make the option real or drop it; extend `check_build_dce.sh` to the engine axis either way. |
+| F3 | `-Dengine` is wired to nothing but the `--version` string — no comptime gate reads it. Unfinished ADR-0073 axis, not a regression. | §2.4 | Either extend the DCE substrate to the engine axis (+ gate it in `check_build_dce.sh`) or drop the option and fix `docs/development.md`. |
 | F4 | ReleaseFast — the shipped configuration — has no spec coverage | §1.5 | Add a ReleaseFast (or ReleaseSafe) spec leg; fix the 3 raw-entry harness call sites the 2.0 corpus trips. |
 | F5 | Not competitive with WAMR on size (5.7×) | §2.5 | Product decision, not a bug. Stop claiming "lightweight" without naming the comparison class. |
 | F6 | WASI 0.3 45/45 is 45 **of 52** upstream, and is embedder-API-only | §1.9, §1.10 | Disclose the denominator; measure the CLI path. |
@@ -464,6 +478,22 @@ Static libraries (archives — not comparable to linked images, see §2.1):
 | F11 | `-Dstrip=true` cannot build the default step (Zig 0.16.0 SEGV on 3 installed test-runner exes) | §2.6 | Stop `installArtifact`-ing test runners into the product install step; report the compiler crash upstream. |
 | F12 | zwasm CLI hangs indefinitely on the first official WASI 0.3 stdio test — the suite cannot be scored on the CLI at all | §1.10 | Decide whether the CLI is a supported p3 surface; if yes, fix the hang and gate it. |
 | F13 | Wasm 3.0 runner's counters do not reconcile — 73 `assert_return` directives are neither pass, fail, nor skip | §1.3 | Fix the accounting before quoting "0 fail" as coverage. |
+
+### Which findings still need 3-host confirmation
+
+This matters because the project's own operating rule is that a single host
+is insufficient for platform-branch claims (`.dev/handover.md`), and the JIT
+carries separate aarch64 and x86_64 backends. Read the table above with this
+split:
+
+| Confidence | Findings | Why |
+|---|---|---|
+| **Host-independent — established from source** | F3, F6, F8, F10, F13 | Read out of `build.zig` / `src/` / the corpora and manifests; no execution involved. |
+| **Almost certainly universal** | F1, F5, F7, F9 | WASI 0.1 gaps are host-logic-level (Windows may add more, not fewer); sizes differ per arch but the *ordering* vs WAMR/wasmtime will not flip. |
+| **⚠ x86_64-linux only — confirm before acting** | **F2, F4, F11, F12** | F2's memory64 abort and gc miscompile are in JIT-emitted code and could be x86_64-backend-specific — the project's primary dev host is aarch64-macos. F11 is a Zig 0.16.0 compiler crash and is plausibly toolchain/host-bound. |
+
+Re-running `scripts/eval/conformance_sweep.sh` on the Mac and Windows hosts
+is the cheapest way to close that column.
 
 ### What held up
 
