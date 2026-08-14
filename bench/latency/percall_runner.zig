@@ -36,8 +36,9 @@ const guest = @embedFile("percall_loop.wasm");
 /// constant, not to be divided into.
 const insns_per_trip = 13;
 
-/// Trip counts to record. Deliberately short: this is a regression guard that
-/// runs on every push, not the full sweep an investigation would use. The
+/// Trip counts to record. Deliberately short: this is a regression guard run by
+/// hand at merge time, not the full sweep an investigation would use. (The gate
+/// only COMPILES this file — ADR-0209 D3 keeps the measurement out of CI.) The
 /// small sizes are where a per-call constant is visible; the large one keeps
 /// an eye on the engine itself.
 const trips = [_]i32{ 0, 16, 512 };

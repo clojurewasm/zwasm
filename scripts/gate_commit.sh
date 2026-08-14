@@ -74,7 +74,7 @@ if [ -n "$STAGED" ]; then
     ANY_STAGED=1
     while IFS= read -r f; do
         case "$f" in
-            src/*|test/*|include/*|build.zig|build.zig.zon|flake.nix|flake.lock)
+            src/*|test/*|include/*|bench/latency/*|build.zig|build.zig.zon|flake.nix|flake.lock)
                 SRC_TOUCHED=1
                 ;;
             .dev/decisions/*.md|.dev/decisions/*/*.md)
@@ -126,7 +126,9 @@ if [ -d src ] && [ -n "$(find src -name '*.zig' 2>/dev/null | head -1)" ]; then
     zig fmt --check src/
     # docs/examples/ carries committable .zig consumers (zig_dep / zig_host); keep
     # them fmt-clean too (they slipped pre-2026-06-05 because only src/ was checked).
-    if [ -d examples ] && [ -n "$(find examples -name '*.zig' 2>/dev/null | head -1)" ]; then
+    # Guarded on docs/examples/, not `examples/`: the directory moved under
+    # docs/ and the stale guard meant this check never actually ran.
+    if [ -d docs/examples ] && [ -n "$(find docs/examples -name '*.zig' 2>/dev/null | head -1)" ]; then
         zig fmt --check docs/examples/
     fi
     # bench/latency/ carries the per-call latency runner (ADR-0209); it is

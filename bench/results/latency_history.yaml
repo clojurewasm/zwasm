@@ -46,6 +46,12 @@
 # In practice the first run on a host is the one to distrust: an opening
 # aarch64-macos run read 2.2x the value the next three settled on. Take at
 # least two runs and compare them. A single row is never self-validating.
+#
+# `jit_over_interp` tracks D-584 and NOT D-585. Both lanes go through the
+# public API, so both pay D-585's per-call name resolution and it largely
+# cancels in the ratio. A D-585 regression would surface as `interp_ns` at 0
+# trips rising, nothing more; ADR-0209 measures that debt by comparing the
+# public API against `invokeIdx`, which this file does not record.
 
 
 

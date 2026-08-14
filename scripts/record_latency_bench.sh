@@ -61,10 +61,10 @@ HIST=bench/results/latency_history.yaml
 # ReleaseFast by default: the comparators in every other bench ship optimized,
 # and a Debug measurement of a per-call constant is not comparable with
 # anything. Overridable so a ReleaseSafe delta can be recorded deliberately.
-echo "[record_latency] building ($BUILD_MODE)..." >&2
-zig build -Doptimize="$BUILD_MODE" >&2
-
 echo "[record_latency] measuring..." >&2
+# No separate smoke build first: `zig build ... bench-latency` fails on a
+# compile error by itself, and building the default install step as well
+# would compile the whole CLI for nothing — minutes on a cold cache.
 body="$(zig build -Doptimize="$BUILD_MODE" bench-latency)"
 
 # The runner's YAML reaches this substitution only because `has_side_effects`

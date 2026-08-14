@@ -154,9 +154,12 @@ makes the measurement useful is the **shape** — `jit_over_interp` across trip
 counts, and `stack_limit_query_ns` standing alone — which a reader can
 interpret and a threshold cannot.
 
-`bench-latency-build` — compile-only, no run — IS in the core gate. Compiling
-it costs the gate almost nothing and catches public-API drift; running it there
-would record a shared CI runner's numbers as if they meant something. Wiring
+`bench-latency-build` — compile-only, no run — IS in the core gate. It is not
+free: the runner is its own artifact and Zig compiles per-artifact, so the
+engine module is built again rather than reused from `test-all`. Measured on
+the x86_64-linux leg, the core gate went from 6m14s to about 6m45s, roughly
++30s. That buys public-API drift detection; running the measurement there
+would instead record a shared CI runner's numbers as if they meant something. Wiring
 the measurement itself into `bench.yml` is left for a follow-up, once there is
 more than one row to compare against. Recording it by hand at merge time, the way
 `run_bench.sh --phase-record` is already used, is enough to start.
