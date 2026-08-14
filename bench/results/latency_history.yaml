@@ -31,6 +31,15 @@
 # siblings. Read the median; read the spread to decide whether the median means
 # anything. A row whose min and max straddle it widely was taken on a busy
 # machine and should not be compared against a quiet one.
+#
+# The spread only covers variation WITHIN one process. Anything that slows the
+# whole process uniformly — core placement, thermal state, background load —
+# leaves all five samples equally slow and min/max equally tight, so the row
+# looks tidy and is wrong.
+#
+# In practice the first run on a host is the one to distrust: an opening
+# aarch64-macos run read 2.2x the value the next three settled on. Take at
+# least two runs and compare them. A single row is never self-validating.
 
 
 - date: 2026-08-14T08:37:42Z
@@ -70,3 +79,41 @@
       jit_ns_min: 28058.1
       jit_ns_max: 28290.8
       jit_over_interp: 0.948
+
+- date: 2026-08-14T08:56:42Z
+  commit: b27f6fabd023d5b5c201f0a967fcc1085c33e8fd
+  reason: "adr-0209: aarch64-macos baseline"
+  arch: aarch64-macos
+  build_mode: ReleaseFast
+  samples: 5
+  stack_limit_query_ns: 3.3
+  stack_limit_query_ns_min: 3.1
+  stack_limit_query_ns_max: 3.4
+  calls:
+    - trips: 0
+      wasm_insns: 0
+      interp_ns: 109.4
+      interp_ns_min: 103.4
+      interp_ns_max: 129.5
+      jit_ns: 181.9
+      jit_ns_min: 156.4
+      jit_ns_max: 190.2
+      jit_over_interp: 1.663
+    - trips: 16
+      wasm_insns: 208
+      interp_ns: 841.2
+      interp_ns_min: 790.9
+      interp_ns_max: 852.7
+      jit_ns: 200.5
+      jit_ns_min: 186.3
+      jit_ns_max: 202.4
+      jit_over_interp: 0.238
+    - trips: 512
+      wasm_insns: 6656
+      interp_ns: 22612.4
+      interp_ns_min: 22180.5
+      interp_ns_max: 23258.9
+      jit_ns: 531.3
+      jit_ns_min: 505.4
+      jit_ns_max: 537.8
+      jit_over_interp: 0.023

@@ -43,7 +43,10 @@ measurement finds.
   per call on x86_64-linux; separate rounds on the same host read 24.6 to 26.9,
   so treat it as tens of microseconds rather than a fixed figure.
   On a worker thread glibc answers from the thread descriptor (561 to 578 ns);
-  on aarch64-macos the query is a user-space struct read (3.1 to 7.2 ns). The
+  on aarch64-macos the query is a user-space struct read: the committed
+  baseline measures **3.3 ns** on an M4 Pro, with repeat runs agreeing within
+  3%. Roughly four orders of magnitude below
+  the Linux main-thread path. The
   interpreter caches the same value (`runtime/runtime.zig:593`), so the cost
   lands on one side only. AOT pays it identically — the `.cwasm` load path
   reaches the same entry helpers.
@@ -202,6 +205,12 @@ row to compare against. Recording it by hand at merge time, the way
 - The runner asserts both engines return the same value for the same input
   before timing anything, so a lane that silently ran a different function
   fails rather than reporting plausible nanoseconds.
+- The committed baselines demonstrate both findings without recourse to the
+  prose. x86_64-linux records `stack_limit_query_ns` 26,577 against
+  aarch64-macos 3.3, which is D-584. aarch64-macos records `jit_over_interp`
+  1.663 at zero trips, falling to 0.238 by 16 trips: the JIT losing to the
+  interpreter on a call that does no work, then winning by 4x once there is any,
+  which is D-585 seen through the public API.
 - Harness overhead was measured, not assumed: an empty `once()` costs 0.000 ns
   and a `doNotOptimizeAway`-only body 0.276 ns, against 423 ns for the cheapest
   lane recorded. The comptime duck-typed `ctx` cannot distort these numbers.

@@ -49,7 +49,10 @@ fn callsFor(n: i32) u32 {
 ///
 /// Returns the spread, not just the middle. The median is what to read, since
 /// one scheduler hiccup cannot move it; `min` and `max` are what tell a reader
-/// whether the median means anything. Recording only the median would hide a
+/// whether the median means anything — within this process. They cannot flag a
+/// run that was uniformly slow, e.g. one scheduled onto an efficiency core,
+/// because then all five samples agree with each other and the spread stays
+/// narrow. Cross-run comparison is the only guard against that. Recording only the median would hide a
 /// run whose five samples disagreed wildly, and ADR-0209 D3 deliberately has no
 /// threshold gate — a human reads these, and a human needs the spread to read
 /// them. `history.yaml` carries `stddev_ms` / `min_ms` / `max_ms` next to
