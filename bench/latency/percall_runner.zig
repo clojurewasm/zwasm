@@ -26,9 +26,14 @@ const build_options = @import("build_options");
 
 const guest = @embedFile("percall_loop.wasm");
 
-/// Wasm instructions executed per loop trip, counted from the `.wat`:
+/// Wasm instructions executed per loop TRIP, counted from the `.wat`:
 /// `local.get` x5, `i32.ge_s`, `br_if`, `i32.add` x2, `local.set` x2,
 /// `i32.const`, `br`.
+///
+/// `wasm_insns` in the output is `trips * insns_per_trip`, so the zero-trip row
+/// records 0 while the guest still runs the loop-header compare, its `br_if`,
+/// and the trailing `local.get`. That row is there to expose a per-call
+/// constant, not to be divided into.
 const insns_per_trip = 13;
 
 /// Trip counts to record. Deliberately short: this is a regression guard that
@@ -159,12 +164,16 @@ pub fn main(init: std.process.Init) !void {
 
     try verify(gpa);
 
-    try out.print("  arch: {s}-{s}\n", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+    // `darwin` rather than Zig's `macos` tag: `history.yaml` has recorded
+    // `aarch64-darwin` since the bench harness existed, and two series that
+    // cannot be joined on arch are two series nobody will compare.
+    const os_name = if (builtin.os.tag == .macos) "darwin" else @tagName(builtin.os.tag);
+    try out.print("  arch: {s}-{s}\n", .{ @tagName(builtin.cpu.arch), os_name });
     // The ENGINE's mode, not this program's. `build.zig` floors the engine
     // module at ReleaseSafe when the caller asks for Debug (`runner_optimize`),
     // so `builtin.mode` here would record `Debug` for numbers that ReleaseSafe
     // engine code produced — a row stating conditions that never held.
-    try out.print("  engine_build_mode: {s}\n", .{@tagName(build_options.engine_optimize)});
+    try out.print("  engine_build_mode: {s}\n", .{@tagName(build_options.runner_engine_optimize)});
     try out.print("  runner_build_mode: {s}\n", .{@tagName(builtin.mode)});
     try out.print("  samples: 5\n", .{});
     const sl = stackLimitNs(io);

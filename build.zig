@@ -110,12 +110,14 @@ pub fn build(b: *std.Build) void {
     options.addOption(WasiLevel, "wasi_level", wasi_level);
     const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
     options.addOption(EngineMode, "engine_mode", engine_mode);
-    // ADR-0209 — the mode the ENGINE is actually built with, which is not the
-    // mode the caller asked for: `runner_optimize` floors Debug at ReleaseSafe
-    // for iteration speed. A bench that reported its own `builtin.mode` would
-    // record `Debug` for numbers produced by ReleaseSafe engine code, so
-    // `bench/latency` reads this instead.
-    options.addOption(std.builtin.OptimizeMode, "engine_optimize", runner_optimize);
+    // ADR-0209 — the mode `core_rs` is built with, which is not the mode the
+    // caller asked for: `runner_optimize` floors Debug at ReleaseSafe for
+    // iteration speed. `bench/latency` imports the engine through `core_rs`, so
+    // reporting its own `builtin.mode` would label ReleaseSafe numbers `Debug`.
+    // Named for the twin it describes, not "engine_optimize": this same
+    // `build_options` module is shared by `core` and `exe_mod`, which are built
+    // with the raw `-Doptimize`, and a bare name would be wrong for them.
+    options.addOption(std.builtin.OptimizeMode, "runner_engine_optimize", runner_optimize);
     options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_component", enable_component);

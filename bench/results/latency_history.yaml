@@ -49,41 +49,41 @@
 
 
 
-- date: 2026-08-14T09:41:50Z
-  commit: de4ccfd8f12c0f064e70b413c30ab349d5f6b0d7
+- date: 2026-08-14T12:48:59Z
+  commit: 1680e6595662ad1e8acd056ff47f1a216553bb3c
   reason: "adr-0209: first per-call latency baseline"
   arch: x86_64-linux
   engine_build_mode: ReleaseFast
   runner_build_mode: ReleaseFast
   samples: 5
-  stack_limit_query_ns: 27053.3
-  stack_limit_query_ns_min: 26676.8
-  stack_limit_query_ns_max: 27620.7
+  stack_limit_query_ns: 26845.5
+  stack_limit_query_ns_min: 26766.4
+  stack_limit_query_ns_max: 27658.2
   calls:
     - trips: 0
       wasm_insns: 0
-      interp_ns: 393.9
-      interp_ns_min: 392.9
-      interp_ns_max: 394.7
-      jit_ns: 27614.4
-      jit_ns_min: 27412.3
-      jit_ns_max: 27694.1
-      jit_over_interp: 70.101
+      interp_ns: 405.7
+      interp_ns_min: 398.3
+      interp_ns_max: 410.3
+      jit_ns: 27540.3
+      jit_ns_min: 27384.4
+      jit_ns_max: 30161.0
+      jit_over_interp: 67.888
     - trips: 16
       wasm_insns: 208
-      interp_ns: 1218.4
-      interp_ns_min: 1217.6
-      interp_ns_max: 1220.9
-      jit_ns: 27366.1
-      jit_ns_min: 27345.6
-      jit_ns_max: 27399.9
-      jit_over_interp: 22.460
+      interp_ns: 1233.4
+      interp_ns_min: 1223.0
+      interp_ns_max: 1235.4
+      jit_ns: 27631.5
+      jit_ns_min: 27589.8
+      jit_ns_max: 27739.4
+      jit_over_interp: 22.403
     - trips: 512
       wasm_insns: 6656
-      interp_ns: 26591.0
-      interp_ns_min: 26582.6
-      interp_ns_max: 26652.8
-      jit_ns: 28025.7
-      jit_ns_min: 27971.5
-      jit_ns_max: 28076.4
-      jit_over_interp: 1.054
+      interp_ns: 26690.7
+      interp_ns_min: 26638.0
+      interp_ns_max: 26748.2
+      jit_ns: 28177.1
+      jit_ns_min: 28095.6
+      jit_ns_max: 28189.9
+      jit_over_interp: 1.056
