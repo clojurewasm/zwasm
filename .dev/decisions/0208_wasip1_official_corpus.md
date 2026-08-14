@@ -117,11 +117,22 @@ The existing three-fixture `test-wasi-p1` step stays. It exercises the
 `.expected_exit` / `.env` sidecar path and costs nothing; it is simply no
 longer load-bearing as a conformance claim.
 
-### D3 — Run it from an advisory CI job with a written exit condition
+### D3 — Run it as an advisory step in `gate`, with a written exit condition
 
-A dedicated `wasi-p1-official` job runs the step on all three OSes with
-`continue-on-error: true`, and is absent from `ci-required`'s `needs` — an
-advisory that can flip the required check is not advisory.
+The step runs at the end of the existing `gate` job on all three OSes with
+step-level `continue-on-error: true`. GitHub's contract is that a failing
+`continue-on-error` step keeps `outcome: failure` — so the red is visible in
+the run — while its `conclusion` is `success`, which is what propagates to the
+job and therefore to the `needs.gate.result` that `ci-required` reads. The
+existing "Install wasmtime (reference oracle, best effort)" step in the same
+job already relies on this.
+
+**A step rather than a job of its own.** A separate job would repeat the Zig
+install and rebuild zwasm from a cold `.zig-cache` on all three runners —
+nothing caches `.zig-cache`, only `zig-pkg` and the Zig toolchain — so it
+would pay a second full build per PR to run two lanes over 72 small binaries,
+in a workflow whose own comments put cold-cache builds at 2.5–4.5 min each.
+As a step it reuses what `ci_gate.sh` just built.
 
 This is a **time-boxed** advisory in the ADR-0174 sense ("a deliberate,
 user-sanctioned mode, NOT a silent skip"), not an indefinite workaround. The

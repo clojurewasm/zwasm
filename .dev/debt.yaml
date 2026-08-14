@@ -19,12 +19,15 @@ entries:
       are D-583): vendor the `prod/testsuite-base` prebuilt `wasm32-wasip1`
       binaries via `scripts/vendor_wasip1_official.sh`, write a runner that
       reads the official manifests, expose it as `zig build
-      test-wasi-p1-official`, and run it from a dedicated **advisory**
-      (`continue-on-error`) CI job. The step stays OUT of `test-all` until
-      D-583 closes: `test-all` is the blocking gate, so folding a
-      known-14-red corpus into it would red every PR. The advisory job is
-      also absent from `ci-required`'s `needs` — an advisory that can flip
-      the required check is not advisory.
+      test-wasi-p1-official`, and run it as an **advisory step**
+      (step-level `continue-on-error`) at the end of the existing `gate` job.
+      The step stays OUT of `test-all` until D-583 closes: `test-all` is the
+      blocking gate, so folding a known-14-red corpus into it would red every
+      PR. A failing `continue-on-error` step keeps `outcome: failure` (visible)
+      while its `conclusion` is `success`, so `needs.gate.result` — what
+      `ci-required` reads — is unaffected. A job of its own was rejected: it
+      would rebuild zwasm from a cold `.zig-cache` on all three runners
+      (nothing caches `.zig-cache`), paying a second full build per PR.
       ---
       Two design constraints, both learned the hard way on 2026-08-14:
       (1) **Copy the preopen tree per test.** The tests mutate it, and a
@@ -85,11 +88,20 @@ entries:
       first pass of the 2026-08-14 measurement recorded it as flaky for
       exactly this reason.
       ---
-      DISCHARGE: all 14 green on the vendored corpus on all three OSes, at
-      which point `test-wasi-p1-official` moves into `test-all` and D-582's
-      advisory CI job is deleted. Until then the job reports real counts
-      and stays non-blocking — a deliberate, time-boxed advisory in the sense
-      of ADR-0174 ("NOT a silent skip"), not an indefinite workaround.
+      DISCHARGE: all 14 green on the vendored corpus on all three OSes. Four
+      edits land together — anything left behind is a doc that outlives its
+      subject, which is how §11.2 came to describe neither reality nor intent:
+      (1) `build.zig` — `test_all_step.dependOn` both lanes (`ci_gate.sh` needs
+          no edit; it already runs `zig build test-all`);
+      (2) `.github/workflows/ci.yml` — delete the advisory step in `gate`;
+      (3) `docs/development.md` — drop the "Not in `test-all`" marker from the
+          table row, restore `test-all`'s "all of the above", and delete the
+          paragraph about the advisory placement;
+      (4) this row and D-582 — deleted, per the ledger's delete-on-discharge
+          rule.
+      Until then the step reports real counts and stays non-blocking — a
+      deliberate, time-boxed advisory in the sense of ADR-0174 ("NOT a silent
+      skip"), not an indefinite workaround.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-14"
     refs: |-
