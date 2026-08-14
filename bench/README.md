@@ -7,13 +7,36 @@ Benchmark history (append-only) and runner data.
 ```
 bench/
 ├── README.md          # this file
+├── latency/           # steady-state per-call latency runner (ADR-0209)
 ├── results/
-│   ├── history.yaml   # committed, append-only, phase-boundary entries only
-│   └── recent.yaml    # gitignored, rolling per-commit
+│   ├── history.yaml           # committed, append-only, phase-boundary entries only
+│   ├── latency_history.yaml   # committed, append-only, per-call latency (ADR-0209)
+│   └── recent.yaml            # gitignored, rolling per-commit
 ├── runners/           # bench wasm samples (Phase 10+)
 │   └── src/           # source for runners (committed)
 └── fixtures/          # bench-specific data files (Phase 10+)
 ```
+
+## Two measurement kinds
+
+Everything driven by `scripts/run_bench.sh` times a **whole process** through
+`hyperfine`: spawn, plus instantiate, plus execute. That is one guest
+invocation per process, so a cost paid on *every* call is paid once and
+disappears into process startup.
+
+`bench/latency/` measures the other shape: instantiate once, call many times,
+time only the calls. It exists to make D-584 and D-585 checkable, not to add a
+performance goal — §2 P3 keeps cold-start as the primary metric. It needs no
+`hyperfine` and no dev shell (plain Zig), so it also covers `windowsmini`,
+which `run_bench.sh` cannot reach (D-249).
+
+```sh
+zig build bench-latency                                   # measure, print YAML
+bash scripts/record_latency_bench.sh --reason "<tag>: <gist>"   # + append
+```
+
+Rationale and what each harness can and cannot see:
+[`ADR-0209`](../.dev/decisions/0209_percall_latency_bench.md).
 
 The `results/` split (committed `history.yaml` vs gitignored
 `recent.yaml`) was introduced 2026-05-04 per §9.6 / 6.H +

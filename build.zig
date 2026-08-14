@@ -813,6 +813,32 @@ pub fn build(b: *std.Build) void {
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
 
+    // `zig build bench-latency` — ADR-0209. Steady-state per-call latency on an
+    // already-instantiated module. Every other bench goes through `hyperfine`
+    // on a whole process, which is one guest call per process, so a per-call
+    // cost is paid once there and vanishes into process startup. D-584 / D-585
+    // were both invisible to that harness by construction. NOT in `test-all`:
+    // it is a measurement, not an assertion, and its numbers move with machine
+    // state (7% between rounds on one host).
+    const latency_runner_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("bench/latency/percall_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    latency_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    const latency_runner_exe = b.addExecutable(.{
+        .name = "zwasm-latency-runner",
+        .root_module = latency_runner_mod,
+    });
+    const run_latency = b.addRunArtifact(latency_runner_exe);
+    // has_side_effects: the guest is `@embedFile`d so it IS a tracked input,
+    // but the run must not be cached on the exe hash either way — the whole
+    // point is to re-measure, and a cached run would silently report the
+    // previous machine state's numbers.
+    run_latency.has_side_effects = true;
+    const bench_latency_step = b.step("bench-latency", "Measure steady-state per-call latency (ADR-0209; not an assertion, not in test-all)");
+    bench_latency_step.dependOn(&run_latency.step);
+
     // `zig build test-fuzz` — §14.3 / D-256 fuzz smoke. Feeds each
     // committed seed-corpus file's raw bytes through `parser.parse` +
     // the public `Engine.compile` (parse + validate). A decode-error

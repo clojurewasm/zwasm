@@ -1,0 +1,72 @@
+# Steady-state per-call latency — append-only (ROADMAP A9; ADR-0209 D2).
+#
+# Nanoseconds, not the `mean_ms` of history.yaml. A 10 ns call has no
+# significant digits left in milliseconds. Separate file for the same reason
+# size_history.yaml and skip_impl_history.yaml are separate: a different
+# measurement with a different schema does not belong in history.yaml's rows.
+#
+# What this measures that history.yaml cannot: history.yaml drives `hyperfine`
+# over whole processes, which is one guest invocation per process, so any cost
+# paid on EVERY call is paid once there and disappears into process startup.
+# D-584 and D-585 were both invisible to that harness by construction.
+#
+# Append with:
+#   bash scripts/record_latency_bench.sh --reason "<tag>: <gist>"
+#
+# Absolute values move with machine state — 7% between two rounds on one host
+# during the ADR-0209 investigation, and more on a laptop. Read `jit_over_interp`
+# and the shape across trips before reading the nanoseconds. There is no
+# threshold gate on this file; it is a record for human review.
+#
+# Schema:
+#   date, commit, reason        provenance
+#   arch, build_mode, samples   conditions
+#   stack_limit_query_ns        the per-invocation cost D-584 tracks, on its own
+#                               so a regression in it is distinguishable from a
+#                               regression in the engine
+#   calls[]                     per trip count: trips, wasm_insns, interp_ns,
+#                               jit_ns, jit_over_interp
+#
+# Every *_ns figure is the MEDIAN of 5 samples and carries `_min` / `_max`
+# siblings. Read the median; read the spread to decide whether the median means
+# anything. A row whose min and max straddle it widely was taken on a busy
+# machine and should not be compared against a quiet one.
+
+
+- date: 2026-08-14T08:37:42Z
+  commit: 8f24e0aee0f2a22830b8f508e856468b124e4927
+  reason: "adr-0209: first per-call latency baseline"
+  arch: x86_64-linux
+  build_mode: ReleaseFast
+  samples: 5
+  stack_limit_query_ns: 26577.0
+  stack_limit_query_ns_min: 26517.8
+  stack_limit_query_ns_max: 26764.0
+  calls:
+    - trips: 0
+      wasm_insns: 0
+      interp_ns: 401.3
+      interp_ns_min: 400.9
+      interp_ns_max: 404.4
+      jit_ns: 27573.0
+      jit_ns_min: 27510.5
+      jit_ns_max: 27625.2
+      jit_over_interp: 68.717
+    - trips: 16
+      wasm_insns: 208
+      interp_ns: 1322.7
+      interp_ns_min: 1319.6
+      interp_ns_max: 1330.3
+      jit_ns: 27376.2
+      jit_ns_min: 27322.7
+      jit_ns_max: 27529.8
+      jit_over_interp: 20.697
+    - trips: 512
+      wasm_insns: 6656
+      interp_ns: 29745.2
+      interp_ns_min: 29741.8
+      interp_ns_max: 29872.4
+      jit_ns: 28191.6
+      jit_ns_min: 28058.1
+      jit_ns_max: 28290.8
+      jit_over_interp: 0.948
