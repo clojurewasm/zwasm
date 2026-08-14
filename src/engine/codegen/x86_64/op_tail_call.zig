@@ -224,9 +224,11 @@ fn emitCrossModuleReturnCall(
 ///       CMP EAX,canonical ; JNE rel32 → bounds_fixups,
 ///   (5) funcptr: MOV RAX,[R15+funcptr_base_off] ;
 ///       MOV R11,[RAX+idx_r*8],
-///   (6) MOV RDI, R15 (emitLoadCalleeRtSameModule),
-///   (7) frame_teardown.emit (ADD RSP + POP R15? + POP RBP, no RET),
-///   (8) JMP R11 (emitTailJump).
+///   (6) null-funcptr: TEST R11,R11 ; JE rel32 → cind_sig_fixups
+///       (D-586, an imported function's funcptr mirror is null),
+///   (7) MOV RDI, R15 (emitLoadCalleeRtSameModule),
+///   (8) frame_teardown.emit (ADD RSP + POP R15? + POP RBP, no RET),
+///   (9) JMP R11 (emitTailJump).
 ///
 /// Note (x86_64 fixup-list shape, D-293): cind bounds route to
 /// `oobtable_fixups` (oob_table, code 2) and cind sig to
@@ -301,6 +303,13 @@ pub fn emitIndirectReturnCall(
         // scratch; R11 is the JMP target per `tail_target_gpr`.
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromBaseIdxLsl3(tail_target_gpr, .rax, idx_r).slice());
+        // D-586 — null funcptr (imported function in a table): trap, do not JMP.
+        try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, tail_target_gpr, tail_target_gpr).slice());
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     } else {
         // Multi-table slow path (D-210): load per-table size + bases from
         // JitRuntime.tables_ptr[table_idx] + tables_jit_ci_ptr[table_idx],
@@ -347,6 +356,13 @@ pub fn emitIndirectReturnCall(
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_funcptr_disp).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromBaseIdxLsl3(tail_target_gpr, .rax, idx_r).slice());
+        // D-586 — null funcptr (imported function in a table): trap, do not JMP.
+        try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, tail_target_gpr, tail_target_gpr).slice());
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try ctx.buf.appendSlice(ctx.allocator, inst.encJccRel32(.e, 0).slice());
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     }
 
     try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);

@@ -18,8 +18,8 @@
 //!   - Pop the index; marshal args.
 //!   - Bounds check (CMP W17, W25 = table_size; B.HS trap).
 //!   - Sig check (LDR typeidx[idx]; CMP vs expected; B.NE trap).
-//!   - Funcptr load (LDR X17, [X26, X17, LSL #3]); restore X0;
-//!     BLR X17.
+//!   - Funcptr load (LDR X17, [X26, X17, LSL #3]); null check
+//!     (CMP X17, #0; B.EQ trap — D-586); restore X0; BLR X17.
 //!   - Capture return value.
 //!
 //! marshalCallArgs / captureCallResult: ≤ 7 GPR + ≤ 8 FP args in
@@ -455,6 +455,14 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         // Funcptr load + BLR. Restore X0 = runtime_ptr (ADR-0017
         // sub-2d-ii) before transferring control.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 26, 17));
+        // D-586 — see the x86_64 mirror. X17 = funcptr; null means an imported
+        // function with no trampoline emitted.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(17, 0));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     } else {
         // Multi-table slow path: load per-table size + bases from
         // JitRuntime at the call site. Stride-16 indexing into
@@ -517,6 +525,14 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_funcptr_byte_off)));
         // LDR X17, [X16, X17, LSL #3]  — funcptr_base[idx]
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 16, 17));
+        // D-586 — see the x86_64 mirror. X17 = funcptr; null means an imported
+        // function with no trampoline emitted.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(17, 0));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     }
 
     // ADR-0155 stage 2 — spill caller-saved homed locals just before the BLR

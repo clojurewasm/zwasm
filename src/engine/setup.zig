@@ -1006,10 +1006,12 @@ pub fn setupRuntimeLinked(
                 if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
                     // Imported function in a table — host-call dispatch
                     // through `host_dispatch_base` is required to invoke
-                    // it. v0.1.0's JIT call_indirect path doesn't emit
-                    // that trampoline; leave funcptr null so an attempt
-                    // to call it traps via NULL deref instead of running
-                    // arbitrary host code.
+                    // it. The JIT call_indirect path doesn't emit that
+                    // trampoline; leave funcptr null and the emitted
+                    // null-funcptr check traps (D-586 — the null used to
+                    // be dereferenced, which killed the process instead
+                    // of trapping). Callable imports in tables need the
+                    // trampoline, tracked in D-586.
                     continue;
                 }
                 tbl_funcptrs[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);

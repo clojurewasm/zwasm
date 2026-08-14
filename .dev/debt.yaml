@@ -3,6 +3,51 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-586"
+    layer: "code"
+    status: "now"
+    description: |-
+      **JIT call_indirect cannot CALL an imported function in a table; it now
+      traps where it used to kill the process.** `setup.zig` leaves the import's
+      `funcptrs[i]` null on purpose — no `host_dispatch_base` trampoline is
+      emitted, and a refusal beats running arbitrary host code. Until 2026-08-14
+      the refusal was a NULL deref: the inline path executed the null and zwasm
+      died with SIGSEGV, its own handler reporting "a bug in zwasm (not a wasm
+      trap)". The interim fix (this row's first half, landed with this entry)
+      emits a null-funcptr test at the eight inline sites — call_indirect
+      and return_call_indirect, single- and multi-table on each arch —
+      mirroring the test the subtyping path already had; the tail-call four
+      surfaced only when review re-derived the funcptr-load site list, and a
+      hand-built repro crashed identically through them. Measured on the
+      vendored 3.0 corpus, which the crash previously
+      blacked out entirely: memory64 now reports JIT pass=10023 fail=276
+      skip=16, and 273 of the 276 (table_copy 228 + table_init 45, all
+      err=Trap in check* functions over imported ef0-ef4) are exactly this
+      residual. The spec requires the CALL to succeed; the interpreter already
+      does (3.0 corpus, 0 fail).
+      REMAINING: (a) the trap kind — the interim sites report code 3 to match
+      arm64's subtyping path, but x86_64's subtyping path routes the same
+      condition to the GENERIC bounds stub, so the arches already disagree and
+      the element is not null-in-the-wasm-sense either; D-293/D-294 own this
+      taxonomy and the choice should be theirs. (b) the real fix — emit the
+      host-dispatch trampoline so imported functions in tables are callable.
+      (c) class guard, optional: the null test exists only where someone
+      remembered to emit it — the return_call_indirect mirrors surfaced only
+      when review re-derived the funcptr-load site list. An emit-shape sweep
+      asserting every table-funcptr load is followed by a zero test (or a
+      baked site count, dispatch_consistency_audit-style) would close the
+      class mechanically; likely overkill once all eight sites carry it, so
+      recorded here rather than built.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/engine/setup.zig (the deliberate null + D-586 comment);
+      src/engine/codegen/{x86_64,arm64}/op_call.zig + op_tail_call.zig (the
+      eight D-586 inline sites; the subtyping paths' pre-existing test);
+      src/engine/runner_trap_test.zig (the D-586 trap test, wire code 3
+      provisional); D-294 (null-ELEMENT sentinel, a different case);
+      ADR-0103 (guard-page SIGSEGV recovery; inapplicable here — the 3.0
+      runner uses explicit bounds checks per ADR-0202 D5)
   - id: "D-580"
     layer: "code"
     status: "note"

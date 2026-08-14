@@ -219,15 +219,17 @@ fn emitCrossModuleReturnCall(
 ///   (3) sig check (LDR W16, [X24, X17, LSL #2] ; CMP imm ;
 ///       B.NE cind_sig_fixup),
 ///   (4) funcptr load (LDR X16, [X26, X17, LSL #3]),
-///   (5) MOV X0, X19 (emitLoadCalleeRtSameModule),
-///   (6) frame_teardown.emit (caller's frame gone),
-///   (7) BR X16 (emitTailJump).
-/// Steps (2)-(4) take the multi-table form for `table_idx != 0`.
+///   (5) null-funcptr check (CMP X16, #0 ; B.EQ cind_sig_fixup —
+///       D-586, an imported function's funcptr mirror is null),
+///   (6) MOV X0, X19 (emitLoadCalleeRtSameModule),
+///   (7) frame_teardown.emit (caller's frame gone),
+///   (8) BR X16 (emitTailJump).
+/// Steps (2)-(5) take the multi-table form for `table_idx != 0`.
 ///
-/// NOT-a-safepoint invariant (ADR-0112 D7): the bounds+sig
-/// branches both target the trap stub (which does its own
-/// epilogue); the path from teardown to BR X16 has no allocator
-/// / host-call / signal-check branch.
+/// NOT-a-safepoint invariant (ADR-0112 D7): the bounds / sig /
+/// null-funcptr (D-586) branches all target the trap stub (which
+/// does its own epilogue); the path from teardown to BR X16 has no
+/// allocator / host-call / signal-check branch.
 pub fn emitIndirectReturnCall(
     ctx: *ctx_mod.EmitCtx,
     ins: *const zir.ZirInstr,
@@ -278,6 +280,13 @@ pub fn emitIndirectReturnCall(
         // Funcptr load: LDR X16, [X26, X17, LSL #3]. X16 = tail-target
         // (per `tail_target_gpr`) — matches the BR X16 in step (7).
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 26, 17));
+        // D-586 — null funcptr (imported function in a table): trap, do not BR.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(tail_target_gpr, 0));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     } else {
         // Multi-table slow path (D-210): load per-table size + bases from
         // the JitRuntime at the call site, mirroring emitCallIndirect's
@@ -324,6 +333,13 @@ pub fn emitIndirectReturnCall(
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_jit_ci_ptr_off));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_funcptr_byte_off)));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 16, 17));
+        // D-586 — null funcptr (imported function in a table): trap, do not BR.
+        try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(tail_target_gpr, 0));
+        {
+            const fixup_at: u32 = @intCast(ctx.buf.items.len);
+            try gpr.writeU32(ctx.allocator, ctx.buf, inst.encBCond(.eq, 0));
+            try ctx.cind_sig_fixups.append(ctx.allocator, fixup_at);
+        }
     }
 
     try emitLoadCalleeRtSameModule(ctx.allocator, ctx.buf);

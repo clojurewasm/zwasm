@@ -3,8 +3,9 @@
 //!
 //! Identity anchor at `src/instruction/wasm_1_0/call_indirect.zig`.
 //! Delegates to `op_call.emitCallIndirectCtx`. Bounds-checked
-//! table lookup + sig-mismatch trap + bridge thunk for cross-
-//! module dispatch.
+//! table lookup + sig-mismatch trap + null-funcptr trap (D-586 —
+//! an imported function's funcptr mirror is null by design) +
+//! bridge thunk for cross-module dispatch.
 //!
 //! Wasm spec §3.4.7 (call_indirect type_idx, table_idx).
 //! `ins.payload` = type_idx; `ins.extra` = table_idx.
