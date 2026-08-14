@@ -20,7 +20,13 @@
 #
 # Schema:
 #   date, commit, reason        provenance
-#   arch, build_mode, samples   conditions
+#   arch, samples               conditions
+#   engine_build_mode           the mode the ENGINE was built with. NOT the same
+#                               as the runner's: build.zig floors the engine at
+#                               ReleaseSafe when the caller asks for Debug, so a
+#                               row reporting the runner's mode would state
+#                               conditions that never held
+#   runner_build_mode           the harness program's own mode
 #   stack_limit_query_ns        the per-invocation cost D-584 tracks, on its own
 #                               so a regression in it is distinguishable from a
 #                               regression in the engine
@@ -42,78 +48,42 @@
 # least two runs and compare them. A single row is never self-validating.
 
 
-- date: 2026-08-14T08:37:42Z
-  commit: 8f24e0aee0f2a22830b8f508e856468b124e4927
+
+- date: 2026-08-14T09:41:50Z
+  commit: de4ccfd8f12c0f064e70b413c30ab349d5f6b0d7
   reason: "adr-0209: first per-call latency baseline"
   arch: x86_64-linux
-  build_mode: ReleaseFast
+  engine_build_mode: ReleaseFast
+  runner_build_mode: ReleaseFast
   samples: 5
-  stack_limit_query_ns: 26577.0
-  stack_limit_query_ns_min: 26517.8
-  stack_limit_query_ns_max: 26764.0
+  stack_limit_query_ns: 27053.3
+  stack_limit_query_ns_min: 26676.8
+  stack_limit_query_ns_max: 27620.7
   calls:
     - trips: 0
       wasm_insns: 0
-      interp_ns: 401.3
-      interp_ns_min: 400.9
-      interp_ns_max: 404.4
-      jit_ns: 27573.0
-      jit_ns_min: 27510.5
-      jit_ns_max: 27625.2
-      jit_over_interp: 68.717
+      interp_ns: 393.9
+      interp_ns_min: 392.9
+      interp_ns_max: 394.7
+      jit_ns: 27614.4
+      jit_ns_min: 27412.3
+      jit_ns_max: 27694.1
+      jit_over_interp: 70.101
     - trips: 16
       wasm_insns: 208
-      interp_ns: 1322.7
-      interp_ns_min: 1319.6
-      interp_ns_max: 1330.3
-      jit_ns: 27376.2
-      jit_ns_min: 27322.7
-      jit_ns_max: 27529.8
-      jit_over_interp: 20.697
+      interp_ns: 1218.4
+      interp_ns_min: 1217.6
+      interp_ns_max: 1220.9
+      jit_ns: 27366.1
+      jit_ns_min: 27345.6
+      jit_ns_max: 27399.9
+      jit_over_interp: 22.460
     - trips: 512
       wasm_insns: 6656
-      interp_ns: 29745.2
-      interp_ns_min: 29741.8
-      interp_ns_max: 29872.4
-      jit_ns: 28191.6
-      jit_ns_min: 28058.1
-      jit_ns_max: 28290.8
-      jit_over_interp: 0.948
-
-- date: 2026-08-14T08:56:42Z
-  commit: b27f6fabd023d5b5c201f0a967fcc1085c33e8fd
-  reason: "adr-0209: aarch64-macos baseline"
-  arch: aarch64-macos
-  build_mode: ReleaseFast
-  samples: 5
-  stack_limit_query_ns: 3.3
-  stack_limit_query_ns_min: 3.1
-  stack_limit_query_ns_max: 3.4
-  calls:
-    - trips: 0
-      wasm_insns: 0
-      interp_ns: 109.4
-      interp_ns_min: 103.4
-      interp_ns_max: 129.5
-      jit_ns: 181.9
-      jit_ns_min: 156.4
-      jit_ns_max: 190.2
-      jit_over_interp: 1.663
-    - trips: 16
-      wasm_insns: 208
-      interp_ns: 841.2
-      interp_ns_min: 790.9
-      interp_ns_max: 852.7
-      jit_ns: 200.5
-      jit_ns_min: 186.3
-      jit_ns_max: 202.4
-      jit_over_interp: 0.238
-    - trips: 512
-      wasm_insns: 6656
-      interp_ns: 22612.4
-      interp_ns_min: 22180.5
-      interp_ns_max: 23258.9
-      jit_ns: 531.3
-      jit_ns_min: 505.4
-      jit_ns_max: 537.8
-      jit_over_interp: 0.023
+      interp_ns: 26591.0
+      interp_ns_min: 26582.6
+      interp_ns_max: 26652.8
+      jit_ns: 28025.7
+      jit_ns_min: 27971.5
+      jit_ns_max: 28076.4
+      jit_over_interp: 1.054

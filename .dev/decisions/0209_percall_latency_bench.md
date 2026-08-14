@@ -39,7 +39,7 @@ measurement finds.
   (`engine/codegen/shared/entry.zig` lines 232 and 255,
   `entry_buffer_write.zig` line 86). On Linux/glibc, on the initial thread,
   glibc's `pthread_getattr_np` answers by opening and parsing
-  `/proc/self/maps`. The baseline this PR commits measures **26.6 microseconds**
+  `/proc/self/maps`. The baseline this PR commits measures **27.1 microseconds**
   per call on x86_64-linux; separate rounds on the same host read 24.6 to 26.9,
   so treat it as tens of microseconds rather than a fixed figure.
   On a worker thread glibc answers from the thread descriptor (561 to 578 ns);
@@ -126,10 +126,19 @@ every hyperfine row to carry fields it has no value for.
 
 Appended by `scripts/record_latency_bench.sh --reason "<tag>: <gist>"`, kept
 separate from `run_bench.sh` because it shares no machinery with it: no
-`hyperfine`, no comparators, no dev shell. Plain Zig, so it runs anywhere the
-project builds. That includes `windowsmini`: D-249's remaining barrier is that
+`hyperfine`, no comparators, no dev shell. Plain Zig, so it runs on any target
+with a JIT backend — which is every currently supported one, x86_64 and
+aarch64. That includes `windowsmini`: D-249's remaining barrier is that
 `run_remote_windows.sh` has no bench step and ADR-0137 scoped bench timing to
 two hosts, so no `run_bench.sh` path reaches it today.
+
+The runner times both engines and `verify` instantiates with an explicit
+`.jit`, which never falls back (`api/instance.zig:930-947`). On a target
+without a JIT backend it would fail at instantiation rather than degrade to an
+interpreter-only row. No such supported target exists, and `-Dengine=interp`
+does not produce one (`engine_mode` reaches `build_options` but only
+`cli/main.zig`'s version string reads it), so this is a constraint to know
+about rather than a case to handle.
 
 ### D3 — No threshold gate; the record is for human review
 
@@ -145,8 +154,11 @@ makes the measurement useful is the **shape** — `jit_over_interp` across trip
 counts, and `stack_limit_query_ns` standing alone — which a reader can
 interpret and a threshold cannot.
 
-Wiring it into `bench.yml` is left for a follow-up, once there is more than one
-row to compare against. Recording it by hand at merge time, the way
+`bench-latency-build` — compile-only, no run — IS in the core gate. Compiling
+it costs the gate almost nothing and catches public-API drift; running it there
+would record a shared CI runner's numbers as if they meant something. Wiring
+the measurement itself into `bench.yml` is left for a follow-up, once there is
+more than one row to compare against. Recording it by hand at merge time, the way
 `run_bench.sh --phase-record` is already used, is enough to start.
 
 ## Alternatives rejected
@@ -220,5 +232,8 @@ row to compare against. Recording it by hand at merge time, the way
   not an under-warmed engine. `Engine.compile` compiles the module up front, so
   there is no lazy per-call compilation for a warm-up to pay off.
 - First recorded row (x86_64-linux, ReleaseFast) reproduces the investigation's
-  figures: `stack_limit_query_ns` 26,577, `jit_over_interp` 68.7 at 0 trips and
-  0.948 at 512.
+  figures: `stack_limit_query_ns` in the 26 to 27 microsecond range and
+  `jit_over_interp` near 70 at 0 trips. The 512-trip row sits ON the
+  x86_64-linux crossover and reads either side of 1.0 between runs (0.948 and
+  1.054 observed), which is the point of recording it rather than a number to
+  quote.

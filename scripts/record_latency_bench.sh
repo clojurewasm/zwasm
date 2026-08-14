@@ -7,8 +7,11 @@
 # Separate from run_bench.sh on purpose. That script drives `hyperfine` over
 # whole processes and records milliseconds into history.yaml; this one runs an
 # in-process measurement and records nanoseconds. Same append-only discipline
-# (ROADMAP A9), different schema, different file — the precedent is
-# size_history.yaml (ADR-0204) and skip_impl_history.yaml (ADR-0050).
+# (ROADMAP A9), different schema, different file. `size_history.yaml`
+# (`6717fe366`) and `skip_impl_history.yaml` (`05377cf6a`) are the existing
+# separate-schema series; neither shipped under an ADR of its own, so this
+# follows a shape the repo settled into rather than a written rule. Reasoning
+# in ADR-0209 D2.
 #
 # Needs no hyperfine and no dev shell: the runner is plain Zig.
 set -euo pipefail
@@ -24,9 +27,23 @@ REASON=""
 BUILD_MODE="ReleaseFast"
 while [ $# -gt 0 ]; do
     case "$1" in
-        --reason) REASON="${2:-}"; shift 2 ;;
+        --reason)
+            [ $# -ge 2 ] && [ -n "${2:-}" ] || {
+                echo "[record_latency] --reason needs a value" >&2
+                exit 1
+            }
+            REASON="$2"; shift 2 ;;
         --reason=*) REASON="${1#--reason=}"; shift ;;
-        --build-mode) BUILD_MODE="${2:-}"; shift 2 ;;
+        --build-mode)
+            # Guarded like --reason above: bare `${2:-}` + `shift 2` would leave
+            # BUILD_MODE empty, run `zig build -Doptimize=` and surface zig's
+            # error instead of this script's, and `shift 2` on one remaining
+            # argument fails under `set -e` with no message at all.
+            [ $# -ge 2 ] && [ -n "${2:-}" ] || {
+                echo "[record_latency] --build-mode needs a value (Debug / ReleaseSafe / ReleaseFast / ReleaseSmall)" >&2
+                exit 1
+            }
+            BUILD_MODE="$2"; shift 2 ;;
         *) echo "[record_latency] unknown argument '$1'" >&2; exit 1 ;;
     esac
 done
@@ -56,7 +73,12 @@ body="$(zig build -Doptimize="$BUILD_MODE" bench-latency)"
     echo ""
     echo "- date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo "  commit: $(git rev-parse HEAD)"
-    echo "  reason: \"${REASON//\"/\\\"}\""
+    # Escape backslashes BEFORE quotes, or a reason containing `\` yields a
+    # YAML double-quoted scalar with an unintended escape (`a\b` parses back as
+    # a backspace, not the two characters typed).
+    esc="${REASON//\\/\\\\}"
+    esc="${esc//\"/\\\"}"
+    echo "  reason: \"$esc\""
     echo "$body"
 } >> "$HIST"
 

@@ -5,7 +5,7 @@
 # never verify LESS than the per-host gate. It checks the CURRENT host only;
 # multi-host fan-out is the caller's job (the CI matrix / gate_merge's SSH legs).
 #
-#   Core (every OS):  zig fmt --check + zig build test-all
+#   Core (every OS):  zig fmt --check + zig build test-all + bench-latency-build
 #   Extended (ZWASM_CI_EXTENDED=1; Unix legs): lint + build-option DCE +
 #     ReleaseSafe JIT smoke (D-245) + AOT cross-compile portability +
 #     external system-linker consumer (test_extlink.sh) + zone_check +
@@ -20,11 +20,17 @@ cd "$(dirname "$0")/.."
 
 echo "[ci_gate] host: $(uname -s) — zig $(zig version)"
 
-echo "[ci_gate] (1/2) zig fmt --check src/"
+echo "[ci_gate] (1/3) zig fmt --check src/"
 zig fmt --check src/
 
-echo "[ci_gate] (2/2) zig build test-all"
+echo "[ci_gate] (2/3) zig build test-all"
 zig build test-all
+
+# ADR-0209 — compile-only. `bench-latency` is a measurement and stays out of
+# test-all, but without SOMETHING building it, public-API drift would break the
+# bench with no signal until a human ran it by hand.
+echo "[ci_gate] (3/3) zig build bench-latency-build (compile-only, ADR-0209)"
+zig build bench-latency-build
 
 # rust-host embedding consumer (D-254): the third independent embedding-ABI
 # consumer (docs/examples/rust_host/hello.rs links the same libzwasm.a the C

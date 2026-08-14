@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const zwasm = @import("zwasm");
+const build_options = @import("build_options");
 
 const guest = @embedFile("percall_loop.wasm");
 
@@ -159,7 +160,12 @@ pub fn main(init: std.process.Init) !void {
     try verify(gpa);
 
     try out.print("  arch: {s}-{s}\n", .{ @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
-    try out.print("  build_mode: {s}\n", .{@tagName(builtin.mode)});
+    // The ENGINE's mode, not this program's. `build.zig` floors the engine
+    // module at ReleaseSafe when the caller asks for Debug (`runner_optimize`),
+    // so `builtin.mode` here would record `Debug` for numbers that ReleaseSafe
+    // engine code produced — a row stating conditions that never held.
+    try out.print("  engine_build_mode: {s}\n", .{@tagName(build_options.engine_optimize)});
+    try out.print("  runner_build_mode: {s}\n", .{@tagName(builtin.mode)});
     try out.print("  samples: 5\n", .{});
     const sl = stackLimitNs(io);
     try out.print("  stack_limit_query_ns: {d:.1}\n", .{sl.median});
