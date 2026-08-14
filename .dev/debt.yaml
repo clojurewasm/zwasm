@@ -10,8 +10,9 @@ entries:
       The JIT entry helpers recompute `computeStackLimit` on EVERY invocation
       (entry.zig 232/255, entry_buffer_write.zig 86). On Linux/glibc initial
       threads glibc's `pthread_getattr_np` answers by opening and parsing
-      /proc/self/maps: measured 24.6-24.9 us per call (strace: openat +
-      read x3 + close + fstat + prlimit64 + sched_getaffinity, per invoke).
+        /proc/self/maps: 24.6-26.9 us per call across rounds on one host, the
+        committed baseline reading 26.8 (strace: openat + read x3 + close +
+        fstat + prlimit64 + sched_getaffinity, per invoke).
       Worker threads answer from the thread descriptor (561-578 ns);
       aarch64-macos is a user-space struct read (3.1-7.2 ns). The interpreter
       CACHES the same value (runtime.zig:593), so the cost lands on one side of

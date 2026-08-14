@@ -5,7 +5,8 @@
 # never verify LESS than the per-host gate. It checks the CURRENT host only;
 # multi-host fan-out is the caller's job (the CI matrix / gate_merge's SSH legs).
 #
-#   Core (every OS):  zig fmt --check + zig build test-all + bench-latency-build
+#   Core (every OS):  zig fmt --check (src/ + bench/latency/) + zig build test-all
+#                     + bench-latency-build
 #   Extended (ZWASM_CI_EXTENDED=1; Unix legs): lint + build-option DCE +
 #     ReleaseSafe JIT smoke (D-245) + AOT cross-compile portability +
 #     external system-linker consumer (test_extlink.sh) + zone_check +
@@ -20,8 +21,11 @@ cd "$(dirname "$0")/.."
 
 echo "[ci_gate] host: $(uname -s) — zig $(zig version)"
 
-echo "[ci_gate] (1/3) zig fmt --check src/"
+echo "[ci_gate] (1/3) zig fmt --check src/ bench/latency/"
 zig fmt --check src/
+# bench/latency/ is compiled by step 3 but lives outside src/, so without this
+# it would be the one Zig file in the tree whose formatting can drift silently.
+zig fmt --check bench/latency/
 
 echo "[ci_gate] (2/3) zig build test-all"
 zig build test-all

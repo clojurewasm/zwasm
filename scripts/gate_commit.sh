@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-commit gate. Runs (in order):
 #   1. Diff classification (docs-only / src-touching / ADR-touching) — drives short-circuits.
-#   2. zig fmt --check src/ docs/examples/                       — always.
+#   2. zig fmt --check src/ docs/examples/ bench/latency/         — always.
 #   3. scripts/zone_check.sh --gate                          — skipped on docs-only.
 #   4. scripts/file_size_check.sh --gate                    — skipped on docs-only.
 #   5. scripts/check_skip_adrs.sh --gate                     — skipped on docs-only.
@@ -121,13 +121,19 @@ fi
 
 # --- gate: zig fmt (always) ---------------------------------------------
 
-echo "[gate_commit] zig fmt --check src/ docs/examples/ ..."
+echo "[gate_commit] zig fmt --check src/ docs/examples/ bench/latency/ ..."
 if [ -d src ] && [ -n "$(find src -name '*.zig' 2>/dev/null | head -1)" ]; then
     zig fmt --check src/
     # docs/examples/ carries committable .zig consumers (zig_dep / zig_host); keep
     # them fmt-clean too (they slipped pre-2026-06-05 because only src/ was checked).
     if [ -d examples ] && [ -n "$(find examples -name '*.zig' 2>/dev/null | head -1)" ]; then
         zig fmt --check docs/examples/
+    fi
+    # bench/latency/ carries the per-call latency runner (ADR-0209); it is
+    # compiled by the core gate but sits outside src/, so it needs naming here
+    # for the same reason docs/examples/ did.
+    if [ -d bench/latency ] && [ -n "$(find bench/latency -name '*.zig' 2>/dev/null | head -1)" ]; then
+        zig fmt --check bench/latency/
     fi
 else
     echo "(no src/*.zig yet — skipping fmt)"

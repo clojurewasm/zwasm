@@ -67,6 +67,15 @@ zig build -Doptimize="$BUILD_MODE" >&2
 echo "[record_latency] measuring..." >&2
 body="$(zig build -Doptimize="$BUILD_MODE" bench-latency)"
 
+# The runner's YAML reaches this substitution only because `has_side_effects`
+# on the Run step (build.zig) resolves its stdio to inherit. That coupling is
+# implicit: drop the flag and zig caches the step, leaving `body` empty and this
+# script silently appending a row with no measurements in it.
+[ -n "$body" ] || {
+    echo "[record_latency] the runner produced no output; nothing appended" >&2
+    exit 1
+}
+
 # `date -u +%Y-%m-%dT%H:%M:%SZ` rather than `date -Iseconds`: the latter is a
 # GNU extension and BSD/macOS date has no `-I` at all.
 {
