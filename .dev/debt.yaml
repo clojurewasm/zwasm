@@ -40,8 +40,11 @@ entries:
       (ADR-0174 no-silent-skip; the same guard `test-corpus-presence` gives
       the spec runners).
       ---
-      DISCHARGE: corpus vendored, runner wired into `test-all`, the job
-      printing real per-suite counts on all three OSes. One cycle.
+        DISCHARGE: corpus vendored, `zig build test-wasi-p1-official` runs it,
+        and the advisory CI job prints real per-suite counts on all three OSes.
+        NOT `test-all` wiring — this row says the step stays out of `test-all`
+        until D-583 closes, and that wiring is item (1) of D-583's own
+        discharge. One cycle.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-14"
     refs: |-
@@ -62,9 +65,14 @@ entries:
       ---
       Measured 2026-08-14 at `2e40d4314` (x86_64-linux) with the official
       `WebAssembly/wasi-testsuite` python runner and a zwasm adapter:
-      `--engine interp` **58/72**, `--engine jit` **55/72**. A wasmtime 47.0.3
+      `--engine interp` **58/72**, `--engine jit` **54/72**. A wasmtime 47.0.3
       control run through the identical harness in the same session scored
       **72/72**, so these are zwasm gaps, not adapter artifacts.
+        Both figures include the `dangling_symlink` correction: the raw runner
+        output reads 59 and 55 because that test leaves
+        `dangling_symlink_symlink.cleanup` behind, and every later run against
+        the same preopen tree passes on the leftover. With a fresh preopen per
+        test it fails 20 of 20, on both engines. 72 - 14 = 58, 72 - 14 - 4 = 54.
       ---
       **14 engine-independent** (this row's work): `dangling_symlink`,
       `dir_fd_op_failures`, `directory_seek`, `fd_fdstat_set_rights`,

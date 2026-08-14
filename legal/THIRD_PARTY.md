@@ -25,10 +25,6 @@ These ship in the published artifact:
   `wasm32-wasip3` conformance binaries + manifests (`prod/testsuite-base`
   branch, stripped; pin + regen in `scripts/vendor_wasip3_official.sh`),
   Apache-2.0 (ADR-0205 D3).
-- `test/wasi/wasip1_official/**` — WebAssembly/wasi-testsuite prebuilt
-  `wasm32-wasip1` conformance binaries + manifests + preopen trees, one
-  subtree per source language (`prod/testsuite-base` branch, stripped; pin +
-  regen in `scripts/vendor_wasip1_official.sh`), Apache-2.0 (ADR-0208 D1).
 - `bench/sightglass/**` — Bytecode Alliance sightglass benchmarks,
   Apache-2.0 (provenance + selection in `bench/sightglass/PROVENANCE.txt`).
 - `bench/shootout-src/**` — sightglass shootout sources, Apache-2.0.
