@@ -41,7 +41,7 @@ entries:
       the spec runners).
       ---
         DISCHARGE: corpus vendored, `zig build test-wasi-p1-official` runs it,
-        and the advisory CI job prints real per-suite counts on all three OSes.
+        and the advisory CI step prints real per-suite counts on all three OSes.
         NOT `test-all` wiring — this row says the step stays out of `test-all`
         until D-583 closes, and that wiring is item (1) of D-583's own
         discharge. One cycle.

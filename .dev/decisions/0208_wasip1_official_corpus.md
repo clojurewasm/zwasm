@@ -92,7 +92,7 @@ separately.
 
 The step is **not** added to §11.1's table. That table has not been touched
 since the Phase-0 bootstrap (`9bd21b2fc`): it lists 8 steps where `build.zig`
-now declares 34, and `test-wasi-p1`, `test-wasi-p3`, `test-component-spec`,
+now declares 42 (31 of them `test*`), and `test-wasi-p1`, `test-wasi-p3`, `test-component-spec`,
 `test-spec-simd` and `test-spec-assert` are all absent — including steps added
 as recently as the ADR-0205 campaign. It is a frozen Phase-era overview, not a
 live registry, and adding one step to it would misrepresent it as maintained.
@@ -138,7 +138,7 @@ This is a **time-boxed** advisory in the ADR-0174 sense ("a deliberate,
 user-sanctioned mode, NOT a silent skip"), not an indefinite workaround. The
 exit condition is D-583's discharge: when all 14 engine-independent failures
 go green on all three OSes, `test-wasi-p1-official` moves into `test-all` and
-this job is deleted. `no_workaround.md` forbids indefinite workarounds
+this step is deleted. `no_workaround.md` forbids indefinite workarounds
 specifically; naming the condition in the debt row and in the job comment is
 what keeps this one bounded.
 
