@@ -37,7 +37,7 @@ below:
    of this measurement recorded it as flaky for exactly this reason.
 2. **An unpinned engine measures the JIT.** The CLI default `.auto` prefers
    the JIT, so a lane that does not pin the engine reports JIT numbers under
-   a preview1 heading. The lanes diverge by four AssemblyScript tests.
+   a preview1 heading. The lanes diverge by four AssemblyScript tests (all four are in that suite).
 
 ## Decision
 
@@ -136,9 +136,10 @@ As a step it reuses what `ci_gate.sh` just built.
 
 This is a **time-boxed** advisory in the ADR-0174 sense ("a deliberate,
 user-sanctioned mode, NOT a silent skip"), not an indefinite workaround. The
-exit condition is D-583's discharge: when all 14 engine-independent failures
-go green on all three OSes, `test-wasi-p1-official` moves into `test-all` and
-this step is deleted. `no_workaround.md` forbids indefinite workarounds
+exit condition is D-583's discharge: when the 14 engine-independent failures
+AND the 4 JIT-only ones go green on all three OSes, `test-wasi-p1-official`
+moves into `test-all` and this step is deleted. Both classes, because the move
+wires both lanes and `test-all` blocks every PR. `no_workaround.md` forbids indefinite workarounds
 specifically; naming the condition in the debt row and in the job comment is
 what keeps this one bounded.
 
@@ -165,12 +166,12 @@ what keeps this one bounded.
 
 - **Fix D-583's 14 failures first, then land corpus + runner + `test-all`
   wiring in one green PR.** Genuinely viable, and it would need neither the
-  advisory job nor D3. Rejected on sequencing: the fix work spans several
+  advisory step nor D3. Rejected on sequencing: the fix work spans several
   cycles, and during all of them there would be no gate — the preview1
   surface would stay exactly as unmeasured as it has been, and a regression
   landing mid-fix would be invisible. Measuring first also means the fix work
   gets a per-commit signal instead of a manual re-run. The cost is that the
-  advisory job exists for a while, which D-583's discharge condition bounds.
+  advisory step exists for a while, which D-583's discharge condition bounds.
 
 - **Ratchet the 14 failures instead of running advisory.** The project does
   use one-way ratchets — `scripts/check_skip_impl_ratchet.sh` gates
@@ -183,7 +184,7 @@ what keeps this one bounded.
   correctness metric and say "these wrong answers are the accepted state".
   Nothing in the repo ratchets failures today — `bench/results/` holds
   skip-impl, size and bench series only, and there is no xfail mechanism. An
-  advisory job reports the same number without asserting it is acceptable.
+  advisory step reports the same number without asserting it is acceptable.
 
 - **Fold the step straight into `test-all`.** Reds every PR until D-583
   closes, which forces either a revert or one of the two options above.
@@ -202,7 +203,7 @@ what keeps this one bounded.
   become tracked, reproducible, and visible on every PR across three OSes,
   where before they were unmeasured.
 - `.dev/debt.yaml` gains D-582 (this infrastructure) and D-583 (the behaviour
-  gaps). D-582 discharges when the job reports on all three OSes; D-583
+  gaps). D-582 discharges when the step reports on all three OSes; D-583
   discharges the advisory flag.
 - Single-host caveat: the 58/72 and 54/72 numbers are x86_64-linux. The
   three-OS job is what turns them into a cross-platform claim.

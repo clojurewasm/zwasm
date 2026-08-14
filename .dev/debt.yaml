@@ -86,7 +86,8 @@ entries:
       ---
       **4 further failures are JIT-only**, tracked here as a distinct class:
       `args_get-multiple-arguments`, `environ_get-multiple-variables`,
-      `random_get-zero-length`, `fd_write-to-stdout` (assemblyscript) pass on
+      `random_get-zero-length`, `fd_write-to-stdout` — all four in the
+        AssemblyScript suite — pass on
       the interpreter and fail under `--engine jit`. That is a JIT-path
       defect, not a WASI one.
       ---
@@ -96,9 +97,13 @@ entries:
       first pass of the 2026-08-14 measurement recorded it as flaky for
       exactly this reason.
       ---
-      DISCHARGE: all 14 green on the vendored corpus on all three OSes. Four
-      edits land together — anything left behind is a doc that outlives its
-      subject, which is how §11.2 came to describe neither reality nor intent:
+        DISCHARGE: all 14 green AND the 4 JIT-only failures green, on all
+        three OSes. Both classes, because item (1) wires BOTH lanes into
+        `test-all` and `test-all` is the blocking gate: fixing only the 14
+        would leave the JIT lane red and stop every PR.
+        Four edits land together — anything left behind is a doc that outlives
+        its subject, which is how §11.2 came to describe neither reality nor
+        intent:
       (1) `build.zig` — `test_all_step.dependOn` both lanes (`ci_gate.sh` needs
           no edit; it already runs `zig build test-all`);
       (2) `.github/workflows/ci.yml` — delete the advisory step in `gate`;
