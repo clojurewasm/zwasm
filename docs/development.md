@@ -77,9 +77,12 @@ shells — contributors never need it; the `.wasm` files are committed.
 
 `main` is protected: every change lands via a branch → pull request → the
 required **`ci-required`** status check. CI runs
-[`scripts/ci_gate.sh`](../scripts/ci_gate.sh) (fmt + `test-all`, plus
-extended static/build checks) on **all three supported OSes** — macOS
-aarch64, Linux x86_64, Windows x86_64. The macOS and Linux legs are
+[`scripts/ci_gate.sh`](../scripts/ci_gate.sh) on **all three supported OSes** —
+macOS aarch64, Linux x86_64, Windows x86_64. Your PR gets the *core* gate: fmt
++ `test-all` + the rust-host consumer + the test-discovery guard. The extended
+static/build checks (lint, the build-option DCE matrix, AOT cross-compile,
+`zone_check`) run on the merge to `main`, not per PR — they are up to ~20
+cold-cache builds and would dominate every PR's wall-clock. The macOS and Linux legs are
 blocking; the Windows leg currently runs **advisory** (reported on every PR,
 not merge-blocking — see the `advisory` flag in
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). There is no
