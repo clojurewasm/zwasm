@@ -80,11 +80,14 @@ All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
 
 ## State (release = USER-ONLY, ADR-0156)
 
-- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
-  default-ON; **0.3 FULL on all 3 OSes** (official 45/45, 0 skip). Sandbox
-  triad cross-engine.
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** syscall surface 46/46
+  (ADR-0161) but **behaviour 58/72 on the official suite** — first measured
+  2026-08-14, gated advisory since ADR-0208 (D-582/D-583; wasmtime scores
+  72/72 on the same harness). **0.2/CM** default-ON; **0.3 FULL on all 3 OSes**
+  (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
-  into cljw. Realworld 56 interp 56/0; JIT diff-gated. Debt: 0 `now`-class.
+  into cljw. Realworld 56 interp 56/0; JIT diff-gated. Debt: **2 `now`-class**
+  (D-582 infra, D-583 the 14 preview1 behaviour gaps).
 
 ## Key refs
 
