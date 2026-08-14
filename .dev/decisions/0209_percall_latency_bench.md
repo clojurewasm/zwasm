@@ -43,9 +43,10 @@ measurement finds.
   per call on x86_64-linux; separate rounds on the same host read 24.6 to 26.9,
   so treat it as tens of microseconds rather than a fixed figure.
   On a worker thread glibc answers from the thread descriptor (561 to 578 ns);
-  on aarch64-macos the query is a user-space struct read, **3.3 ns** on an M4
-  Pro with repeat runs agreeing within 3% — measured, but not currently in
-  `latency_history.yaml` (see Verification). Roughly four orders of magnitude below
+  on aarch64-macos the query is a user-space struct read: **3.1 to 3.4 ns** on an
+  M4 Pro. Three rows are committed; the first reads 9.3 because an opening run
+  on a host is the one to distrust, which the file's header says and these rows
+  now demonstrate. Roughly four orders of magnitude below
   the Linux main-thread path. The
   interpreter caches the same value (`runtime/runtime.zig:593`), so the cost
   lands on one side only. AOT pays it identically — the `.cwasm` load path
@@ -220,12 +221,12 @@ more than one row to compare against. Recording it by hand at merge time, the wa
 - The runner asserts both engines return the same value for the same input
   before timing anything, so a lane that silently ran a different function
   fails rather than reporting plausible nanoseconds.
-- One x86_64-linux baseline is committed. Every aarch64-macos figure in this
-  ADR comes from runs on a host that is not this one and is NOT in
-  `latency_history.yaml`; the schema change to `engine_build_mode` /
-  `runner_build_mode` invalidated the row that was there. Re-recording it is
-  outstanding. Until then, read the macOS numbers here as reported rather than
-  as something the record backs.
+- The committed rows carry both findings without recourse to this prose. D-584
+  is `stack_limit_query_ns` 26,845 on x86_64-linux against 3.1 to 3.4 on
+  aarch64-darwin. D-585 is that platform's `jit_over_interp` at zero trips:
+  1.422 and 1.388, the JIT losing to the interpreter on a call that does no
+  work, against 0.242 and 0.227 by 16 trips. The macOS set is three rows because
+  one row cannot be checked against anything.
 - Harness overhead was measured, not assumed: an empty `once()` costs 0.000 ns
   and a `doNotOptimizeAway`-only body 0.276 ns, against 423 ns for the cheapest
   lane recorded. The comptime duck-typed `ctx` cannot distort these numbers.

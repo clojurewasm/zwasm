@@ -43,9 +43,11 @@
 # leaves all five samples equally slow and min/max equally tight, so the row
 # looks tidy and is wrong.
 #
-# In practice the first run on a host is the one to distrust: an opening
-# aarch64-macos run read 2.2x the value the next three settled on. Take at
-# least two runs and compare them. A single row is never self-validating.
+# In practice the first run on a host is the one to distrust. Two separate
+# aarch64-macos sessions both had their opening run read 2.2x and 2.8x the
+# value the following runs settled on — the three committed macOS rows show the
+# second case. Take at least two runs and compare them. A single row is never
+# self-validating.
 #
 # `jit_over_interp` tracks D-584 and NOT D-585. Both lanes go through the
 # public API, so both pay D-585's per-call name resolution and it largely
@@ -93,3 +95,120 @@
       jit_ns_min: 28095.6
       jit_ns_max: 28189.9
       jit_over_interp: 1.056
+
+- date: 2026-08-14T13:57:46Z
+  commit: e962ac768f331797250963d427bd3794efe816af
+  reason: "adr-0209: aarch64-macos baseline (1/3)"
+  arch: aarch64-darwin
+  engine_build_mode: ReleaseFast
+  runner_build_mode: ReleaseFast
+  samples: 5
+  stack_limit_query_ns: 9.3
+  stack_limit_query_ns_min: 9.3
+  stack_limit_query_ns_max: 9.4
+  calls:
+    - trips: 0
+      wasm_insns: 0
+      interp_ns: 212.1
+      interp_ns_min: 180.2
+      interp_ns_max: 256.5
+      jit_ns: 206.4
+      jit_ns_min: 189.9
+      jit_ns_max: 232.7
+      jit_over_interp: 0.973
+    - trips: 16
+      wasm_insns: 208
+      interp_ns: 582.7
+      interp_ns_min: 549.5
+      interp_ns_max: 673.7
+      jit_ns: 155.0
+      jit_ns_min: 152.9
+      jit_ns_max: 155.1
+      jit_over_interp: 0.266
+    - trips: 512
+      wasm_insns: 6656
+      interp_ns: 14330.0
+      interp_ns_min: 14158.3
+      interp_ns_max: 16957.2
+      jit_ns: 409.7
+      jit_ns_min: 404.2
+      jit_ns_max: 412.4
+      jit_over_interp: 0.029
+
+- date: 2026-08-14T13:59:47Z
+  commit: e962ac768f331797250963d427bd3794efe816af
+  reason: "adr-0209: aarch64-macos baseline (2/3)"
+  arch: aarch64-darwin
+  engine_build_mode: ReleaseFast
+  runner_build_mode: ReleaseFast
+  samples: 5
+  stack_limit_query_ns: 3.1
+  stack_limit_query_ns_min: 3.1
+  stack_limit_query_ns_max: 3.3
+  calls:
+    - trips: 0
+      wasm_insns: 0
+      interp_ns: 101.3
+      interp_ns_min: 100.2
+      interp_ns_max: 101.4
+      jit_ns: 144.1
+      jit_ns_min: 143.7
+      jit_ns_max: 144.6
+      jit_over_interp: 1.422
+    - trips: 16
+      wasm_insns: 208
+      interp_ns: 632.1
+      interp_ns_min: 628.8
+      interp_ns_max: 634.6
+      jit_ns: 153.2
+      jit_ns_min: 152.0
+      jit_ns_max: 153.6
+      jit_over_interp: 0.242
+    - trips: 512
+      wasm_insns: 6656
+      interp_ns: 18284.6
+      interp_ns_min: 17706.5
+      interp_ns_max: 18590.8
+      jit_ns: 417.7
+      jit_ns_min: 410.1
+      jit_ns_max: 419.9
+      jit_over_interp: 0.023
+
+- date: 2026-08-14T14:01:48Z
+  commit: e962ac768f331797250963d427bd3794efe816af
+  reason: "adr-0209: aarch64-macos baseline (3/3)"
+  arch: aarch64-darwin
+  engine_build_mode: ReleaseFast
+  runner_build_mode: ReleaseFast
+  samples: 5
+  stack_limit_query_ns: 3.4
+  stack_limit_query_ns_min: 3.4
+  stack_limit_query_ns_max: 3.8
+  calls:
+    - trips: 0
+      wasm_insns: 0
+      interp_ns: 105.9
+      interp_ns_min: 102.1
+      interp_ns_max: 106.5
+      jit_ns: 146.9
+      jit_ns_min: 144.1
+      jit_ns_max: 151.4
+      jit_over_interp: 1.388
+    - trips: 16
+      wasm_insns: 208
+      interp_ns: 669.0
+      interp_ns_min: 657.9
+      interp_ns_max: 672.4
+      jit_ns: 152.0
+      jit_ns_min: 149.6
+      jit_ns_max: 153.4
+      jit_over_interp: 0.227
+    - trips: 512
+      wasm_insns: 6656
+      interp_ns: 18115.8
+      interp_ns_min: 17932.8
+      interp_ns_max: 18315.2
+      jit_ns: 492.3
+      jit_ns_min: 479.0
+      jit_ns_max: 496.5
+      jit_over_interp: 0.027
