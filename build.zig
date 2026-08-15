@@ -1421,10 +1421,13 @@ pub fn build(b: *std.Build) void {
     // fixtures") — they are SKIP, not FAIL, so the runner
     // exits zero. Hosts without `wasmtime` on PATH degrade to
     // SKIP-WASMTIME-FAIL gracefully and do not break the gate.
-    // The `--jit` variant, NOT the interp-only `run_realworld_diff`: it is the
-    // same runner and the same interp lane plus the gating JIT lane, so this one
-    // dependency covers both engines. `test-realworld-diff` stays a step for
-    // running the interp lane alone.
+    // The `--jit` variant, NOT `run_realworld_diff`: same runner, same default-
+    // engine lane, plus the gating JIT lane — so one dependency, no double run
+    // of the shared lane. Note what that shared lane is NOT: it calls
+    // `runWasmCaptured` with default `Limits`, i.e. `.auto`, which tries the JIT
+    // first and reaches the interp only where the JIT cannot instantiate. It is
+    // not an interp result-check, and `test-all` currently has none over the
+    // realworld corpus.
     test_all_step.dependOn(&run_realworld_diff_jit.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     // §10 / 10.T-2b: wasm-3.0 assertion runner skeleton — enumerates

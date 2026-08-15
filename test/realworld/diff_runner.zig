@@ -30,11 +30,12 @@
 //! The `--jit` lane (D-283) re-runs the same corpus through the
 //! WASI-aware `--engine jit` path and byte-diffs against the same
 //! wasmtime reference — the realworld JIT-correctness net. It is
-//! the lane `test-all` runs, and it gates on all three ways the
-//! JIT can fail to answer for a fixture: MISMATCH-JIT, SKIP-JIT-*,
-//! and a fixture that never reached the lane (see the gate at the
-//! bottom of `main`). Counting only mismatches would let a lane
-//! that verified nothing report success.
+//! the lane `test-all` runs, and it gates on every way the JIT can
+//! fail to answer for a fixture the oracle ran: MISMATCH-JIT,
+//! SKIP-JIT-*, and — as a structural guard — a fixture that never
+//! reached the lane (see the gate at the bottom of `main`).
+//! Counting only mismatches would let a lane that verified nothing
+//! report success.
 //!
 //! Usage:
 //!   zig build test-realworld-diff      # interp lane only
@@ -95,8 +96,9 @@ pub fn main(init: std.process.Init) !void {
     //             single-reference gate can't see. REPORT-ONLY.
     //   --jit     run via the WASI-aware `--engine jit` path (`runWasmJitCaptured`)
     //             + byte-diff vs wasmtime (D-283). The realworld JIT-correctness
-    //             net, and the only realworld gate that executes JIT-emitted code
-    //             against a reference — GATING, wired into `test-all`.
+    //             net: GATING, wired into `test-all`, and the realworld gate
+    //             whose oracle is an independent runtime rather than a
+    //             checked-in expectation or zwasm itself.
     var aot_lane = false;
     var wasmer_lane = false;
     var jit_lane = false;
@@ -177,12 +179,13 @@ pub fn main(init: std.process.Init) !void {
     var jit_skipped: u32 = 0;
     var jit_skipped_empty: u32 = 0;
     // Denominator for the JIT lane: fixtures for which the ORACLE produced a
-    // result, i.e. every fixture the lane owes a verdict on. Incremented as soon
-    // as wasmtime completes, BEFORE the interp run — the interp's own
-    // `continue`s sit between that point and the lane below, so counting at the
-    // lane itself would let a fixture leave the corpus without any lane
-    // accounting for it. `jit_matched + jit_mismatched + jit_skipped +
-    // jit_skipped_empty` MUST equal this; the gate fails on a shortfall.
+    // result, i.e. every fixture the lane owes a verdict on. `jit_matched +
+    // jit_mismatched + jit_skipped + jit_skipped_empty` MUST equal this.
+    //
+    // The lane sits directly below the increment, so today nothing can come
+    // between them — this counts anyway, as the structural guard for exactly
+    // that property. Any `continue` later inserted above the lane turns into a
+    // loud shortfall instead of a fixture that silently stops being checked.
     // wasmtime-less hosts leave it at 0, so the invariant stays portable.
     var jit_eligible: u32 = 0;
 
@@ -236,45 +239,27 @@ pub fn main(init: std.process.Init) !void {
         defer gpa.free(wt_result.stdout);
         defer gpa.free(wt_result.stderr);
         const wt_stdout = wt_result.stdout;
+        const wt_exit: u8 = switch (wt_result.term) {
+            .exited => |c| c,
+            else => 1,
+        };
         // The oracle answered for this fixture — the JIT lane now owes a verdict.
         if (jit_lane) jit_eligible += 1;
-
-        var v2_stdout: std.ArrayList(u8) = .empty;
-        // capture_alloc contract (2d99e5a2): runWasmCaptured* grows the
-        // capture buffer with the CALLER's allocator — free with the same
-        // `gpa` or glibc aborts with `free(): invalid pointer`.
-        defer v2_stdout.deinit(gpa);
 
         // Mirror wasmtime's default of `argv[0] = <wasm filename>`
         // so guests like `c_hello_wasi` that print argv[0] produce
         // identical bytes.
         const v2_argv: [1][]const u8 = .{entry.name};
-        const v2_result = if (needs_preopen)
-            cli_run.runWasmCapturedOpts(gpa, io, bytes, &v2_argv, &v2_stdout, null, &.{
-                .{ .host_path = preopen_scratch, .guest_path = "." },
-            }, &.{}, &.{}, null, .{})
-        else
-            cli_run.runWasmCaptured(gpa, io, bytes, &v2_argv, &v2_stdout, null);
-        const v2_exit: u8 = v2_result catch |err| {
-            try stdout.print("SKIP-V2-{s}  {s}\n", .{ @errorName(err), entry.name });
-            skipped_v2 += 1;
-            continue;
-        };
 
-        // v2 trapped / exited non-zero where wasmtime ran to a clean exit
-        // (0) = v2 could NOT complete the run — a v2 limitation, not an
-        // output regression. Categorise skipped-v2, consistent with
-        // instantiate-fail skips. Both-completed-but-different-output still
-        // falls through to MISMATCH below, so genuine output regressions are
-        // NOT masked. (The standard-Go CallStackExhausted case that used to
-        // land here was the label-stack depth bug, resolved in D-242.)
-        const wt_exit: u8 = switch (wt_result.term) {
-            .exited => |c| c,
-            else => 1,
-        };
-
-        // AOT lane (opt-in) — independent of the interp outcome (so SIMD
-        // fixtures the interp can't run still get an AOT vs wasmtime compare).
+        // The AOT and JIT lanes run BEFORE the interp, not after. Neither reads
+        // an interp result — only `bytes` and the wasmtime reference — and every
+        // exit from the interp block below (its error `catch`, SKIP-V2-TRAP,
+        // SKIP-EMPTY) is a `continue` that would otherwise deny these lanes a
+        // fixture the oracle DID run. That mattered once the JIT lane started
+        // gating on its denominator: an interp-side skip, which the interp lane
+        // itself tolerates, failed the JIT gate with the wrong explanation.
+        // The wasmer lane genuinely needs `v2_stdout`, so it stays below.
+        //
         // Flush per fixture so incremental output shows progress.
         if (aot_lane) {
             if (bytes.len > aot_size_cap) {
@@ -293,6 +278,34 @@ pub fn main(init: std.process.Init) !void {
             try stdout.flush();
         }
 
+        if (jit_lane) {
+            switch (try jitCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
+                .match => jit_matched += 1,
+                .mismatch => jit_mismatched += 1,
+                .skip => jit_skipped += 1,
+                .skip_empty => jit_skipped_empty += 1,
+            }
+            try stdout.flush();
+        }
+
+        var v2_stdout: std.ArrayList(u8) = .empty;
+        // capture_alloc contract (2d99e5a2): runWasmCaptured* grows the
+        // capture buffer with the CALLER's allocator — free with the same
+        // `gpa` or glibc aborts with `free(): invalid pointer`.
+        defer v2_stdout.deinit(gpa);
+
+        const v2_result = if (needs_preopen)
+            cli_run.runWasmCapturedOpts(gpa, io, bytes, &v2_argv, &v2_stdout, null, &.{
+                .{ .host_path = preopen_scratch, .guest_path = "." },
+            }, &.{}, &.{}, null, .{})
+        else
+            cli_run.runWasmCaptured(gpa, io, bytes, &v2_argv, &v2_stdout, null);
+        const v2_exit: u8 = v2_result catch |err| {
+            try stdout.print("SKIP-V2-{s}  {s}\n", .{ @errorName(err), entry.name });
+            skipped_v2 += 1;
+            continue;
+        };
+
         // wasmer second-oracle lane (opt-in) — placed before the v2-trap/empty
         // continues so the references are compared even where v2 can't complete.
         if (wasmer_lane and wasmer_path_opt != null) {
@@ -304,18 +317,13 @@ pub fn main(init: std.process.Init) !void {
             try stdout.flush();
         }
 
-        // JIT lane (opt-in) — same placement rationale as the AOT/wasmer lanes:
-        // run BEFORE the v2-trap/empty continues so the JIT path is compared even
-        // where the interp v2 can't complete.
-        if (jit_lane) {
-            switch (try jitCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
-                .match => jit_matched += 1,
-                .mismatch => jit_mismatched += 1,
-                .skip => jit_skipped += 1,
-                .skip_empty => jit_skipped_empty += 1,
-            }
-            try stdout.flush();
-        }
+        // v2 trapped / exited non-zero where wasmtime ran to a clean exit
+        // (0) = v2 could NOT complete the run — a v2 limitation, not an
+        // output regression. Categorise skipped-v2, consistent with
+        // instantiate-fail skips. Both-completed-but-different-output still
+        // falls through to MISMATCH below, so genuine output regressions are
+        // NOT masked. (The standard-Go CallStackExhausted case that used to
+        // land here was the label-stack depth bug, resolved in D-242.)
 
         if (v2_exit != 0 and wt_exit == 0) {
             try stdout.print("SKIP-V2-TRAP  {s} (v2 exit={d}, wasmtime exit=0 — v2 could not complete)\n", .{ entry.name, v2_exit });
@@ -386,7 +394,10 @@ pub fn main(init: std.process.Init) !void {
     //
     //   mismatch    a fixture's JIT stdout differs from wasmtime's
     //   skip        the JIT could not complete a fixture the oracle ran
-    //   shortfall   a fixture the oracle ran never reached the lane at all
+    //   shortfall   a fixture the oracle ran never reached the lane at all —
+    //               unreachable as the loop is written today (the lane sits
+    //               directly under the increment); it is the guard that keeps
+    //               it that way
     //
     // Safe on wasmtime-less hosts: `jit_eligible` stays 0 there, so every arm is
     // vacuous and the lane cannot fire falsely.
@@ -409,7 +420,7 @@ pub fn main(init: std.process.Init) !void {
         if (accounted != jit_eligible) {
             try stdout.print(
                 "error: JIT lane accounted for {d} of {d} fixture(s) wasmtime ran — {d} left the corpus " ++
-                    "without a JIT verdict (an earlier lane's `continue` dropped them)\n",
+                    "without a JIT verdict; a `continue` was added above the lane in the per-fixture loop\n",
                 // Saturating: `accounted > jit_eligible` is unreachable (the lane
                 // runs at most once per eligible fixture), but a gate that panics
                 // on an impossible state is worse than one that still reports.
