@@ -365,15 +365,16 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm-edge-runner",
         .root_module = edge_runner_mod,
     });
-    // `has_side_effects = true` forces each fixture-runner to re-run
-    // every invocation. The runner walks its corpus dir at RUNTIME, but
-    // the dir path is a plain `addArg` string — NOT a tracked build
-    // input — so without this flag zig caches the run-artifact on the
-    // exe hash and SKIPS re-running when only fixture files change
-    // (no src/exe delta). That silently gave fixture-only additions
-    // FALSE coverage (they passed when run directly but the gate served
-    // a stale cached result). Tests must always execute; the runner is
-    // fast (~seconds for the whole corpus).
+    // `has_side_effects = true` on these fixture-runners is REDUNDANT, kept
+    // only as an explicit statement of intent (tests must always execute).
+    // The corpus dir does reach the runner as an untracked `addArg` string,
+    // but that alone never made them cacheable: `Run.hasSideEffects()` is
+    // already true for the default `stdio = .infer_from_args` unless the step
+    // has an output arg, and these have none. Caching needs a SECOND
+    // condition — an output arg, or an `addCheck` caller (`expectExitCode`,
+    // `expectStdOutEqual`) flipping stdio to `.check`. See D-592: the cyc216
+    // diagnosis that put these lines here was wrong, and `run_oob_trap` is
+    // the one step in this file where both conditions actually hold.
     const run_edge_p7 = b.addRunArtifact(edge_runner_exe);
     run_edge_p7.addArg(b.pathFromRoot("test/edge_cases/p7"));
     run_edge_p7.has_side_effects = true;
@@ -823,12 +824,9 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld = b.addRunArtifact(realworld_runner_exe);
     run_realworld.addArg(b.pathFromRoot("test/realworld/wasm"));
-    // has_side_effects: the corpus dir is a plain `addArg` string (NOT a
-    // tracked input), so without this the run-artifact is cached on the exe
-    // hash and SKIPPED when only `.wasm` fixtures change → false coverage
-    // (same gap as the run_edge_* steps, fixed cyc216; these realworld/wasm
-    // runners were missed then). See lesson
-    // `2026-05-30-edge-runner-fixture-cache-false-coverage`.
+    // has_side_effects: redundant here, same as the run_edge_* steps above —
+    // an untracked `addArg` corpus dir alone does not make a step cacheable.
+    // Kept as a statement of intent. See D-592.
     run_realworld.has_side_effects = true;
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
@@ -852,9 +850,10 @@ pub fn build(b: *std.Build) void {
         .root_module = latency_runner_mod,
     });
     const run_latency = b.addRunArtifact(latency_runner_exe);
-    // has_side_effects: the guest is `@embedFile`d so it IS a tracked input,
-    // but the run must not be cached on the exe hash either way — the whole
-    // point is to re-measure, and a cached run would silently report the
+    // has_side_effects: redundant (see the run_edge_* comment and D-592 —
+    // a step with no output arg is already side-effecting). Kept because the
+    // intent is load-bearing here: a benchmark must re-measure, and if this
+    // step ever gains an output arg, caching it would silently report the
     // previous machine state's numbers.
     run_latency.has_side_effects = true;
     const bench_latency_step = b.step("bench-latency", "Measure steady-state per-call latency (ADR-0209; not an assertion, not in test-all)");
@@ -888,9 +887,8 @@ pub fn build(b: *std.Build) void {
     });
     const run_fuzz = b.addRunArtifact(fuzz_loader_exe);
     run_fuzz.addArg(b.pathFromRoot("test/fuzz/corpus/seed"));
-    // has_side_effects: the corpus dir is an untracked `addArg` string, so
-    // without this the run is cached on the exe hash + skipped when only the
-    // corpus changes (same gap as run_realworld; see that comment).
+    // has_side_effects: redundant, same as run_realworld above (see that
+    // comment and D-592). Kept as a statement of intent.
     run_fuzz.has_side_effects = true;
     const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
     test_fuzz_step.dependOn(&run_fuzz.step);
@@ -1379,6 +1377,22 @@ pub fn build(b: *std.Build) void {
         "--invoke", "test",
     });
     run_oob_trap.expectExitCode(1); // a genuine trap → exit 1 (interp-parity)
+    // has_side_effects: `expectExitCode` routes through `addCheck`, which flips
+    // `stdio` from `.infer_from_args` to `.check` — and `Run.hasSideEffects()`
+    // returns FALSE for `.check`. That makes this step cacheable, while the
+    // fixture above reaches it as a plain `addArg` STRING (not a tracked input),
+    // so a fixture-only change is served from cache and never re-verified.
+    // Measured 2026-08-15: swapping the 47-byte trapping module for an 8-byte
+    // empty one left the step `cached` and green. Without this line the only
+    // behavioural test of the production elision path is false coverage on any
+    // warm cache (local `test-all`, gate_commit, gate_merge; CI checks out
+    // fresh, so it is cold there). See D-592.
+    // Alternative not taken: `addFileArg(b.path(…))` would track the fixture
+    // and keep caching correct rather than defeating it, and would make the
+    // implicit repo-root cwd explicit. Rejected for now only because the
+    // always-run form matches every other runner here and the step costs
+    // ~24ms; revisit if unconditional CLI re-runs become noticeable.
+    run_oob_trap.has_side_effects = true;
     const test_oob_trap_step = b.step("test-oob-elision", "Verify guard-page bounds elision traps oob (ADR-0202 D4/D5 / D-507)");
     test_oob_trap_step.dependOn(&run_oob_trap.step);
 

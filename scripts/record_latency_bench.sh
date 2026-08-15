@@ -67,9 +67,12 @@ echo "[record_latency] measuring..." >&2
 # would compile the whole CLI for nothing — minutes on a cold cache.
 body="$(zig build -Doptimize="$BUILD_MODE" bench-latency)"
 
-# The runner's YAML reaches this substitution only because `has_side_effects`
-# on the Run step (build.zig) resolves its stdio to inherit. That coupling is
-# implicit: drop the flag and zig caches the step, leaving `body` empty and this
+# The runner's YAML reaches this substitution only because the Run step is
+# side-effecting, which resolves its stdio to `.inherit` rather than `.ignore`
+# (`std/Build/Step/Run.zig`, the `.infer_from_args` arm). That is a property of
+# the step having no output arg, NOT of the `has_side_effects = true` line in
+# build.zig — that line is redundant there (D-592). Add a `captureStdOut` to
+# `run_latency` and stdout stops being inherited, leaving `body` empty and this
 # script silently appending a row with no measurements in it.
 [ -n "$body" ] || {
     echo "[record_latency] the runner produced no output; nothing appended" >&2
