@@ -1,31 +1,43 @@
-# Edge-runner fixtures were cached → false coverage (cyc216)
+# Run-step fixture caching → false coverage (cyc216; diagnosis corrected 2026-08-15)
 
 **Date**: 2026-05-30 · **Citing**: `0b8d2a0b` · Phase 10 (10.P I3 cross fixtures)
 
-The `test/edge_cases` + `test/realworld` fixture runners are wired in
-`build.zig` as `addRunArtifact(edge_runner_exe)` with the corpus dir passed
-via `addArg(b.pathFromRoot("…"))` — a plain STRING, NOT a tracked build
-input. So zig caches the run-artifact step keyed on the exe hash + args:
-**a fixture-only change (new `.wasm`/`.expect`, no src/exe delta) does not
-invalidate the run step → it is skipped → the new fixtures never execute.**
-The gate serves a stale "N passed" and the fixture is *false coverage* —
-it passes when run directly but is silently never re-checked. This bit
-cyc215's two cross fixtures (added test-only; the exe was unchanged from
-cyc214's D-209 build, so the run step was cached on Mac AND ubuntu).
+The false coverage cyc215 hit was real. **The mechanism recorded here was
+wrong, and the fix it prescribed was a no-op.** Corrected below; the original
+claim is kept struck so nobody re-derives it.
 
-**Fix**: `run_edge_*.has_side_effects = true` on each fixture-runner step
-(forces re-run every invocation; the runner is fast, ~seconds for the whole
-corpus). Alternative: `addDirectoryArg(b.path(dir))` to track the dir as an
-input (re-runs only on change) — not chosen here (recursive-hash semantics
-less certain than "always run"; tests should always run anyway).
+~~Passing the corpus dir as `addArg(b.pathFromRoot("…"))` — a plain STRING,
+not a tracked input — is enough to make zig cache the run step, so a
+fixture-only change is skipped. Fix: `has_side_effects = true`.~~
 
-**Incompleteness caught cyc223**: the cyc216 fix only patched the `run_edge_*`
-steps. The `test/realworld/wasm/` runners — `run_realworld`, `run_realworld_run`,
-`run_realworld_run_jit`, `run_realworld_diff` (all in `test-all`) — have the
-SAME `addArg(dir-string)` shape and were missed, leaving the 55-fixture realworld
-corpus exposed to fixture-only false coverage. Fixed cyc223 (same
-`has_side_effects = true`). Lesson: when fixing a class bug, grep ALL
-`addRunArtifact` + `addArg(b.pathFromRoot(` sites, not just the one in front of you.
+An untracked arg is **necessary but not sufficient**. Caching is gated on
+`Run.hasSideEffects()`, which for the default `stdio = .infer_from_args`
+returns `!hasAnyOutputArgs()` — **true**, i.e. always re-run, unless the step
+captures stdout/stderr or produces an output file. A plain `addRunArtifact` +
+`addArg` step has none of those, so it was never cacheable to begin with.
+Fixture-only false coverage needs BOTH:
+
+1. an input the build graph does not track (a corpus path as a plain string), **and**
+2. something making `hasSideEffects()` false — an output arg, or any `addCheck`
+   caller (`expectExitCode`, `expectStdOutEqual`), which flips `stdio` to
+   `.check`
+
+`run_edge_*` and `run_realworld*` met (1) but not (2), so the cyc216 and cyc223
+`has_side_effects = true` lines changed nothing — as do the other 20 such sites
+in build.zig. Measured 2026-08-15 against `main@057a3f7ea` (**the same zig
+0.16.0 as today**): that build.zig had one `expectExitCode` in the whole file
+and none on those steps. Zig did not change; the diagnosis was wrong when
+written. cyc215's real cause is unidentified — the stale-exe gotcha below is
+the likeliest candidate and was seen the same session.
+
+**Where both conditions did hold**: `run_oob_trap` — the only behavioural test
+of the production guard-page elision path (ADR-0202 D4/D5 / D-507), in
+`test-all`, taking its `.wasm` as a plain string AND calling `expectExitCode(1)`.
+Proven 2026-08-15: swapping the 47-byte trapping module for an 8-byte empty one
+left the step `cached` and green. Fixed there, where it is not a no-op (D-592).
+
+**Check, don't guess**: `zig build <step> --summary all` prints `cached` per
+step. Confirm a fix by breaking the fixture and watching the step fail.
 
 ## Debugging gotchas (each cost real time this session)
 
@@ -47,4 +59,5 @@ corpus exposed to fixture-only false coverage. Fixed cyc223 (same
 ## Related
 
 - `.claude/rules/test_discipline.md` (fixtures-as-coverage). `build.zig`
-  run_edge_* steps. cyc215 cross fixtures (`test/edge_cases/p10/cross/`).
+  `run_oob_trap` (the one real instance). cyc215 cross fixtures
+  (`test/edge_cases/p10/cross/`). D-592 (the retraction + the 20 no-op sites).

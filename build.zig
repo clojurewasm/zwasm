@@ -1379,6 +1379,17 @@ pub fn build(b: *std.Build) void {
         "--invoke", "test",
     });
     run_oob_trap.expectExitCode(1); // a genuine trap → exit 1 (interp-parity)
+    // has_side_effects: `expectExitCode` routes through `addCheck`, which flips
+    // `stdio` from `.infer_from_args` to `.check` — and `Run.hasSideEffects()`
+    // returns FALSE for `.check`. That makes this step cacheable, while the
+    // fixture above reaches it as a plain `addArg` STRING (not a tracked input),
+    // so a fixture-only change is served from cache and never re-verified.
+    // Measured 2026-08-15: swapping the 47-byte trapping module for an 8-byte
+    // empty one left the step `cached` and green. Without this line the only
+    // behavioural test of the production elision path is false coverage on any
+    // warm cache (local `test-all`, gate_commit, gate_merge; CI checks out
+    // fresh, so it is cold there). See D-592.
+    run_oob_trap.has_side_effects = true;
     const test_oob_trap_step = b.step("test-oob-elision", "Verify guard-page bounds elision traps oob (ADR-0202 D4/D5 / D-507)");
     test_oob_trap_step.dependOn(&run_oob_trap.step);
 
