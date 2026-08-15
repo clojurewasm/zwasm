@@ -13,10 +13,11 @@ agent-autonomy guardrail, not a bar to release automation.
 
 **The repo moved to its own org 2026-08-12**: `clojurewasm/zwasm` →
 **`zwasm/zwasm`** (`.dev/org_transfer_plan.md` phases 1-3 done; stars /
-issues / releases / ruleset intact). Still open there: **phase 4** — the
-Homebrew tap split (`zwasm/homebrew-tap` does not exist yet, so README's
-install command deliberately still reads `clojurewasm/tap/zwasm`) and
-**phase 5** (cljw pin + wind-down). Both are user actions.
+issues / releases / ruleset intact). **Phase 4's repo side is done too** —
+`zwasm/homebrew-tap` carries `Formula/zwasm.rb`, the old tap keeps only
+`cljw.rb` plus `tap_migrations.json`, and README installs from
+`zwasm/tap/zwasm` (#181). Left to the user: phase 4 item 10 (verify from a
+clean `brew` state) and **phase 5** (cljw pin + wind-down).
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
