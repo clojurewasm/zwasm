@@ -120,6 +120,7 @@ cranelift, wasmer singlepass) is recorded but not gated.
 
 `scripts/run_bench.sh` is hyperfine-driven; the CI job records two
 arch rows when it is dispatched (per the cadence above) — nothing
-runs it automatically. Local phase-boundary rows continue to land
-via `--phase-record`, and are the path that actually gets used. The pre-Phase-6
+runs it automatically. Local phase-boundary rows continue to
+land via `--phase-record`, and are the path that actually gets
+used. The pre-Phase-6
 trap-time baseline rows are preserved per ADR-0011 §3.
