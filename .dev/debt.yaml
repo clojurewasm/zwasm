@@ -43,9 +43,14 @@ entries:
       with `exited with code 0 (expected exited with code 1)`).
       NOT a CI hole either way - CI checks out fresh, so the cache is cold.
       The exposure was local gates (`test-all`, gate_commit, gate_merge).
-      Left as cleanup, not fixed here: the 20 no-op `has_side_effects = true`
-      lines. Deleting them is safe but touches unrelated steps; they are
-      harmless where they sit.
+      The 20 no-op `has_side_effects = true` lines are KEPT, now labelled
+      redundant-but-intentional in their comments (run_edge_*, run_realworld,
+      run_fuzz, run_latency). Deleting them is safe today but would remove the
+      stated intent, and `run_latency` shows why that intent matters: add one
+      output arg to a step and it silently becomes cacheable. The four comment
+      blocks that asserted the wrong mechanism - written when cyc216 landed -
+      are corrected in the same commit; leaving them would have contradicted
+      the lesson this row also corrects.
     first_raised: "2026-08-15"
     last_reviewed: "2026-08-15"
     refs: |-
