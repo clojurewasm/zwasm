@@ -48,10 +48,16 @@ pub fn main(init: std.process.Init) !void {
     };
     defer dir.close(io);
 
+    // ADR-0210 — the enumeration denominator. Re-derivable without the
+    // runner (`ls <corpus>/*.wasm | wc -l`), so "N passed" can be checked
+    // against the set actually walked rather than taken on trust.
+    var enumerated: u32 = 0;
+
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".wasm")) continue;
+        enumerated += 1;
 
         const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch |err| {
             try stdout.print("FAIL  {s}: read error {s}\n", .{ entry.name, @errorName(err) });
@@ -76,9 +82,21 @@ pub fn main(init: std.process.Init) !void {
         passed += 1;
     }
 
-    try stdout.print("\nspec_runner: {d} passed, {d} failed\n", .{ passed, failed });
+    // Two corpora run under this binary (`smoke`, `wasm-1.0`); name which
+    // one a summary belongs to. Basename only — the absolute path is a
+    // build-machine detail that just makes the line hard to read.
+    const corpus_name = std.fs.path.basename(corpus_dir);
+    try stdout.print("\nspec_runner[{s}]: {d} passed, {d} failed (of {d} enumerated)\n", .{ corpus_name, passed, failed, enumerated });
     try stdout.flush();
 
+    // ADR-0210 — every enumerated module reaches pass or fail; this
+    // runner has no skip column, so a gap means a path returned without
+    // recording a verdict.
+    if (passed + failed != enumerated) {
+        try stdout.print("spec_runner[{s}]: ACCOUNTING OPEN — {d} enumerated but {d} recorded a verdict\n", .{ corpus_name, enumerated, passed + failed });
+        try stdout.flush();
+        std.process.exit(1);
+    }
     if (failed != 0) std.process.exit(1);
 }
 

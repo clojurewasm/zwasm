@@ -145,6 +145,14 @@ pub fn main(init: std.process.Init) !void {
             manifest_count,
         },
     );
+    // ADR-0210 — print the enumeration denominator next to the verdict
+    // columns. Without it "25539 passed" cannot be checked against the
+    // work enumerated: a directive dropped before reaching a column is
+    // indistinguishable from one that was never in the corpus.
+    try stdout.print(
+        "spec_assert_runner_non_simd: lines={d} accounted={d} residual={d} (residual = non-assertion directives + any line that reached no column)\n",
+        .{ tally.lines, tally.accounted(), tally.residual() },
+    );
     try stdout.flush();
 
     if (tally.failed > 0) std.process.exit(1);

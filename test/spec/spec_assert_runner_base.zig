@@ -97,6 +97,13 @@ pub fn decodeFnName(fn_name: []const u8, buf: []u8) ![]const u8 {
 /// The exit-non-zero gate (`failed > 0`) is checked by the
 /// caller; tally just collects.
 pub const AssertTally = struct {
+    /// ADR-0210 — the enumeration denominator: every non-blank manifest
+    /// line this tally saw. Re-derivable without running the runner
+    /// (`cat <corpus>/*/manifest.txt | wc -l`), which is what lets a
+    /// third party check the printed pass/fail/skip against the work
+    /// actually enumerated instead of taking the summary on trust.
+    /// `residual()` names whatever the verdict columns do not cover.
+    lines: u32 = 0,
     passed: u32 = 0,
     failed: u32 = 0,
     /// Manifest `skip-impl <reason>` lines (and bare-legacy
@@ -119,6 +126,24 @@ pub const AssertTally = struct {
     runtime_skip: u32 = 0,
     /// `skip-adr-<ADR-id> <reason>` — waived per the named ADR.
     skipped_adr: u32 = 0,
+
+    /// Lines that reached a verdict or an enumerated skip.
+    pub fn accounted(self: AssertTally) u32 {
+        return self.passed + self.failed + self.manifest_skip_impl +
+            self.runtime_skip + self.skipped_adr;
+    }
+
+    /// ADR-0210 — manifest lines that reached NO column. Non-assertion
+    /// directives (`module` / `register` / `invoke` / …) legitimately
+    /// live here, but so does every silently-dropped line, and before
+    /// the denominator was printed the two were indistinguishable from
+    /// outside. Printing it does not by itself say which is which; it
+    /// says how much is unexplained, which is the prerequisite for
+    /// explaining it.
+    pub fn residual(self: AssertTally) u32 {
+        const acc = self.accounted();
+        return if (self.lines > acc) self.lines - acc else 0;
+    }
 };
 
 /// ADR-0029 Path B classification — categorise a manifest line's
@@ -3112,6 +3137,7 @@ pub fn runCorpus(
     while (line_it.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \r\t");
         if (line.len == 0) continue;
+        tally.lines += 1;
 
         switch (classifySkipLine(line)) {
             .skip_impl => {

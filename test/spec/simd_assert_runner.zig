@@ -111,6 +111,11 @@ pub fn main(init: std.process.Init) !void {
             manifest_count,
         },
     );
+    // ADR-0210 — enumeration denominator alongside the verdict columns.
+    try stdout.print(
+        "simd_assert_runner: lines={d} accounted={d} residual={d} (residual = non-assertion directives + any line that reached no column)\n",
+        .{ tally.lines, tally.accounted(), tally.residual() },
+    );
     try stdout.flush();
 
     if (tally.failed > 0) std.process.exit(1);

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# check_spec_manifest_shape.sh — pin the property that makes the spec
+# runners' enumeration denominator re-derivable by a third party.
+#
+# ADR-0210: the wasm-3.0 runner prints `lines=<N>`, the count of manifest
+# lines it read, and asserts that every one of them lands in exactly one
+# accounting bucket. That number is only checkable from outside the
+# runner if the corpus is strictly one directive per line — no blank
+# lines, no comments, no continuations, no leading indentation. Then:
+#
+#   cat test/spec/wasm-3.0-assert/*/*/manifest.txt | wc -l
+#
+# must equal the printed `lines`. This script fails if the corpus ever
+# stops having that shape (a regen introducing comments or blank lines
+# would silently break the re-derivation while both sides stayed green).
+#
+# Usage: check_spec_manifest_shape.sh [--gate]
+#   (default) report; --gate exits non-zero on any violation.
+set -euo pipefail
+
+MODE="${1:-report}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+CORPORA=(
+  "test/spec/wasm-3.0-assert"
+)
+
+violations=0
+total_lines=0
+
+for corpus in "${CORPORA[@]}"; do
+  if [ ! -d "$corpus" ]; then
+    echo "MISSING  $corpus (corpus roots are committed; a missing root is a real error)"
+    violations=$((violations + 1))
+    continue
+  fi
+
+  mapfile -t manifests < <(find "$corpus" -name manifest.txt | sort)
+  if [ "${#manifests[@]}" -eq 0 ]; then
+    echo "EMPTY    $corpus (no manifest.txt found)"
+    violations=$((violations + 1))
+    continue
+  fi
+
+  for m in "${manifests[@]}"; do
+    # Blank / whitespace-only lines: would make `wc -l` overcount vs the
+    # runner, which skips them before tallying.
+    n_blank=$(grep -cE '^[[:space:]]*$' "$m" || true)
+    # Comment lines: no directive, but `wc -l` would count them.
+    n_comment=$(grep -cE '^[[:space:]]*[#;]' "$m" || true)
+    # Leading indentation: the runner trims, but an indented line is a
+    # sign of a continuation-style format the line count cannot model.
+    n_indent=$(grep -cE '^[[:space:]]+[^[:space:]]' "$m" || true)
+    # A final line without a trailing newline makes `wc -l` undercount.
+    n_noeol=0
+    if [ -s "$m" ] && [ "$(tail -c 1 "$m" | wc -l)" -eq 0 ]; then n_noeol=1; fi
+
+    if [ "$n_blank" -ne 0 ] || [ "$n_comment" -ne 0 ] || [ "$n_indent" -ne 0 ] || [ "$n_noeol" -ne 0 ]; then
+      echo "SHAPE    $m  blank=$n_blank comment=$n_comment indented=$n_indent missing-final-newline=$n_noeol"
+      violations=$((violations + 1))
+    fi
+    total_lines=$((total_lines + $(wc -l < "$m")))
+  done
+done
+
+echo "=== spec manifest shape check ==="
+echo "corpora:    ${#CORPORA[@]}"
+echo "lines:      $total_lines  (must equal the runner's printed \`lines=\`)"
+echo "violations: $violations"
+
+if [ "$MODE" = "--gate" ] && [ "$violations" -gt 0 ]; then
+  echo ""
+  echo "FAIL: the corpus is no longer one-directive-per-line, so the runner's"
+  echo "      enumeration denominator can no longer be re-derived with wc -l."
+  exit 1
+fi

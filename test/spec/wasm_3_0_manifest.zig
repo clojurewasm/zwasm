@@ -78,6 +78,13 @@ pub const Kind = enum {
     skip_impl,
     skip_validator,
     skip_runtime,
+    /// `skip-adr-<ADR-id> <reason>` — waived per the named ADR. The
+    /// wasm-3.0 corpus carries 95 of these (all
+    /// `skip-adr-skip_text_format_parser`); before they had a kind
+    /// they fell through to `.unknown`, which the runner's switch
+    /// dropped with no counter — 95 directives absent from every
+    /// tally AND from the printed denominator.
+    skip_adr,
     unknown,
 };
 
@@ -530,6 +537,11 @@ pub fn parseLine(
         directive.reason = rest;
         return directive;
     }
+    if (std.mem.startsWith(u8, kind_str, "skip-adr-")) {
+        directive.kind = .skip_adr;
+        directive.reason = rest;
+        return directive;
+    }
     if (std.mem.eql(u8, kind_str, "assert_invalid")) {
         directive.kind = .assert_invalid;
         directive.module_path = rest;
@@ -581,24 +593,43 @@ pub fn parseLine(
     // `->` are results.
     var tokens = std.mem.splitScalar(u8, rest, ' ');
     var seen_arrow: bool = false;
-    var seen_name: bool = false;
+    // Byte span of the func name within `rest`. A wasm export name may
+    // contain spaces (multi-memory/linking3 exports `get memory[0]` and
+    // `get table[0]` literally), and the manifest is space-delimited, so
+    // the name is whatever runs from the first token up to the first
+    // `()` / `->` / typed `<ty>:<payload>` token. Parsing it as a single
+    // token made those two lines `Error.MalformedTypedValue`, which the
+    // runner's `catch continue` then dropped with no counter.
+    var name_start: ?usize = null;
+    var name_end: usize = 0;
     while (tokens.next()) |tok| {
         if (tok.len == 0) continue;
         if (std.mem.eql(u8, tok, "->")) {
             seen_arrow = true;
             continue;
         }
-        if (!seen_name and !std.mem.eql(u8, tok, "()") and (std.mem.findScalar(u8, tok, ':') == null or std.mem.find(u8, tok, "::") != null)) {
-            // 10.M-D195b cycle 72 — `$module::field` syntax splits
-            // the token at `::`; the module_id (with $ prefix) goes
-            // into directive.module_id, the field into func_name.
-            if (std.mem.find(u8, tok, "::")) |sep| {
-                directive.module_id = tok[0..sep];
-                directive.func_name = tok[sep + 2 ..];
-            } else {
-                directive.func_name = tok;
+        const is_name_token = !std.mem.eql(u8, tok, "()") and
+            (std.mem.findScalar(u8, tok, ':') == null or std.mem.find(u8, tok, "::") != null);
+        if (is_name_token) {
+            // A name token may only appear in the leading name run: once
+            // an arg or the arrow has been consumed the grammar admits
+            // only typed values / `()`, so anything else is malformed and
+            // must surface rather than be absorbed into the name.
+            if (seen_arrow or directive.args_len > 0) return Error.MalformedTypedValue;
+            const off = @intFromPtr(tok.ptr) - @intFromPtr(rest.ptr);
+            if (name_start == null) {
+                // 10.M-D195b cycle 72 — `$module::field` syntax splits
+                // the FIRST name token at `::`; the module_id (with $
+                // prefix) goes into directive.module_id, the rest starts
+                // the func-name span.
+                if (std.mem.find(u8, tok, "::")) |sep| {
+                    directive.module_id = tok[0..sep];
+                    name_start = off + sep + 2;
+                } else {
+                    name_start = off;
+                }
             }
-            seen_name = true;
+            name_end = off + tok.len;
             continue;
         }
         // Typed value or empty-result marker `()`.
@@ -619,6 +650,7 @@ pub fn parseLine(
         }
     }
 
+    if (name_start) |s| directive.func_name = rest[s..name_end];
     return directive;
 }
 
@@ -750,6 +782,52 @@ test "parseLine: args overflow → OutOfRange" {
     var args: [1]TypedValue = undefined;
     var results: [4]TypedValue = undefined;
     try testing.expectError(Error.OutOfRange, parseLine("assert_return foo i32:1 i32:2 -> ()", &args, &results));
+}
+
+test "parseLine: export name containing spaces spans tokens (multi-memory/linking3)" {
+    // The wast fixture exports the literal names `get memory[0]` /
+    // `get table[0]`. Space-delimited single-token name parsing made
+    // these two corpus lines MalformedTypedValue, and the runner's
+    // `catch continue` dropped them uncounted — 2 of the 3 lines by
+    // which `asserts_return` (11289) undercounted the corpus (11292).
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("assert_return $Ms::get memory[0] () -> i32:104", &args, &results);
+    try testing.expectEqual(Kind.assert_return, d.kind);
+    try testing.expectEqualStrings("$Ms", d.module_id);
+    try testing.expectEqualStrings("get memory[0]", d.func_name);
+    try testing.expectEqual(@as(u8, 0), d.args_len);
+    try testing.expectEqual(@as(u8, 1), d.results_len);
+    try testing.expectEqualStrings("104", d.results[0].payload);
+}
+
+test "parseLine: spaced export name without a module tag" {
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("assert_return get table[0] () -> i32:57005", &args, &results);
+    try testing.expectEqualStrings("", d.module_id);
+    try testing.expectEqualStrings("get table[0]", d.func_name);
+}
+
+test "parseLine: a bare token after an arg stays malformed" {
+    // Greedy name parsing must not absorb a stray token once args have
+    // started — that would silently reinterpret a malformed line as a
+    // differently-named call.
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    try testing.expectError(Error.MalformedTypedValue, parseLine("assert_return foo i32:1 bar -> i32:2", &args, &results));
+    try testing.expectError(Error.MalformedTypedValue, parseLine("assert_return foo () -> i32:2 bar", &args, &results));
+}
+
+test "parseLine: skip-adr-<id> classifies as skip_adr, not unknown" {
+    // 95 corpus lines spell `skip-adr-skip_text_format_parser`; with no
+    // matching kind they parsed as `.unknown`, which the runner dropped
+    // with no counter and no denominator entry.
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    const d = try parseLine("skip-adr-skip_text_format_parser wat literals unsupported", &args, &results);
+    try testing.expectEqual(Kind.skip_adr, d.kind);
+    try testing.expectEqualStrings("wat literals unsupported", d.reason);
 }
 
 test "parsePayload: i32 positive decimal lands in Value.i32" {

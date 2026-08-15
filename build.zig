@@ -328,6 +328,22 @@ pub fn build(b: *std.Build) void {
     run_spec_smoke.addArg(b.pathFromRoot("test/spec/smoke"));
     const run_spec_mvp = b.addRunArtifact(spec_runner_exe);
     run_spec_mvp.addArg(b.pathFromRoot("test/spec/wasm-1.0"));
+    // ADR-0210 — `zig build test-spec` did not print what it ran.
+    // Measured 2026-08-15: three consecutive runs each printed 8 `PASS`
+    // lines while the two summaries claimed 3 + 9 = 12, one line spliced
+    // mid-token; running the exe standalone printed 3 and 9 intact. Two
+    // causes, both in the build layer, not the runner:
+    //   1. captured run-step output is forwarded through a lossy path
+    //      that overwrites lines (a piped `--summary all` run dropped
+    //      every PASS line and truncated the summary's leading token) —
+    //      `.inherit` writes the child's stdout straight through instead;
+    //   2. the two runs are otherwise concurrent and interleave, so the
+    //      second is ordered after the first.
+    // A denominator is worthless if the lines backing it can vanish
+    // between the runner and the log a reviewer reads.
+    run_spec_smoke.stdio = .inherit;
+    run_spec_mvp.stdio = .inherit;
+    run_spec_mvp.step.dependOn(&run_spec_smoke.step);
     const test_spec_step = b.step("test-spec", "Run the Wasm spec test runner");
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);
