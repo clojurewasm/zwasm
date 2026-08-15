@@ -220,7 +220,9 @@ fn emitCrossModuleReturnCall(
 ///       B.NE cind_sig_fixup),
 ///   (4) funcptr load (LDR X16, [X26, X17, LSL #3]),
 ///   (5) null-funcptr check (CMP X16, #0 ; B.EQ cind_sig_fixup —
-///       D-586, an imported function's funcptr mirror is null),
+///       D-586; reached when a host cleared the mirror via
+///       `tableSetRef`, which leaves the typeidx valid so the
+///       D-294 sentinel does not fire),
 ///   (6) MOV X0, X19 (emitLoadCalleeRtSameModule),
 ///   (7) frame_teardown.emit (caller's frame gone),
 ///   (8) BR X16 (emitTailJump).
@@ -230,6 +232,17 @@ fn emitCrossModuleReturnCall(
 /// null-funcptr (D-586) branches all target the trap stub (which
 /// does its own epilogue); the path from teardown to BR X16 has no
 /// allocator / host-call / signal-check branch.
+///
+/// Why this may BR to an import while `emitCrossModuleReturnCall`
+/// refuses to (D-586): that path routes `return_call $import`
+/// through call-and-return because a frame-consuming BR to a
+/// different-rt callee would leave the callee's cohort installed
+/// when control reaches a same-module grand-caller. The bridge
+/// thunk here is call-and-return internally — it STRs X19/X24,
+/// BLRs, LDRs them back and RETs (`shared/thunk.zig`) — so the
+/// grand-caller sees its own cohort. That save list is load-bearing,
+/// not incidental: an earlier 56-byte thunk saved only X19 and left
+/// X24 stale, surfacing as an `imports.1.wasm` sig mismatch.
 pub fn emitIndirectReturnCall(
     ctx: *ctx_mod.EmitCtx,
     ins: *const zir.ZirInstr,

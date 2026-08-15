@@ -225,10 +225,17 @@ fn emitCrossModuleReturnCall(
 ///   (5) funcptr: MOV RAX,[R15+funcptr_base_off] ;
 ///       MOV R11,[RAX+idx_r*8],
 ///   (6) null-funcptr: TEST R11,R11 ; JE rel32 → cind_sig_fixups
-///       (D-586, an imported function's funcptr mirror is null),
+///       (D-586; reached when a host cleared the mirror via
+///       `tableSetRef`, which leaves the typeidx valid so the
+///       D-294 sentinel does not fire),
 ///   (7) MOV RDI, R15 (emitLoadCalleeRtSameModule),
 ///   (8) frame_teardown.emit (ADD RSP + POP R15? + POP RBP, no RET),
 ///   (9) JMP R11 (emitTailJump).
+///
+/// Why this may JMP to an import while the direct cross-module path
+/// refuses to: see the arm64 mirror's note. The bridge thunk is
+/// call-and-return internally (PUSH/POP R15, RET), so a same-module
+/// grand-caller sees its own pinned runtime pointer.
 ///
 /// Note (x86_64 fixup-list shape, D-293): cind bounds route to
 /// `oobtable_fixups` (oob_table, code 2) and cind sig to

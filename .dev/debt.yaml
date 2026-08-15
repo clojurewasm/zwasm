@@ -12,7 +12,7 @@ entries:
       `funcptrs[i]` null on purpose — the JIT emits no host-dispatch trampoline
       of its own — and the inline path executed that null: SIGSEGV, with zwasm's
       own handler reporting "a bug in zwasm (not a wasm trap)".
-      Two changes landed together. (1) The mirror now takes
+      Three changes landed together. (1) The mirror now takes
       `func_entities[fidx].funcptr`, which for an import is the bridge thunk
       `dispatch[fidx]` — the same value `jitTableGrowCore` already copied on the
       `table.set` path, so reachability no longer depends on HOW the element
@@ -20,21 +20,30 @@ entries:
       (call_indirect and return_call_indirect, single- and multi-table on each
       arch), mirroring the test the subtyping path already had; the tail-call
       four surfaced only when review re-derived the funcptr-load site list.
+      (3) The D-225 loop does not plant a bridge thunk for an import whose
+      signature has a MEMORY-class return (`results.len > 2`), leaving
+      `dispatch[j]` at its pre-seeded `hostDispatchTrap`: that shape cannot
+      cross the thunk, which overwrites arg0 (the hidden buffer pointer) with
+      `callee_rt`, so the callee would write its results through the runtime
+      pointer. See (g) for why the guard sits at the origin.
       Measured on the vendored 3.0 corpus, which the crash previously blacked
       out entirely: JIT fail 277 -> 1 (memory64 276 -> 0; the residual 1 is
       gc/type-subtyping, unrelated).
       REMAINING: (a) the trap kind at the eight sites — they report code 3.
-      Two paths reach them: `fidx >= dispatch.len` (an embedder-supplied short
-      dispatch table) and `JitInstance.tableSetRef`, which clears the funcptr
-      mirror while leaving the parallel typeidx intact so the D-294 sentinel
-      does NOT fire — an ordinary embedder operation, not an exotic one, and
-      the reason that function's "traps cleanly" comment only became true with
-      (2). Its "uninitialized sentinel" wording still does not match what the
-      code writes. So the sites are load-bearing; what is undecided is only
-      which kind fits, and D-293/D-294 own that taxonomy. (b) `call_ref` /
-      `return_call_ref` load
-      `FuncEntity.funcptr` and jump unchecked at four sites — same
-      `dispatch.len` exposure, not covered by (2). (c) the eight sites have NO
+      Exactly ONE path reaches them: `JitInstance.tableSetRef`, which clears the
+      funcptr mirror while leaving the parallel typeidx intact so the D-294
+      sentinel does NOT fire — an ordinary embedder operation, and the reason
+      that function's "traps cleanly" comment only became true with (2). Its
+      "uninitialized sentinel" wording still does not match what the code
+      writes. (An earlier revision of this row also claimed `fidx >=
+      dispatch.len`; that is unreachable — `dispatch` is allocated with
+      `num_imports` slots and every slot is pre-seeded with `&hostDispatchTrap`,
+      so an import's `fe.funcptr` is never 0.) The site is load-bearing; what is
+      undecided is only which kind fits, and D-293/D-294 own that taxonomy.
+      (b) `call_ref` / `return_call_ref` load `FuncEntity.funcptr` and jump
+      unchecked at four sites. Given the pre-seeding above, no currently-known
+      path makes that field 0, so this is a defensive gap with no live trigger
+      rather than a reachable bug — kept as a class note under (e). (c) the eight sites have NO
       test coverage: nothing in the suite reaches a short dispatch table, and
       the tests that used to pin them now assert the call succeeds. (d)
       `applyTableInitForTable` + `patchTableImportFuncptrs` are an unenforced
@@ -54,15 +63,24 @@ entries:
       was already true for JIT-body targets; it now also reaches host imports
       placed in a table (a `path_open`-shaped WASI import is the realistic
       case). Only `results.len > 2` is rejected at emit time; parameter count
-      is not checked anywhere. (g) PRE-EXISTING, and the mirror image of the
-      shape (1) had to guard against: a DIRECT `call $import` to an import with
-      a MEMORY-class return LEAs the buffer into arg0 (`op_call.zig` emitCall,
+      is not checked anywhere. (g) CLOSED by (3), recorded because the shape is
+      easy to reintroduce: a DIRECT `call $import` to an import with a
+      MEMORY-class return LEAs the buffer into arg0 (`op_call.zig` emitCall,
       unconditional on callee kind) and `emitImportDispatch` then overwrites
-      arg0 with `rt`, so the buffer pointer is lost and `captureCallResult`
-      reads a region nothing wrote. Not reachable for embedder host funcs —
-      `jit_host_bridge.zig` returns null for `results.len != 1`, so those fall
-      back to interp — leaving a cross-module wasm import with 3+ results. The
-      table-mirror guard does not cover this path; it is untouched.
+      arg0 with `rt`, losing the buffer pointer. A first attempt guarded only
+      the elem-segment mirror write and left `table.set` / `table.grow` /
+      `applyTableInitForTable`'s `global.get` form — and this direct path —
+      open. (3) moves the guard to the single origin instead: the D-225 loop
+      does not plant a bridge thunk for a MEMORY-class import, so `dispatch[j]`
+      keeps its pre-seeded `hostDispatchTrap` and every consumer of
+      `fe.funcptr` traps. Guard the origin, not the writers. (h) That origin
+      guard is UNVERIFIED. Reaching it needs a cross-module wasm import with
+      3+ results placed in a table, which `runVoidExportWasi` cannot build (one
+      module, no registry) and the vendored 3.0 corpus does not contain — the
+      lane reported an identical `pass=10853 fail=1 skip=435` with no guard,
+      with the first elem-only guard, and with this one, so no existing test
+      distinguishes them. Closing it means a cross-module fixture on the spec
+      runner side.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-15"
     refs: |-
