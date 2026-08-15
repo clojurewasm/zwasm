@@ -19,7 +19,7 @@ entries:
       `addRunArtifact` steps in build.zig is in that shape: 0 `captureStdOut`,
       0 `captureStdErr`, 0 `addOutputDirectoryArg` (the 2 `addOutputFileArg`
       are on `addSystemCommand` generators). So the spec lanes always re-ran,
-      and the 20 existing `has_side_effects = true` lines are no-ops.
+      and the 19 pre-existing `has_side_effects = true` lines are no-ops.
       Confirmed by behaviour, not only by reading: `zig build test-spec` twice
       unchanged ran both times, and adding one corpus file (no exe delta)
       printed `PASS zz_probe.wasm` and moved the count 3 -> 4.
@@ -43,7 +43,7 @@ entries:
       with `exited with code 0 (expected exited with code 1)`).
       NOT a CI hole either way - CI checks out fresh, so the cache is cold.
       The exposure was local gates (`test-all`, gate_commit, gate_merge).
-      The 20 no-op `has_side_effects = true` lines are KEPT, now labelled
+      The 19 no-op `has_side_effects = true` lines are KEPT, now labelled
       redundant-but-intentional in their comments (run_edge_*, run_realworld,
       run_fuzz, run_latency). Deleting them is safe today but would remove the
       stated intent, and `run_latency` shows why that intent matters: add one
@@ -51,10 +51,14 @@ entries:
       blocks that asserted the wrong mechanism - written when cyc216 landed -
       are corrected in the same commit; leaving them would have contradicted
       the lesson this row also corrects.
+      Status stays `note` and this row is deliberately NOT discharged: those
+      four comments and the corrected lesson all cite D-592 for the mechanism,
+      so delete-on-discharge would leave the citations dangling while the ID
+      stays unreusable. Nothing here is actionable, which is what `note` says.
     first_raised: "2026-08-15"
     last_reviewed: "2026-08-15"
     refs: |-
-      build.zig (run_oob_trap - the fix; the 20 no-op has_side_effects sites);
+      build.zig (run_oob_trap - the fix; the 19 no-op has_side_effects sites);
       std/Build/Step/Run.zig:221,707-715,926 (zig 0.16.0, the mechanism);
       .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md
       (corrected in the same commit - its diagnosis was wrong when written);

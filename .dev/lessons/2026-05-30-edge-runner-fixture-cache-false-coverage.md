@@ -16,7 +16,7 @@ false — an output arg, or an `addCheck` caller (`expectExitCode`,
 `.infer_from_args` is already side-effecting. D-592 has the line references.
 
 `run_edge_*` and `run_realworld*` met (1) but not (2), so cyc216's and cyc223's
-`has_side_effects = true` changed nothing — as do the other 20 such sites.
+`has_side_effects = true` changed nothing — as do the other 19 such sites.
 `main@057a3f7ea` ran **the same zig 0.16.0** with one `expectExitCode` in the
 whole file, none on those steps: zig did not change, the diagnosis was wrong
 when written. cyc215's real cause is unidentified — the stale-exe gotcha below
@@ -46,4 +46,4 @@ step; confirm a fix by breaking the fixture and watching the step fail.
 ## Related
 
 - `.claude/rules/test_discipline.md`; `build.zig` `run_oob_trap`; cyc215 cross
-  fixtures (`test/edge_cases/p10/cross/`); D-592 (retraction + the 20 no-ops).
+  fixtures (`test/edge_cases/p10/cross/`); D-592 (retraction + the 19 no-ops).
