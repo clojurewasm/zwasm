@@ -1,16 +1,27 @@
-# test/realworld — three runners over the toolchain corpus
+# test/realworld — four runners over the toolchain corpus
 
 `test/realworld/wasm/` holds 50+ pre-compiled `.wasm` fixtures
 emitted by C / C++ / Rust / TinyGo / Go / emcc / Zig toolchains. The
 `emcc_` prefix marks emscripten-emitted modules (`-sSTANDALONE_WASM` → WASI;
-the embenchen benchmark reproduction), distinct from bare-clang `c_`. Three
+the embenchen benchmark reproduction), distinct from bare-clang `c_`. Four
 runners exercise the corpus from different angles:
 
-| Runner            | Step                              | Verifies                                                                  |
-|-------------------|-----------------------------------|---------------------------------------------------------------------------|
-| `runner.zig`      | `zig build test-realworld`        | parse + validate + lower (no execute)                                     |
-| `run_runner.zig`  | `zig build test-realworld-run`    | parse + execute via `cli_run.runWasm`; reports exit code per fixture      |
-| `diff_runner.zig` | `zig build test-realworld-diff`   | wasmtime stdout vs `cli_run.runWasmCaptured` byte compare; gate at 30+    |
+| Runner                | Step                                | Verifies                                                                  |
+|-----------------------|-------------------------------------|---------------------------------------------------------------------------|
+| `runner.zig`          | `zig build test-realworld`          | parse + validate + lower (no execute)                                     |
+| `run_runner.zig`      | `zig build test-realworld-run`      | parse + execute via `cli_run.runWasm`; reports exit code per fixture      |
+| `diff_runner.zig`     | `zig build test-realworld-diff`     | wasmtime stdout vs `cli_run.runWasmCaptured` (interp) byte compare; gate at 30+ |
+| `diff_runner.zig --jit` | `zig build test-realworld-diff-jit` | the above PLUS wasmtime vs `--engine jit` byte compare; gates on mismatch, on a skip, and on any fixture the lane failed to account for |
+| `run_runner_jit.zig`  | `zig build test-realworld-run-jit`  | JIT **compilation** of every fixture (`compileWasm`) — no execution        |
+
+`test-all` depends on `test-realworld-diff-jit`, not on `test-realworld-diff`:
+it is the same runner and the same interp lane plus the JIT lane, so one
+dependency covers both engines without running the interp lane twice.
+
+**Which runner answers "does the JIT compute the right answer?"** — only
+`diff_runner.zig --jit`. `run_runner_jit.zig` answers "did the backend encode
+every fixture", which is a different question; a green compile baseline says
+nothing about the emitted code being correct.
 
 ## Argv convention
 

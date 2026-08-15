@@ -27,9 +27,19 @@
 //!                 0 with a "no diffs run on this host" notice.
 //!                 Hosts with wasmtime installed see the real gate.
 //!
+//! The `--jit` lane (D-283) re-runs the same corpus through the
+//! WASI-aware `--engine jit` path and byte-diffs against the same
+//! wasmtime reference — the realworld JIT-correctness net. It is
+//! the lane `test-all` runs, and it gates on all three ways the
+//! JIT can fail to answer for a fixture: MISMATCH-JIT, SKIP-JIT-*,
+//! and a fixture that never reached the lane (see the gate at the
+//! bottom of `main`). Counting only mismatches would let a lane
+//! that verified nothing report success.
+//!
 //! Usage:
-//!   zig build test-realworld-diff      # walks test/realworld/wasm/
-//!   diff_runner_exe <corpus-dir>
+//!   zig build test-realworld-diff      # interp lane only
+//!   zig build test-realworld-diff-jit  # + the gating JIT lane (test-all)
+//!   diff_runner_exe <corpus-dir> [--jit|--aot|--wasmer]
 
 const std = @import("std");
 
@@ -76,16 +86,17 @@ pub fn main(init: std.process.Init) !void {
     const corpus_dir = try gpa.dupe(u8, corpus_dir_arg);
     defer gpa.free(corpus_dir);
 
-    // Opt-in lanes, parsed from any remaining args in any order (both OFF by
-    // default — each is a dedicated diagnostic target, not the always-run gate):
+    // Extra lanes, parsed from any remaining args in any order (all OFF by
+    // default; `--jit` is the one `test-all` turns on):
     //   --aot     in-process AOT-WASI vs wasmtime (D-283 widen / D-251 validate).
+    //             REPORT-ONLY diagnostic target.
     //   --wasmer  wasmer as a 2nd reference oracle vs wasmtime (§9.6 A3). The
     //             value: a wasmtime/wasmer disagreement is the divergence a
-    //             single-reference gate can't see.
+    //             single-reference gate can't see. REPORT-ONLY.
     //   --jit     run via the WASI-aware `--engine jit` path (`runWasmJitCaptured`)
-    //             + byte-diff vs wasmtime (D-283). The real JIT-correctness net —
-    //             the bare `run_runner_jit` run-stage executes with NO WASI host so
-    //             every fd_write/proc_exit "traps"; this lane measures actual output.
+    //             + byte-diff vs wasmtime (D-283). The realworld JIT-correctness
+    //             net, and the only realworld gate that executes JIT-emitted code
+    //             against a reference — GATING, wired into `test-all`.
     var aot_lane = false;
     var wasmer_lane = false;
     var jit_lane = false;
@@ -159,11 +170,21 @@ pub fn main(init: std.process.Init) !void {
     var wasmer_disagree: u32 = 0;
     var wasmer_skipped: u32 = 0;
 
-    // JIT lane (D-283, opt-in). Runs each fixture via the WASI-aware JIT path and
+    // JIT lane (D-283). Runs each fixture via the WASI-aware JIT path and
     // byte-diffs stdout vs wasmtime — the real `--engine jit` correctness signal.
     var jit_matched: u32 = 0;
     var jit_mismatched: u32 = 0;
     var jit_skipped: u32 = 0;
+    var jit_skipped_empty: u32 = 0;
+    // Denominator for the JIT lane: fixtures for which the ORACLE produced a
+    // result, i.e. every fixture the lane owes a verdict on. Incremented as soon
+    // as wasmtime completes, BEFORE the interp run — the interp's own
+    // `continue`s sit between that point and the lane below, so counting at the
+    // lane itself would let a fixture leave the corpus without any lane
+    // accounting for it. `jit_matched + jit_mismatched + jit_skipped +
+    // jit_skipped_empty` MUST equal this; the gate fails on a shortfall.
+    // wasmtime-less hosts leave it at 0, so the invariant stays portable.
+    var jit_eligible: u32 = 0;
 
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
@@ -215,6 +236,8 @@ pub fn main(init: std.process.Init) !void {
         defer gpa.free(wt_result.stdout);
         defer gpa.free(wt_result.stderr);
         const wt_stdout = wt_result.stdout;
+        // The oracle answered for this fixture — the JIT lane now owes a verdict.
+        if (jit_lane) jit_eligible += 1;
 
         var v2_stdout: std.ArrayList(u8) = .empty;
         // capture_alloc contract (2d99e5a2): runWasmCaptured* grows the
@@ -289,6 +312,7 @@ pub fn main(init: std.process.Init) !void {
                 .match => jit_matched += 1,
                 .mismatch => jit_mismatched += 1,
                 .skip => jit_skipped += 1,
+                .skip_empty => jit_skipped_empty += 1,
             }
             try stdout.flush();
         }
@@ -337,8 +361,9 @@ pub fn main(init: std.process.Init) !void {
     }
     if (jit_lane) {
         try stdout.print(
-            "diff_runner [jit]: {d}/{d} matched vs wasmtime, {d} mismatched, {d} skipped (JIT-unsupported / trap) — GATING (fatal on mismatch)\n",
-            .{ jit_matched, total, jit_mismatched, jit_skipped },
+            "diff_runner [jit]: {d}/{d} matched vs wasmtime, {d} mismatched, {d} skipped (JIT-unsupported / trap), " ++
+                "{d} skipped-empty, {d} unaccounted — GATING (fatal on mismatch, skip, or shortfall)\n",
+            .{ jit_matched, jit_eligible, jit_mismatched, jit_skipped, jit_skipped_empty, jit_eligible -| (jit_matched + jit_mismatched + jit_skipped + jit_skipped_empty) },
         );
     }
     // Flush the summary unconditionally: the green path (no mismatch, matched
@@ -348,14 +373,52 @@ pub fn main(init: std.process.Init) !void {
     try stdout.flush();
 
     if (mismatched != 0) std.process.exit(1);
-    // D-283 discharge (2026-06-20): the JIT-vs-wasmtime lane is now a REAL gate
-    // (was REPORT-ONLY). The realworld corpus reached 56/56 matched under
-    // `--engine jit` once the (A) 2 miscompiles (c_sha256/emcc_fasta, D-330) and
-    // (B) 9 go_* hangs (proc_exit JIT termination, D-468/ADR-0199) cleared. A
-    // single JIT-vs-wasmtime byte mismatch now fails the gate. Safe on
-    // wasmtime-less hosts: jit_mismatched stays 0 (all SKIP) so it can't fire
-    // falsely — the interp gate's `matched >= 30` confirms wasmtime actually ran.
-    if (jit_lane and jit_mismatched != 0) std.process.exit(1);
+    // D-283 discharge (2026-06-20): the JIT-vs-wasmtime lane is a REAL gate (was
+    // REPORT-ONLY). The realworld corpus reached 56/56 matched under `--engine
+    // jit` once the (A) 2 miscompiles (c_sha256/emcc_fasta, D-330) and (B) 9 go_*
+    // hangs (proc_exit JIT termination, D-468/ADR-0199) cleared.
+    //
+    // The lane must account for its own denominator (ADR-0210's rule, applied
+    // here): "no mismatch" alone is satisfied by a lane that verified NOTHING,
+    // because every way the JIT can fail to produce output — a compile error, a
+    // trap, a fixture dropped before the lane by an earlier `continue` — lands
+    // outside `jit_mismatched`. So all three arms gate:
+    //
+    //   mismatch    a fixture's JIT stdout differs from wasmtime's
+    //   skip        the JIT could not complete a fixture the oracle ran
+    //   shortfall   a fixture the oracle ran never reached the lane at all
+    //
+    // Safe on wasmtime-less hosts: `jit_eligible` stays 0 there, so every arm is
+    // vacuous and the lane cannot fire falsely.
+    if (jit_lane) {
+        const accounted = jit_matched + jit_mismatched + jit_skipped + jit_skipped_empty;
+        if (jit_mismatched != 0) {
+            try stdout.print("error: JIT lane byte-mismatched vs wasmtime on {d} fixture(s)\n", .{jit_mismatched});
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        if (jit_skipped != 0) {
+            try stdout.print(
+                "error: JIT lane could not complete {d} of {d} fixture(s) wasmtime ran; a skip is an " ++
+                    "unverified fixture, not a pass (fix the JIT gap or shrink the corpus deliberately)\n",
+                .{ jit_skipped, jit_eligible },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        if (accounted != jit_eligible) {
+            try stdout.print(
+                "error: JIT lane accounted for {d} of {d} fixture(s) wasmtime ran — {d} left the corpus " ++
+                    "without a JIT verdict (an earlier lane's `continue` dropped them)\n",
+                // Saturating: `accounted > jit_eligible` is unreachable (the lane
+                // runs at most once per eligible fixture), but a gate that panics
+                // on an impossible state is worse than one that still reports.
+                .{ accounted, jit_eligible, jit_eligible -| accounted },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+    }
     // wasmtime resolved via `which` but every spawn failed (e.g. on
     // windowsmini, where `which wasmtime` finds a stub that doesn't
     // actually execute). Treat as SKIP-WASMTIME-MISSING so the gate
@@ -503,16 +566,20 @@ fn wasmerCompare(
     return .disagree;
 }
 
-/// Outcome of the JIT lane for one fixture — mirrors `AotOutcome`.
-const JitOutcome = enum { match, mismatch, skip };
+/// Outcome of the JIT lane for one fixture — mirrors `AotOutcome`, plus
+/// `skip_empty` so an empty-vs-empty pair is not counted as coverage (the
+/// interp lane's SKIP-EMPTY, mirrored: comparing "" to "" verifies nothing).
+const JitOutcome = enum { match, mismatch, skip, skip_empty };
 
 /// Run `bytes` through the WASI-aware JIT path (`cli_run.runWasmJitCaptured` =
 /// the real `--engine jit`, with a stdout-capture buffer) and byte-compare vs
-/// `wt_stdout`. This is the realworld JIT-correctness net (D-283): the bare
-/// `run_runner_jit` run-stage executes with NO WASI host, so every fixture
-/// hitting `fd_write`/`proc_exit` mid-run "traps" — a false signal. Skip
-/// semantics mirror the interp/AOT lanes: a JIT non-zero exit where wasmtime
-/// exited 0 = the JIT could not complete (skip, not an output regression).
+/// `wt_stdout`. This is the realworld JIT-correctness net (D-283) — the WASI
+/// host is what makes it one: its predecessor invoked `_start` with a null host
+/// and so reported a trap for every fixture that reached `fd_write`/`proc_exit`.
+/// Skip semantics mirror the interp/AOT lanes: a JIT non-zero exit where
+/// wasmtime exited 0 = the JIT could not complete. Unlike those lanes a skip is
+/// NOT tolerated — the caller's gate fails on it, because a fixture the JIT
+/// could not run is an unverified fixture.
 fn jitCompare(
     gpa: std.mem.Allocator,
     io: std.Io,
@@ -537,6 +604,10 @@ fn jitCompare(
     if (jit_exit != 0 and wt_exit == 0) {
         try out.print("  SKIP-JIT-TRAP  {s} (jit exit={d}, wasmtime exit=0 — JIT could not complete)\n", .{ name, jit_exit });
         return .skip;
+    }
+    if (wt_stdout.len == 0 and jit_stdout.items.len == 0) {
+        try out.print("  SKIP-JIT-EMPTY  {s}\n", .{name});
+        return .skip_empty;
     }
     if (std.mem.eql(u8, wt_stdout, jit_stdout.items)) return .match;
     try out.print("  MISMATCH-JIT  {s} (wasmtime={d} bytes, jit={d} bytes)\n", .{ name, wt_stdout.len, jit_stdout.items.len });

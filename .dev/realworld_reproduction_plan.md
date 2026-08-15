@@ -79,6 +79,15 @@ Order = autonomous-Mac-side first, then user-assisted host installs.
   for the runnable set + the corpus runs JIT-clean (matching interp). Plus whatever new
   traps Phase A's diverse fixtures surface.
 
+  > **B1 SUPERSEDED (2026-08-16).** Both halves of the premise are gone. The trap
+  > list was a harness artifact — `ZWASM_JIT_RUN` ran `_start` with a null WASI
+  > host, so any fixture touching `fd_write`/`proc_exit` trapped regardless of the
+  > JIT (`.dev/lessons/2026-06-14-jit-realworld-runtraps-are-null-wasi-harness-artifacts.md`).
+  > The exit condition named `ZWASM_JIT_RUN=1`, which no longer exists: the run
+  > stage was removed and `diff_runner.zig --jit` replaced it. The real exit
+  > condition was met — realworld 56/56 byte-match wasmtime under `--engine jit`,
+  > gating in `test-all` via `test-realworld-diff-jit`.
+
 ## First action on resume
 
 Phase A1: `nix develop .#gen` → confirm the gen pipeline, add an AssemblyScript hello +

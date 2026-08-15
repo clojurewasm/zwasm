@@ -86,7 +86,10 @@ All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
   harness) — nothing gated that until now. **0.2/CM** default-ON; **0.3 FULL
   on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
-  into cljw. Realworld 56 interp 56/0; JIT diff-gated.
+  into cljw. Realworld 56: interp 56/0 AND jit 56/0 vs wasmtime, both in
+  `test-all` (`test-realworld-diff-jit`). Until 2026-08-16 the JIT lane was
+  gating in the runner but wired into nothing — "JIT diff-gated" named a lane
+  no gate ran (D-283).
 
 ## Key refs
 

@@ -105,8 +105,9 @@ pub fn runWasmJit(
 /// Like `runWasmJit` but routes guest stdout (`fd_write` on fd 1) into
 /// `stdout_capture` when non-null. `null` → real process stdout (the CLI
 /// path). The realworld `--jit` differential lane (D-283) passes a buffer to
-/// byte-diff `--engine jit` output vs wasmtime — the real JIT-correctness net,
-/// since the bare `run_runner_jit` run-stage executes with no WASI host.
+/// byte-diff `--engine jit` output vs wasmtime — the realworld JIT-correctness
+/// net, and the only realworld gate that checks what JIT-emitted code computes
+/// rather than that it compiled.
 pub fn runWasmJitCaptured(
     alloc: std.mem.Allocator,
     io: std.Io,
