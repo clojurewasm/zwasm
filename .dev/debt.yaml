@@ -9,8 +9,8 @@ entries:
     description: |-
       **The wasm-3.0 JIT lane's single `assert_return` fail is a real defect in
       the multi-value entry path, not an accounting artifact.** ADR-0210 closed
-      the runner's accounting; the remaining `fail=1` survives that and is
-      recorded, NOT chased. Located 2026-08-15: `gc/type-subtyping`, module
+      the runner's accounting; the remaining `fail=1` survives that. What to do
+      about it is open (see PROVISIONAL below). Located 2026-08-15: `gc/type-subtyping`, module
       `type-subtyping.24.wasm`, `assert_return run () -> i32:1 i32:1`, reported
       as `err=Trap`. Driving the same module and export through the CLI:
         --engine interp  -> 1 1        (correct)
@@ -23,17 +23,34 @@ entries:
       as expected: `type-subtyping.25/.26` (4 and 8 results) reject with
       `UnsupportedEntrySignature` and are classified as skips, and interp
       returns all 4 / all 8 correctly.
-      DECISION (owner, 2026-08-15): do not fix, do not chase. The wasm-3.0 JIT
-      lane goes to CI as a gate WITH this one accepted fail; it will not be
-      "fully green". Discharge condition: the multi-value entry path is
-      reworked for another reason, or a second fixture reaches the same trap.
+      PROVISIONAL - the disposition is NOT settled, and this row does not
+      settle it. The candidate is "leave it unfixed and gate the wasm-3.0 JIT
+      lane WITH one accepted fail", but that is one option, not a decision.
+      It conflicts with ADR-0153, which holds that a measured violation of a
+      完成形 dimension "schedules a rework" (:22) and "defaults to 'schedule a
+      rework campaign,' not 'defer past ...'" (:38-39) - and 100% spec is one
+      of those dimensions. `status: note` (record only, do not chase) is in
+      the same tension and is itself provisional; `now` would pre-empt the
+      question in the other direction, so neither is asserted here.
+      Both the disposition and the status are decided at #12, when the JIT
+      lane's CI gating is designed, with maintainer confirmation. Whoever
+      designs it: the choice reaches README line 48, which claims "100% |
+      spec testsuite green on the 3-OS CI matrix" WITHOUT naming an engine.
+      CI sets ZWASM_SPEC_ENGINE nowhere (0 sites in ci_gate.sh / ci.yml), so
+      today only the default engine is gated and it is fail=0 - the sentence
+      holds. Gating the JIT lane with an accepted fail puts a knowingly-red
+      lane inside that same CI matrix, so it requires a paired README change;
+      leaving the lane ungated does not.
+      Discharge condition: the multi-value entry path is reworked for another
+      reason, or a second fixture reaches the same trap.
     first_raised: "2026-08-15"
     last_reviewed: "2026-08-15"
     refs: |-
       src/engine/runner.zig (invokeMulti, ~line 1498);
       src/engine/codegen/shared/entry_buffer_write.zig (invokeMultiResultNoArgs);
       test/spec/wasm-3.0-assert/gc/type-subtyping/manifest.txt (the `run () -> i32:1 i32:1` line);
-      .dev/decisions/0210_spec_runner_enumeration_accounting.md; ADR-0106; ADR-0128
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md; ADR-0106; ADR-0128;
+      ADR-0153 (the measured-deficiency-schedules-a-rework rule this is provisional against)
   - id: "D-591"
     layer: "test"
     status: "note"

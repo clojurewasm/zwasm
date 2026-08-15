@@ -134,14 +134,19 @@ accounting close did not silently promote the opt-in lane into a gate.
 **The accounting is correct and the remaining `fail=1` is real.** It is not
 an artifact of how directives were counted — the identity closes with it
 present. It is a genuine defect in the multi-value entry path
-(`invokeMulti`, `src/engine/runner.zig`), recorded as **D-590** and
-deliberately not fixed or chased here: the same module and export return
+(`invokeMulti`, `src/engine/runner.zig`): the same module and export return
 `1 1` correctly through the CLI on both engines, so the codegen for this
 shape is right and only the persistent-instance route traps. Whether the
 defect is in `invokeMulti` itself or in the runner's use of it was not
-isolated, and is not claimed either way. The wasm-3.0 JIT lane is
-therefore expected to reach CI as a gate **with one accepted fail**, not
-as a fully-green lane.
+isolated, and is not claimed either way.
+
+Its disposition is **out of scope for this ADR and unsettled** — recorded
+as **D-590**, decided at #12 when the JIT lane's CI gating is designed.
+Leaving it unfixed and gating the lane with one accepted fail is one
+candidate; it conflicts with ADR-0153 (a measured violation of a 完成形
+dimension "schedules a rework"), and 100% spec is one of those dimensions.
+Nothing here depends on how that resolves: this ADR's subject is whether
+the numbers can be checked, and they can be with the fail present.
 
 No number changed by this ADR is cited anywhere in the repository
 (verified by grep over `*.md`, `*.yaml`, `*.sh`, `*.zig`, and PR #186's
