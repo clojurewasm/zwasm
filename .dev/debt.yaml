@@ -34,6 +34,14 @@ entries:
       question in the other direction, so neither is asserted here.
       Both the disposition and the status are decided at #12, when the JIT
       lane's CI gating is designed, with maintainer confirmation. Whoever
+      designs it must also resolve a PRE-EXISTING asymmetry in what the jit
+      lane already gates (not introduced by ADR-0210, verified against
+      8f24e0aee): `gated_ret_fail` zeroes `ret.fail` in jit mode so the lane
+      stays report-only, but `grand.trap.fail` is summed unconditionally and
+      the `assert_trap` arm evaluates `cur_jit` in jit mode. So a JIT-only
+      TRAP regression already exits non-zero today while a JIT-only RETURN
+      regression does not. "The JIT lane is report-only" is true of the
+      return category only. Whoever
       designs it: the choice reaches README line 48, which claims "100% |
       spec testsuite green on the 3-OS CI matrix" WITHOUT naming an engine.
       CI sets ZWASM_SPEC_ENGINE nowhere (0 sites in ci_gate.sh / ci.yml), so
@@ -72,10 +80,22 @@ entries:
         test-spec-wasm-2.0         1158 /  1158 /    0
       so nothing is hidden right now - but the check is a human's, not the
       runner's, which is the property ADR-0210 exists to remove.
-      Deliberately NOT bundled into ADR-0210's PR: naming the non-assertion
-      directives per category inside a 4196-line shared base that three
-      currently-green lanes sit on is a comparable-sized change to the one that
-      PR already makes.
+      SEVERITY, stated plainly because the deferral could be misread as one:
+      this was deferred on COST and RISK, not because the severity is low.
+      Re-modelling the categories inside a 4196-line shared base that three
+      currently-green lanes sit on is a change comparable in size to the one
+      ADR-0210's PR already makes, and it would put those three at risk. The
+      severity itself is NOT low - these lanes are FAIL-OPEN by construction:
+      with no identity, a silent-drop path of the same shape as the 73
+      unattributed `assert_return` directives ADR-0210 found in the wasm-3.0
+      runner could exist here and nothing would detect it.
+      And the reconciliation above is EVIDENCE OF CONSISTENCY, not proof of
+      absence. It shows the printed residuals match a hand count of the
+      non-assertion directives; it does not show that no directive is being
+      dropped. The one mitigation that IS proven (all five turn red on an
+      unreadable manifest, below) catches a WHOLESALE loss - a sub-corpus that
+      never opens. It does nothing for a partial silent drop inside a manifest
+      that reads fine, which is exactly what the wasm-3.0 defect was.
       NOT a gap in these lanes: the unreadable-sub-corpus hazard that ADR-0210
       had to gate outside the identity for wasm-3.0. Checked 2026-08-15 rather
       than assumed - all five already turn RED on it, via `failed` rather than

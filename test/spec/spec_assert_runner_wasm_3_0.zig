@@ -1768,8 +1768,12 @@ pub fn main(init: std.process.Init) !void {
     // pass=0" anomaly fully: the CRLF fix restored real windows coverage, but the
     // runner still always-exit-0'd, so a future real wasm-3.0 fail wouldn't turn
     // test-all red). 0 fails on all 3 hosts today (verified), so this gates clean.
-    // JIT-path fails (jit_return.fail) are NOT gated — that's the opt-in JIT run
-    // stage with known eligibility-skips (handover JIT long-tail), reported only.
+    // JIT-path RETURN fails (jit_return.fail) are NOT gated — that's the opt-in
+    // JIT run stage with known eligibility-skips (handover JIT long-tail),
+    // reported only. Read that narrowly: `trap.fail` below IS summed
+    // unconditionally, and in jit mode the assert_trap arm evaluates `cur_jit`,
+    // so a JIT-only trap regression already exits non-zero. That asymmetry
+    // predates this file's accounting rework; D-590 hands it to #12.
     // In jit mode `ret.fail` mirrors the JIT verdict, which ADR-0128 keeps
     // report-only — gating it here would silently promote the opt-in JIT
     // lane into a merge gate. That promotion is a deliberate decision for
