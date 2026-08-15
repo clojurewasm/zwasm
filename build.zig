@@ -1387,6 +1387,11 @@ pub fn build(b: *std.Build) void {
     // behavioural test of the production elision path is false coverage on any
     // warm cache (local `test-all`, gate_commit, gate_merge; CI checks out
     // fresh, so it is cold there). See D-592.
+    // Alternative not taken: `addFileArg(b.path(…))` would track the fixture
+    // and keep caching correct rather than defeating it, and would make the
+    // implicit repo-root cwd explicit. Rejected for now only because the
+    // always-run form matches every other runner here and the step costs
+    // ~24ms; revisit if unconditional CLI re-runs become noticeable.
     run_oob_trap.has_side_effects = true;
     const test_oob_trap_step = b.step("test-oob-elision", "Verify guard-page bounds elision traps oob (ADR-0202 D4/D5 / D-507)");
     test_oob_trap_step.dependOn(&run_oob_trap.step);
