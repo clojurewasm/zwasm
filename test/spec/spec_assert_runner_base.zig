@@ -140,6 +140,16 @@ pub const AssertTally = struct {
     /// outside. Printing it does not by itself say which is which; it
     /// says how much is unexplained, which is the prerequisite for
     /// explaining it.
+    ///
+    /// NOT a clean count of non-assertion directives: `accounted()`
+    /// includes `runtime_skip`, and `runCorpus` raises that on
+    /// non-assertion lines too (`SKIP-CROSS-MODULE-IMPORTS` fires while
+    /// handling a `module` directive). Such a line is both a
+    /// non-assertion directive and "accounted", so it drops out of
+    /// `residual`. That is why the simd lane reconciles as
+    /// `482 module - 2 runtime-skips = 480` rather than a round 482 —
+    /// anyone doing the hand reconciliation needs to know it. Making
+    /// these lanes report a real identity instead is D-591.
     pub fn residual(self: AssertTally) u32 {
         const acc = self.accounted();
         return if (self.lines > acc) self.lines - acc else 0;

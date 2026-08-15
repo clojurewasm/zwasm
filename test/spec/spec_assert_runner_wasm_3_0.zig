@@ -498,7 +498,10 @@ pub fn main(init: std.process.Init) !void {
         // open one is the ADR-0174 path-resolution class, exactly like the
         // corpus root above.
         var pdir = dir.openDir(io, proposal, .{ .iterate = true }) catch |err| {
-            summary.manifest_errors += 1;
+            // Straight onto `grand`: this `continue` skips the accumulation
+            // at the end of the loop, so an increment on `summary` would be
+            // discarded — and would silently become a double count the day
+            // someone moves the accumulation earlier.
             grand.manifest_errors += 1;
             try stdout.print("PROPOSAL-DIR-FAIL  {s}: {s} — a committed sub-corpus that cannot be opened is a real error, not 0 manifests\n", .{ proposal, @errorName(err) });
             continue;

@@ -113,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
     );
     // ADR-0210 — enumeration denominator alongside the verdict columns.
     try stdout.print(
-        "simd_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice)\n",
+        "simd_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives that reached no column - note a runtime-skip raised on a non-assertion line counts as accounted, so this is not a round count of them; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice)\n",
         .{ tally.lines, tally.accounted(), tally.residual(), tally.overcounted() },
     );
     try stdout.flush();

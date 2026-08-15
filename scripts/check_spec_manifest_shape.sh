@@ -55,9 +55,17 @@ for corpus in "${CORPORA[@]}"; do
     # A final line without a trailing newline makes `wc -l` undercount.
     n_noeol=0
     if [ -s "$m" ] && [ "$(tail -c 1 "$m" | wc -l)" -eq 0 ]; then n_noeol=1; fi
+    # A manifest with no directives at all. Not caught by any check above
+    # (the `-s` guard skips the newline test and `wc -l` adds 0), and not
+    # caught by the runner either: it reads fine, contributes zero lines,
+    # and the identity still closes. It nevertheless increments
+    # `manifests=`, so the runner would report a sub-corpus that tests
+    # nothing as one of its 86 — a denominator backed by no directives.
+    n_empty=0
+    if [ "$(wc -l < "$m")" -eq 0 ]; then n_empty=1; fi
 
-    if [ "$n_blank" -ne 0 ] || [ "$n_comment" -ne 0 ] || [ "$n_indent" -ne 0 ] || [ "$n_noeol" -ne 0 ]; then
-      echo "SHAPE    $m  blank=$n_blank comment=$n_comment indented=$n_indent missing-final-newline=$n_noeol"
+    if [ "$n_blank" -ne 0 ] || [ "$n_comment" -ne 0 ] || [ "$n_indent" -ne 0 ] || [ "$n_noeol" -ne 0 ] || [ "$n_empty" -ne 0 ]; then
+      echo "SHAPE    $m  blank=$n_blank comment=$n_comment indented=$n_indent missing-final-newline=$n_noeol empty=$n_empty"
       violations=$((violations + 1))
     fi
     total_lines=$((total_lines + $(wc -l < "$m")))
