@@ -3,6 +3,46 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-592"
+    layer: "test"
+    status: "note"
+    description: |-
+      **No spec lane sets `has_side_effects`, so a corpus-only change gets a
+      cached run and no fresh verdict.** This is the exact class lesson
+      `2026-05-30-edge-runner-fixture-cache-false-coverage` named and cyc216
+      fixed for the edge-case + realworld runners: the corpus dir reaches the
+      runner as a plain `addArg` string, which zig does NOT track as a build
+      input, so the run-artifact is cached on the EXE hash and skipped when
+      only fixture/manifest files change. Measured 2026-08-15: `build.zig` has
+      **19** `has_side_effects = true` sites - every edge-case, realworld,
+      fuzz, AOT-diff and latency runner - and **zero** on
+      any spec lane: test-spec, test-spec-assert, test-spec-simd,
+      test-spec-wasm-2.0-assert, test-spec-threads-assert, test-spec-wasm-2.0,
+      test-spec-wasm-3.0-assert. The sweep that fixed the others missed the
+      conformance corpora, which are the ones the published numbers come from.
+      Consequence, and why ADR-0210 cares: the enumeration denominator that ADR
+      prints is only a faithful record of a run that actually happened. Edit a
+      manifest, re-run `zig build test-spec-wasm-3.0-assert`, and zig may serve
+      the previous result - the reader sees `ACCOUNTING: CLOSED` for a corpus
+      that is no longer the one on disk. Observed during ADR-0210's work: the
+      smoke run step repeatedly did not re-execute across invocations.
+      NOT a CI hole: CI checks out fresh, so the cache is cold and every lane
+      runs. The exposure is local - a pre-PR gate run, or a regen sweep that
+      touches only corpus files.
+      NOT a one-liner, which is why it is recorded rather than fixed inside
+      ADR-0210's PR: the spec lanes are the EXPENSIVE ones (26k+ directives on
+      simd and wasm-2.0-assert), and `has_side_effects = true` forces them to
+      re-run on every `zig build test-all` regardless of what changed. Flipping
+      all seven trades local wall-clock for cache correctness and needs a
+      measured decision, not a sweep. A narrower option is to flip only the
+      lanes whose corpora actually change (the regen-driven ones).
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      build.zig (the seven test-spec* run steps; contrast run_edge_*/run_realworld
+      which set has_side_effects with the rationale inline);
+      .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md;
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
   - id: "D-590"
     layer: "code"
     status: "note"
