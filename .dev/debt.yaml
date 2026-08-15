@@ -7,47 +7,52 @@ entries:
     layer: "code"
     status: "now"
     description: |-
-      **JIT call_indirect cannot CALL an imported function in a table; it now
-      traps where it used to kill the process.** `setup.zig` leaves the import's
-      `funcptrs[i]` null on purpose — no `host_dispatch_base` trampoline is
-      emitted, and a refusal beats running arbitrary host code. Until 2026-08-14
-      the refusal was a NULL deref: the inline path executed the null and zwasm
-      died with SIGSEGV, its own handler reporting "a bug in zwasm (not a wasm
-      trap)". The interim fix (this row's first half, landed with this entry)
-      emits a null-funcptr test at the eight inline sites — call_indirect
-      and return_call_indirect, single- and multi-table on each arch —
-      mirroring the test the subtyping path already had; the tail-call four
-      surfaced only when review re-derived the funcptr-load site list, and a
-      hand-built repro crashed identically through them. Measured on the
-      vendored 3.0 corpus, which the crash previously
-      blacked out entirely: memory64 now reports JIT pass=10023 fail=276
-      skip=16, and 273 of the 276 (table_copy 228 + table_init 45, all
-      err=Trap in check* functions over imported ef0-ef4) are exactly this
-      residual. The spec requires the CALL to succeed; the interpreter already
-      does (3.0 corpus, 0 fail).
-      REMAINING: (a) the trap kind — the interim sites report code 3 to match
-      arm64's subtyping path, but x86_64's subtyping path routes the same
-      condition to the GENERIC bounds stub, so the arches already disagree and
-      the element is not null-in-the-wasm-sense either; D-293/D-294 own this
-      taxonomy and the choice should be theirs. (b) the real fix — emit the
-      host-dispatch trampoline so imported functions in tables are callable.
-      (c) class guard, optional: the null test exists only where someone
-      remembered to emit it — the return_call_indirect mirrors surfaced only
-      when review re-derived the funcptr-load site list. An emit-shape sweep
-      asserting every table-funcptr load is followed by a zero test (or a
-      baked site count, dispatch_consistency_audit-style) would close the
-      class mechanically; likely overkill once all eight sites carry it, so
-      recorded here rather than built.
+      **An imported function in a table was unreachable from the JIT and, until
+      2026-08-14, killed the process.** `setup.zig` left the import's
+      `funcptrs[i]` null on purpose — the JIT emits no host-dispatch trampoline
+      of its own — and the inline path executed that null: SIGSEGV, with zwasm's
+      own handler reporting "a bug in zwasm (not a wasm trap)".
+      Two changes landed together. (1) The mirror now takes
+      `func_entities[fidx].funcptr`, which for an import is the bridge thunk
+      `dispatch[fidx]` — the same value `jitTableGrowCore` already copied on the
+      `table.set` path, so reachability no longer depends on HOW the element
+      entered the table. (2) A null-funcptr test at eight inline sites
+      (call_indirect and return_call_indirect, single- and multi-table on each
+      arch), mirroring the test the subtyping path already had; the tail-call
+      four surfaced only when review re-derived the funcptr-load site list.
+      Measured on the vendored 3.0 corpus, which the crash previously blacked
+      out entirely: JIT fail 277 -> 1 (memory64 276 -> 0; the residual 1 is
+      gc/type-subtyping, unrelated).
+      REMAINING: (a) the trap kind at the eight sites — they report code 3, but
+      after (1) the only way to reach them is `fidx >= dispatch.len`, an
+      embedder-supplied short dispatch table. That is not a spec trap at all, so
+      the question is now whether it should carry a trap kind or an assert;
+      D-293/D-294 own the taxonomy. (b) `call_ref` / `return_call_ref` load
+      `FuncEntity.funcptr` and jump unchecked at four sites — same
+      `dispatch.len` exposure, not covered by (2). (c) the eight sites have NO
+      test coverage: nothing in the suite reaches a short dispatch table, and
+      the tests that used to pin them now assert the call succeeds. (d)
+      `applyTableInitForTable` + `patchTableImportFuncptrs` are an unenforced
+      two-call contract — the former's `global.get` branch resolves imports via
+      `fe.funcptr` while its `IMPORT_SENTINEL` branch defers to the latter.
+      Nothing makes a caller do both; the spec runner is the only caller and
+      does. (e) class guard: the null test exists only where someone remembered
+      to emit it — the return_call_indirect mirrors surfaced only when review
+      re-derived the funcptr-load site list, and review then found the same gap
+      again at (b)'s four call_ref sites. Twice is a class, not an oversight.
+      An emit-shape sweep asserting every funcptr load is followed by a zero
+      test (or a baked site count, dispatch_consistency_audit-style) would close
+      it mechanically.
     first_raised: "2026-08-14"
-    last_reviewed: "2026-08-14"
+    last_reviewed: "2026-08-15"
     refs: |-
-      src/engine/setup.zig (the deliberate null + D-586 comment);
-      src/engine/codegen/{x86_64,arm64}/op_call.zig + op_tail_call.zig (the
-      eight D-586 inline sites; the subtyping paths' pre-existing test);
-      src/engine/runner_trap_test.zig (the D-586 trap test, wire code 3
-      provisional); D-294 (null-ELEMENT sentinel, a different case);
-      ADR-0103 (guard-page SIGSEGV recovery; inapplicable here — the 3.0
-      runner uses explicit bounds checks per ADR-0202 D5)
+      src/engine/setup.zig (the mirror write; the `i < dispatch.len` guard that
+      leaves 0); src/engine/codegen/{x86_64,arm64}/op_call.zig +
+      op_tail_call.zig (the eight null-test sites; the subtyping paths'
+      pre-existing test); src/engine/runner_trap_test.zig (the two
+      call-succeeds tests); src/engine/compile_init.zig
+      (applyTableInitForTable + patchTableImportFuncptrs — the (d) pair);
+      D-294 (null-ELEMENT sentinel, a different case); zwasm#186
   - id: "D-580"
     layer: "code"
     status: "note"

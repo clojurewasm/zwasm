@@ -290,17 +290,20 @@ test "runVoidExportWasi: JIT call_indirect on null elem under SUBTYPING → unin
     try testing.expectEqual(trap_surface.TrapKind.uninitialized_elem, trap_surface.jitTrapCode(ue).?);
 }
 
-// D-586 — an IMPORTED function reached through `call_indirect`. `setup.zig`
-// leaves `funcptrs[0]` null for an import on purpose: the JIT emits no
-// `host_dispatch_base` trampoline, and refusing the call beats running
-// arbitrary host code. The intent is right; the original outcome was not
-// — the inline path executed that null and the PROCESS DIED (SIGSEGV, zwasm's
-// own handler reporting "this is a bug in zwasm (not a wasm trap)"). Distinct
-// from the two D-294 cases above: there the slot is null and its typeidx is the
-// maxInt(u32) sentinel; here the slot IS initialised (typeidx valid, sig
-// matches) and only the funcptr mirror is null, so bounds + sentinel + sig all
-// pass before the call. The interpreter runs this module fine. Bytes from
-// `wasm-tools parse`.
+// D-586 — an IMPORTED function reached through `call_indirect`. The table's
+// funcptr mirror takes `func_entities[fidx].funcptr`, which for an import is
+// the bridge thunk `dispatch[fidx]`, so the call lands in the host. `setup.zig`
+// used to leave that mirror null on purpose — the JIT emits no host-dispatch
+// trampoline of its own, and refusing the call beat running arbitrary host
+// code — but the inline path EXECUTED the null and the PROCESS DIED (SIGSEGV,
+// zwasm's own handler reporting "this is a bug in zwasm (not a wasm trap)").
+// Distinct from the two D-294 cases above: there the slot is null and its
+// typeidx is the maxInt(u32) sentinel; here the slot is fully initialised —
+// typeidx valid, sig matching — so bounds, sentinel and sig all passed before
+// the call, which is why no existing guard caught it.
+// The fixture calls `proc_exit(42)` — 42 is outside `jitTrapCode`'s range, so
+// reading it back distinguishes a real host call from any trap. Bytes from
+// `wasm-tools parse`, one operand byte edited.
 const cind_import_in_table_wasm = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x60,
     0x01, 0x7f, 0x00, 0x60, 0x00, 0x00, 0x02, 0x24, 0x01, 0x16, 0x77, 0x61,
@@ -309,39 +312,36 @@ const cind_import_in_table_wasm = [_]u8{
     0x63, 0x5f, 0x65, 0x78, 0x69, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01,
     0x04, 0x04, 0x01, 0x70, 0x00, 0x01, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
     0x74, 0x61, 0x72, 0x74, 0x00, 0x01, 0x09, 0x07, 0x01, 0x00, 0x41, 0x00,
-    0x0b, 0x01, 0x00, 0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x00, 0x41, 0x00,
+    0x0b, 0x01, 0x00, 0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x2a, 0x41, 0x00,
     0x11, 0x00, 0x00, 0x0b, 0x00, 0x14, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x01,
     0x07, 0x01, 0x00, 0x04, 0x65, 0x78, 0x69, 0x74, 0x04, 0x04, 0x01, 0x00,
     0x01, 0x74,
 };
 
-test "runVoidExportWasi: JIT call_indirect on an IMPORTED table element traps instead of dying (D-586)" {
+test "runVoidExportWasi: JIT call_indirect calls an IMPORTED table element (D-586)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
-    var ue: u32 = 99;
-    // THE load-bearing assertion: a wasm-level trap, not a dead process. This
-    // holds whichever trap kind the fix settles on.
-    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &cind_import_in_table_wasm, "_start", null, &ue));
+    const wasi_host_mod = @import("../wasi/host.zig");
+    var h = try wasi_host_mod.Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    // `proc_exit` surfaces its exit code through the binding's Trap path
+    // (`wasi/jit_dispatch.zig`), so the error is expected and is not the signal.
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &cind_import_in_table_wasm, "_start", &h, null));
 
-    // PROVISIONAL: code 3 is what the arm64 SUBTYPING path already reports for a
-    // zero funcptr (CMP X0,#0 → cind_sig_fixups, its comment conceding "a bounds
-    // OOB also routes here — trap-reason granularity is diagnostic"). x86_64's
-    // subtyping path routes the same condition to the GENERIC bounds stub, so
-    // the two arches already disagree and code 3 sides with arm64 rather than
-    // inventing a third answer. Still semantically off (the signature MATCHES;
-    // only the mirror is null) — the open question D-586 carries, taxonomy per
-    // D-293/D-294. Settling it means changing the fixup list at the four inline
-    // sites plus these two lines.
-    try testing.expectEqual(@as(u32, 3), ue);
-    try testing.expectEqual(trap_surface.TrapKind.indirect_call_mismatch, trap_surface.jitTrapCode(ue).?);
+    // THE load-bearing assertion: the host actually ran `proc_exit` with the
+    // operand the fixture pushed. A null `wasi_host` would trap with
+    // `binding_error` well before this, which is what the mirror-less build did
+    // — and before D-586 it was a dead process rather than either.
+    try testing.expectEqual(@as(?u32, 42), h.exit_code);
 }
 
-// D-586 residual, found in adversarial review: the SAME import-in-table shape
-// reached through `return_call_indirect` instead of `call_indirect`. The
-// tail-call emit path has its own four funcptr loads (arm64 op_tail_call.zig
-// 280/326, x86_64 op_tail_call.zig 303/349) and none of them null-test yet, so
-// this variant still killed the process after the call_indirect sites were
-// fixed. Byte-identical to `cind_import_in_table_wasm` except the opcode:
-// 0x13 (return_call_indirect) where the other has 0x11. From `wasm-tools parse`.
+// D-586, found in adversarial review: the SAME import-in-table shape reached
+// through `return_call_indirect` instead of `call_indirect`. The tail-call emit
+// path has its own four funcptr loads, none of which null-tested, so this
+// variant still killed the process after the call_indirect sites were fixed —
+// which is why it is pinned separately rather than assumed to follow.
+// Byte-identical to `cind_import_in_table_wasm` except the opcode: 0x13
+// (return_call_indirect) where the other has 0x11.
 const tail_cind_import_in_table_wasm = [_]u8{
     0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x60,
     0x01, 0x7f, 0x00, 0x60, 0x00, 0x00, 0x02, 0x24, 0x01, 0x16, 0x77, 0x61,
@@ -350,20 +350,21 @@ const tail_cind_import_in_table_wasm = [_]u8{
     0x63, 0x5f, 0x65, 0x78, 0x69, 0x74, 0x00, 0x00, 0x03, 0x02, 0x01, 0x01,
     0x04, 0x04, 0x01, 0x70, 0x00, 0x01, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73,
     0x74, 0x61, 0x72, 0x74, 0x00, 0x01, 0x09, 0x07, 0x01, 0x00, 0x41, 0x00,
-    0x0b, 0x01, 0x00, 0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x00, 0x41, 0x00,
+    0x0b, 0x01, 0x00, 0x0a, 0x0b, 0x01, 0x09, 0x00, 0x41, 0x2a, 0x41, 0x00,
     0x13, 0x00, 0x00, 0x0b, 0x00, 0x14, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x01,
     0x07, 0x01, 0x00, 0x04, 0x65, 0x78, 0x69, 0x74, 0x04, 0x04, 0x01, 0x00,
     0x01, 0x74,
 };
 
-test "runVoidExportWasi: JIT return_call_indirect on an IMPORTED table element traps instead of dying (D-586)" {
+test "runVoidExportWasi: JIT return_call_indirect calls an IMPORTED table element (D-586)" {
     if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
-    var ue: u32 = 99;
-    // Load-bearing: a wasm-level trap, not a dead process — kind-independent.
-    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &tail_cind_import_in_table_wasm, "_start", null, &ue));
-    // PROVISIONAL, same reasoning as the call_indirect test above.
-    try testing.expectEqual(@as(u32, 3), ue);
-    try testing.expectEqual(trap_surface.TrapKind.indirect_call_mismatch, trap_surface.jitTrapCode(ue).?);
+    const wasi_host_mod = @import("../wasi/host.zig");
+    var h = try wasi_host_mod.Host.init(testing.allocator);
+    defer h.deinit();
+    h.io = testing.io;
+    try testing.expectError(entry.Error.Trap, runner.runVoidExportWasi(testing.allocator, &tail_cind_import_in_table_wasm, "_start", &h, null));
+    // Same reasoning as the call_indirect test above.
+    try testing.expectEqual(@as(?u32, 42), h.exit_code);
 }
 
 // `(module (func (export "_start") f32.const nan i32.trunc_f32_s drop))` — the Wasm

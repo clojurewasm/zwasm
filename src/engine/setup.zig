@@ -995,7 +995,6 @@ pub fn setupRuntimeLinked(
                 }
                 if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
                 tbl.refs[base + i] = @intFromPtr(&func_entities[fidx]);
-                const f_off = compiled.module.func_offsets[fidx];
                 const raw_typeidx = compiled.func_typeidxs[fidx];
                 tbl_typeidxs[base + i] = if (store_raw_typeidx)
                     raw_typeidx
@@ -1003,18 +1002,16 @@ pub fn setupRuntimeLinked(
                     canonical_type.canonicalTypeidx(t.items, raw_typeidx)
                 else
                     raw_typeidx;
-                if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
-                    // Imported function in a table — host-call dispatch
-                    // through `host_dispatch_base` is required to invoke
-                    // it. The JIT call_indirect path doesn't emit that
-                    // trampoline; leave funcptr null and the emitted
-                    // null-funcptr check traps (D-586 — the null used to
-                    // be dereferenced, which killed the process instead
-                    // of trapping). Callable imports in tables need the
-                    // trampoline, tracked in D-586.
-                    continue;
-                }
-                tbl_funcptrs[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+                // D-586 — `func_entities` resolved this above: a body address
+                // for a local function, the bridge thunk `dispatch[fidx]` for
+                // an import, so one assignment serves both and an imported
+                // table element is callable. Same value `jitTableGrowCore`
+                // copies on the `table.set` path, so reachability no longer
+                // depends on how the element got here. This branch used to
+                // leave an import's mirror null and the emit sites executed it
+                // (SIGSEGV); it is still 0 when `fidx >= dispatch.len`, which
+                // the emitted null-funcptr checks catch.
+                tbl_funcptrs[base + i] = func_entities[fidx].funcptr;
             }
         }
     }
