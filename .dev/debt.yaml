@@ -1947,9 +1947,27 @@ entries:
       changed the runner's exit code — the step was wired into nothing**, so the gate never ran: not
       `test-all`, not `ci_gate.sh`, not any workflow. Measured on `origin/main` 2026-08-15: CI's realworld
       JIT coverage was `test-realworld-run-jit` (56/56 **compile**-pass, execution disabled) plus 7
-      `.expect`-checked fixtures in `test/realworld/p10/`. Closed by wiring `test-realworld-diff-jit` into
-      `test-all` + making the lane account for its own denominator (a skip and an unreached fixture now fail
-      it, not just a mismatch — ADR-0210's rule); the misleading run stage was removed in the same change.
+      `.expect`-checked fixtures in `test/realworld/p10/` (8, not 7 — the earlier count was read off `ls`
+      rather than the runner's own `.wasm`-with-sibling-`.expect` condition). Closed by wiring
+      `test-realworld-diff-jit` into `test-all` + making the lane account for its own denominator (a skip
+      and an unreached fixture now fail it, not just a mismatch — ADR-0210's rule); the misleading run
+      stage was removed in the same change.
+      ---
+      **OPEN, found while closing the above (2026-08-16): the paired lane is NOT the interpreter, so
+      `test-all` has no forced-interp result-check over the realworld corpus.** `diff_runner.zig`'s
+      non-`--jit` lane calls `cli_run.runWasmCaptured` with default `Limits`, i.e. `engine = .auto`
+      (`src/cli/run.zig:52`), and `.auto` calls `instantiateJit` FIRST and reaches the interp only where
+      the JIT cannot instantiate (`src/api/instance.zig:945`). `run_realworld_run` (`cli_run.runWasm`) is
+      the same. Measured x86_64-linux 2026-08-16: `emcc_fannkuch` runs in 9.76s under `--engine interp`,
+      0.13s under `--engine jit`, 0.12s under the default; sweeping the corpus with a 3s cap, 7 of 56
+      fixtures complete under the default while the interp times out, so those 7 provably do not take the
+      interp (the other 49 finish under 3s either way and this method cannot separate them). CONSEQUENCE:
+      any claim of the form "realworld interp N/N" is unsupported by a gate — the engine is host- and
+      fixture-dependent because it is whatever `.auto` picked. DISCHARGE: either pin the lane's engine
+      (`Limits{ .engine = .interp }`, which costs the interp's wall-clock on every fixture — 9.76s for
+      `emcc_fannkuch` alone) or state the lane as `.auto` everywhere and stop calling it interp. Not
+      closed here: this PR only corrected the prose (README / handover / build.zig comment) so nothing
+      claims an interp result-check that does not exist.
     first_raised: "2026-06-05"
     last_reviewed: "2026-08-16"
     refs: |-
