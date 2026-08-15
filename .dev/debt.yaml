@@ -134,6 +134,155 @@ entries:
       call-succeeds tests); src/engine/compile_init.zig
       (applyTableInitForTable + patchTableImportFuncptrs — the (d) pair);
       D-294 (null-ELEMENT sentinel, a different case); zwasm#186
+  - id: "D-592"
+    layer: "test"
+    status: "note"
+    description: |-
+      **No spec lane sets `has_side_effects`, so a corpus-only change gets a
+      cached run and no fresh verdict.** This is the exact class lesson
+      `2026-05-30-edge-runner-fixture-cache-false-coverage` named and cyc216
+      fixed for the edge-case + realworld runners: the corpus dir reaches the
+      runner as a plain `addArg` string, which zig does NOT track as a build
+      input, so the run-artifact is cached on the EXE hash and skipped when
+      only fixture/manifest files change. Measured 2026-08-15: `build.zig` has
+      **19** `has_side_effects = true` sites - every edge-case, realworld,
+      fuzz, AOT-diff and latency runner - and **zero** on
+      any spec lane: test-spec, test-spec-assert, test-spec-simd,
+      test-spec-wasm-2.0-assert, test-spec-threads-assert, test-spec-wasm-2.0,
+      test-spec-wasm-3.0-assert. The sweep that fixed the others missed the
+      conformance corpora, which are the ones the published numbers come from.
+      Consequence, and why ADR-0210 cares: the enumeration denominator that ADR
+      prints is only a faithful record of a run that actually happened. Edit a
+      manifest, re-run `zig build test-spec-wasm-3.0-assert`, and zig may serve
+      the previous result - the reader sees `ACCOUNTING: CLOSED` for a corpus
+      that is no longer the one on disk. Observed during ADR-0210's work: the
+      smoke run step repeatedly did not re-execute across invocations.
+      NOT a CI hole: CI checks out fresh, so the cache is cold and every lane
+      runs. The exposure is local - a pre-PR gate run, or a regen sweep that
+      touches only corpus files.
+      NOT a one-liner, which is why it is recorded rather than fixed inside
+      ADR-0210's PR: the spec lanes are the EXPENSIVE ones (26k+ directives on
+      simd and wasm-2.0-assert), and `has_side_effects = true` forces them to
+      re-run on every `zig build test-all` regardless of what changed. Flipping
+      all seven trades local wall-clock for cache correctness and needs a
+      measured decision, not a sweep. A narrower option is to flip only the
+      lanes whose corpora actually change (the regen-driven ones).
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      build.zig (the seven test-spec* run steps; contrast run_edge_*/run_realworld
+      which set has_side_effects with the rationale inline);
+      .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md;
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
+  - id: "D-590"
+    layer: "code"
+    status: "note"
+    description: |-
+      **The wasm-3.0 JIT lane's single `assert_return` fail is a real defect in
+      the multi-value entry path, not an accounting artifact.** ADR-0210 closed
+      the runner's accounting; the remaining `fail=1` survives that. What to do
+      about it is open (see PROVISIONAL below). Located 2026-08-15: `gc/type-subtyping`, module
+      `type-subtyping.24.wasm`, `assert_return run () -> i32:1 i32:1`, reported
+      as `err=Trap`. Driving the same module and export through the CLI:
+        --engine interp  -> 1 1        (correct)
+        --engine jit     -> 1 1        (correct)
+        spec runner JIT lane -> error.Trap
+      So the JIT compiles and executes it correctly; only the persistent-
+      instance multi-value route (`invokeMulti`, the ADR-0106 `entry_buf` path,
+      `src/engine/runner.zig:1498`) traps. Root cause NOT isolated - it is
+      either that entry path or the runner's use of it. Sibling shapes behave
+      as expected: `type-subtyping.25/.26` (4 and 8 results) reject with
+      `UnsupportedEntrySignature` and are classified as skips, and interp
+      returns all 4 / all 8 correctly.
+      PROVISIONAL - the disposition is NOT settled, and this row does not
+      settle it. The candidate is "leave it unfixed and gate the wasm-3.0 JIT
+      lane WITH one accepted fail", but that is one option, not a decision.
+      It conflicts with ADR-0153, which holds that a measured violation of a
+      完成形 dimension "schedules a rework" (:22) and "defaults to 'schedule a
+      rework campaign,' not 'defer past ...'" (:38-39) - and 100% spec is one
+      of those dimensions. `status: note` (record only, do not chase) is in
+      the same tension and is itself provisional; `now` would pre-empt the
+      question in the other direction, so neither is asserted here.
+      Both the disposition and the status are decided at #12, when the JIT
+      lane's CI gating is designed, with maintainer confirmation. Whoever
+      designs it must also resolve a PRE-EXISTING asymmetry in what the jit
+      lane already gates (not introduced by ADR-0210, verified against
+      8f24e0aee): `gated_ret_fail` zeroes `ret.fail` in jit mode so the lane
+      stays report-only, but `grand.trap.fail` is summed unconditionally and
+      the `assert_trap` arm evaluates `cur_jit` in jit mode. So a JIT-only
+      TRAP regression already exits non-zero today while a JIT-only RETURN
+      regression does not. "The JIT lane is report-only" is true of the
+      return category only. Whoever
+      designs it: the choice reaches README line 48, which claims "100% |
+      spec testsuite green on the 3-OS CI matrix" WITHOUT naming an engine.
+      CI sets ZWASM_SPEC_ENGINE nowhere (0 sites in ci_gate.sh / ci.yml), so
+      today only the default engine is gated and it is fail=0 - the sentence
+      holds. Gating the JIT lane with an accepted fail puts a knowingly-red
+      lane inside that same CI matrix, so it requires a paired README change;
+      leaving the lane ungated does not.
+      Discharge condition: the multi-value entry path is reworked for another
+      reason, or a second fixture reaches the same trap.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      src/engine/runner.zig (invokeMulti, ~line 1498);
+      src/engine/codegen/shared/entry_buffer_write.zig (invokeMultiResultNoArgs);
+      test/spec/wasm-3.0-assert/gc/type-subtyping/manifest.txt (the `run () -> i32:1 i32:1` line);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md; ADR-0106; ADR-0128;
+      ADR-0153 (the measured-deficiency-schedules-a-rework rule this is provisional against)
+  - id: "D-591"
+    layer: "test"
+    status: "note"
+    description: |-
+      **The five non-wasm-3.0 spec lanes print an enumeration denominator but
+      do not gate on an identity.** ADR-0210 closed the wasm-3.0 runner:
+      `lines == module + register + invoke + skip + unknown + unparsed +
+      per-category totals`, each category `total == pass + fail + skip`,
+      checked in-process and non-zero on mismatch. The lanes on
+      `spec_assert_runner_base.zig` (wasm-2.0-assert, threads-assert, simd)
+      plus `spec_assert_runner.zig` and `wast_runner.zig` only print
+      `lines / accounted / residual / overcounted`; a human still has to
+      reconcile `residual` against the corpus by hand. Measured 2026-08-15,
+      every residual reconciles today:
+        test-spec-assert            243 /   232 /   11 = 11 module
+        test-spec-simd            26067 / 25587 /  480 = 482 module - 2 runtime-skips
+        test-spec-wasm-2.0-assert 27210 / 26074 / 1136 = 1115 module + 21 register
+        test-spec-threads-assert    297 /   294 /    3 = 3 module
+        test-spec-wasm-2.0         1158 /  1158 /    0
+      so nothing is hidden right now - but the check is a human's, not the
+      runner's, which is the property ADR-0210 exists to remove.
+      SEVERITY, stated plainly because the deferral could be misread as one:
+      this was deferred on COST and RISK, not because the severity is low.
+      Re-modelling the categories inside a 4196-line shared base that three
+      currently-green lanes sit on is a change comparable in size to the one
+      ADR-0210's PR already makes, and it would put those three at risk. The
+      severity itself is NOT low - these lanes are FAIL-OPEN by construction:
+      with no identity, a silent-drop path of the same shape as the 73
+      unattributed `assert_return` directives ADR-0210 found in the wasm-3.0
+      runner could exist here and nothing would detect it.
+      And the reconciliation above is EVIDENCE OF CONSISTENCY, not proof of
+      absence. It shows the printed residuals match a hand count of the
+      non-assertion directives; it does not show that no directive is being
+      dropped. The one mitigation that IS proven (all five turn red on an
+      unreadable manifest, below) catches a WHOLESALE loss - a sub-corpus that
+      never opens. It does nothing for a partial silent drop inside a manifest
+      that reads fine, which is exactly what the wasm-3.0 defect was.
+      NOT a gap in these lanes: the unreadable-sub-corpus hazard that ADR-0210
+      had to gate outside the identity for wasm-3.0. Checked 2026-08-15 rather
+      than assumed - all five already turn RED on it, via `failed` rather than
+      a dedicated counter: `spec_assert_runner_base.runCorpus` propagates the
+      sub-dir open (`try root.openDir`) and does `tally.failed += 1` on a
+      manifest-read failure; `spec_assert_runner` propagates both;
+      `wast_runner` does `failed.* += 1` on each. Every lane gates on
+      `failed > 0`. The wasm-3.0 runner needed a separate `manifest_errors`
+      counter only because its equivalents were `catch continue`.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      test/spec/spec_assert_runner_base.zig (AssertTally.accounted/residual/overcounted);
+      test/spec/spec_assert_runner.zig; test/spec/wast_runner.zig;
+      test/spec/spec_assert_runner_wasm_3_0.zig (the closed reference implementation);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
   - id: "D-584"
     layer: "perf"
     status: "now"

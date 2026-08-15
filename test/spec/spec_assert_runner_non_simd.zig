@@ -69,7 +69,7 @@ pub fn main(init: std.process.Init) !void {
     base.dump_jit_enabled = init.environ_map.get("ZWASM_DUMP_JIT") != null;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     // Install the SIGSEGV → trap-recovery handler before any JIT
@@ -144,6 +144,14 @@ pub fn main(init: std.process.Init) !void {
             tally.skipped_adr,
             manifest_count,
         },
+    );
+    // ADR-0210 — print the enumeration denominator next to the verdict
+    // columns. Without it "25539 passed" cannot be checked against the
+    // work enumerated: a directive dropped before reaching a column is
+    // indistinguishable from one that was never in the corpus.
+    try stdout.print(
+        "spec_assert_runner_non_simd: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives that reached no column - note a runtime-skip raised on a non-assertion line counts as accounted, so this is not a round count of them; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice)\n",
+        .{ tally.lines, tally.accounted(), tally.residual(), tally.overcounted() },
     );
     try stdout.flush();
 
