@@ -7,41 +7,65 @@ entries:
     layer: "test"
     status: "note"
     description: |-
-      **No spec lane sets `has_side_effects`, so a corpus-only change gets a
-      cached run and no fresh verdict.** This is the exact class lesson
-      `2026-05-30-edge-runner-fixture-cache-false-coverage` named and cyc216
-      fixed for the edge-case + realworld runners: the corpus dir reaches the
-      runner as a plain `addArg` string, which zig does NOT track as a build
-      input, so the run-artifact is cached on the EXE hash and skipped when
-      only fixture/manifest files change. Measured 2026-08-15: `build.zig` has
-      **19** `has_side_effects = true` sites - every edge-case, realworld,
-      fuzz, AOT-diff and latency runner - and **zero** on
-      any spec lane: test-spec, test-spec-assert, test-spec-simd,
-      test-spec-wasm-2.0-assert, test-spec-threads-assert, test-spec-wasm-2.0,
-      test-spec-wasm-3.0-assert. The sweep that fixed the others missed the
-      conformance corpora, which are the ones the published numbers come from.
-      Consequence, and why ADR-0210 cares: the enumeration denominator that ADR
-      prints is only a faithful record of a run that actually happened. Edit a
-      manifest, re-run `zig build test-spec-wasm-3.0-assert`, and zig may serve
-      the previous result - the reader sees `ACCOUNTING: CLOSED` for a corpus
-      that is no longer the one on disk. Observed during ADR-0210's work: the
-      smoke run step repeatedly did not re-execute across invocations.
-      NOT a CI hole: CI checks out fresh, so the cache is cold and every lane
-      runs. The exposure is local - a pre-PR gate run, or a regen sweep that
-      touches only corpus files.
-      NOT a one-liner, which is why it is recorded rather than fixed inside
-      ADR-0210's PR: the spec lanes are the EXPENSIVE ones (26k+ directives on
-      simd and wasm-2.0-assert), and `has_side_effects = true` forces them to
-      re-run on every `zig build test-all` regardless of what changed. Flipping
-      all seven trades local wall-clock for cache correctness and needs a
-      measured decision, not a sweep. A narrower option is to flip only the
-      lanes whose corpora actually change (the regen-driven ones).
+      **The spec-lane claim this row was opened with is RETRACTED. One real
+      instance was found while retracting it, and is fixed here.**
+      Retracted claim: "no spec lane sets `has_side_effects`, so a corpus-only
+      change gets a cached run and no fresh verdict." The premise about
+      `has_side_effects` does not hold. Caching is gated on
+      `Run.hasSideEffects()`, which for the default `stdio = .infer_from_args`
+      returns `!hasAnyOutputArgs()` - true, i.e. ALWAYS RE-RUN - unless the
+      step captures stdout/stderr or produces an output file
+      (`std/Build/Step/Run.zig` 221 / 707-715 / 926). Every one of the 53
+      `addRunArtifact` steps in build.zig is in that shape: 0 `captureStdOut`,
+      0 `captureStdErr`, 0 `addOutputDirectoryArg` (the 2 `addOutputFileArg`
+      are on `addSystemCommand` generators). So the spec lanes always re-ran,
+      and the 19 pre-existing `has_side_effects = true` lines are no-ops.
+      Confirmed by behaviour, not only by reading: `zig build test-spec` twice
+      unchanged ran both times, and adding one corpus file (no exe delta)
+      printed `PASS zz_probe.wasm` and moved the count 3 -> 4.
+      The supporting observation was a misattribution, as the implementing
+      session suspected: "the smoke run step repeatedly did not re-execute"
+      was ADR-0210's own stdout bug (`.positional` mode resetting to offset 0
+      per process, so the second runner overwrote the first's output). Same
+      symptom, different cause.
+      What DOES make a step cacheable is a second condition nobody checked:
+      any `addCheck` caller - `expectExitCode`, `expectStdOutEqual` - flips
+      `stdio` to `.check`, for which `hasSideEffects()` returns FALSE. 10
+      steps call `expectExitCode`. Nine are safe because their inputs are
+      tracked or literal. **`run_oob_trap` is not**: it passes
+      `test/edge_cases/p7/memory_bounds/past_limit_load_i32.wasm` as a plain
+      `addArg` string AND calls `expectExitCode(1)`, and it is in `test-all`.
+      Its own comment calls it "the only behavioural test of the FULL
+      production elision path" (ADR-0202 D4/D5 / D-507). Proven false
+      coverage: swapping the 47-byte trapping module for an 8-byte empty one
+      left the step `cached` and green. Fixed here with
+      `has_side_effects = true` (verified: the same swap now fails the build
+      with `exited with code 0 (expected exited with code 1)`).
+      NOT a CI hole either way - CI checks out fresh, so the cache is cold.
+      The exposure was local gates (`test-all`, gate_commit, gate_merge).
+      The 19 no-op `has_side_effects = true` lines are KEPT, now labelled
+      redundant-but-intentional in their comments (run_edge_*, run_realworld,
+      run_fuzz, run_latency). Deleting them is safe today but would remove the
+      stated intent, and `run_latency` shows why that intent matters: add one
+      output arg to a step and it silently becomes cacheable. The four comment
+      blocks that asserted the wrong mechanism - written when cyc216 landed -
+      are corrected in the same commit; leaving them would have contradicted
+      the lesson this row also corrects.
+      Status stays `note` and this row is deliberately NOT discharged: those
+      four comments and the corrected lesson all cite D-592 for the mechanism,
+      so delete-on-discharge would leave the citations dangling while the ID
+      stays unreusable. Nothing here is actionable, which is what `note` says.
     first_raised: "2026-08-15"
     last_reviewed: "2026-08-15"
     refs: |-
-      build.zig (the seven test-spec* run steps; contrast run_edge_*/run_realworld
-      which set has_side_effects with the rationale inline);
-      .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md;
+      build.zig (run_oob_trap - the fix; the 19 no-op has_side_effects sites);
+      std/Build/Step/Run.zig:221,707-715,926,1555 (zig 0.16.0, the mechanism -
+      1555 is the `.infer_from_args` stdio arm that decides inherit vs ignore);
+      scripts/record_latency_bench.sh (its comment named the same wrong
+      mechanism; the stdout-inheritance coupling it relies on is real, but it
+      follows from having no output arg, not from the flag);
+      .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md
+      (corrected in the same commit - its diagnosis was wrong when written);
       .dev/decisions/0210_spec_runner_enumeration_accounting.md
   - id: "D-590"
     layer: "code"
