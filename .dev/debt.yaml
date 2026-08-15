@@ -3,6 +3,75 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-590"
+    layer: "code"
+    status: "note"
+    description: |-
+      **The wasm-3.0 JIT lane's single `assert_return` fail is a real defect in
+      the multi-value entry path, not an accounting artifact.** ADR-0210 closed
+      the runner's accounting; the remaining `fail=1` survives that and is
+      recorded, NOT chased. Located 2026-08-15: `gc/type-subtyping`, module
+      `type-subtyping.24.wasm`, `assert_return run () -> i32:1 i32:1`, reported
+      as `err=Trap`. Driving the same module and export through the CLI:
+        --engine interp  -> 1 1        (correct)
+        --engine jit     -> 1 1        (correct)
+        spec runner JIT lane -> error.Trap
+      So the JIT compiles and executes it correctly; only the persistent-
+      instance multi-value route (`invokeMulti`, the ADR-0106 `entry_buf` path,
+      `src/engine/runner.zig:1498`) traps. Root cause NOT isolated - it is
+      either that entry path or the runner's use of it. Sibling shapes behave
+      as expected: `type-subtyping.25/.26` (4 and 8 results) reject with
+      `UnsupportedEntrySignature` and are classified as skips, and interp
+      returns all 4 / all 8 correctly.
+      DECISION (owner, 2026-08-15): do not fix, do not chase. The wasm-3.0 JIT
+      lane goes to CI as a gate WITH this one accepted fail; it will not be
+      "fully green". Discharge condition: the multi-value entry path is
+      reworked for another reason, or a second fixture reaches the same trap.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      src/engine/runner.zig (invokeMulti, ~line 1498);
+      src/engine/codegen/shared/entry_buffer_write.zig (invokeMultiResultNoArgs);
+      test/spec/wasm-3.0-assert/gc/type-subtyping/manifest.txt (the `run () -> i32:1 i32:1` line);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md; ADR-0106; ADR-0128
+  - id: "D-591"
+    layer: "test"
+    status: "note"
+    description: |-
+      **The five non-wasm-3.0 spec lanes print an enumeration denominator but
+      do not gate on an identity.** ADR-0210 closed the wasm-3.0 runner:
+      `lines == module + register + invoke + skip + unknown + unparsed +
+      per-category totals`, each category `total == pass + fail + skip`,
+      checked in-process and non-zero on mismatch. The lanes on
+      `spec_assert_runner_base.zig` (wasm-2.0-assert, threads-assert, simd)
+      plus `spec_assert_runner.zig` and `wast_runner.zig` only print
+      `lines / accounted / residual / overcounted`; a human still has to
+      reconcile `residual` against the corpus by hand. Measured 2026-08-15,
+      every residual reconciles today:
+        test-spec-assert            243 /   232 /   11 = 11 module
+        test-spec-simd            26067 / 25587 /  480 = 482 module - 2 runtime-skips
+        test-spec-wasm-2.0-assert 27210 / 26074 / 1136 = 1115 module + 21 register
+        test-spec-threads-assert    297 /   294 /    3 = 3 module
+        test-spec-wasm-2.0         1158 /  1158 /    0
+      so nothing is hidden right now - but the check is a human's, not the
+      runner's, which is the property ADR-0210 exists to remove.
+      Deliberately NOT bundled into ADR-0210's PR: naming the non-assertion
+      directives per category inside a 4196-line shared base that three
+      currently-green lanes sit on is a comparable-sized change to the one that
+      PR already makes.
+      NOTE the separate hazard ADR-0210 had to gate OUTSIDE the identity: a
+      sub-corpus that fails to open shrinks `lines` and the buckets by the same
+      amount, so the identity stays true (verified by `chmod 000` on one
+      manifest - CLOSED, 47 fewer lines). The wasm-3.0 runner counts and gates
+      that as `manifest_errors`; these lanes have no equivalent, so a
+      manifest-read failure there is still a silent skip.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      test/spec/spec_assert_runner_base.zig (AssertTally.accounted/residual/overcounted);
+      test/spec/spec_assert_runner.zig; test/spec/wast_runner.zig;
+      test/spec/spec_assert_runner_wasm_3_0.zig (the closed reference implementation);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
   - id: "D-580"
     layer: "code"
     status: "note"

@@ -78,6 +78,18 @@ For the wasm-3.0 runner, in full:
    lines than were read — a line tallied twice, the exact defect the
    wasm-3.0 shared `skips` bucket had — would read as perfectly
    accounted.
+8. **What the identity cannot see, gates separately.** The identity is
+   invariant under "drop a whole manifest": a sub-corpus that fails to
+   open contributes zero to both sides, so `lines` and the buckets shrink
+   together and the run still prints CLOSED. Verified by injecting a
+   `chmod 000` manifest — `ACCOUNTING: CLOSED` with 47 fewer lines. That
+   is the ADR-0174 windows path-resolution class, and it is why manifest
+   read / sub-dir open / engine init are counted as `manifest_errors` and
+   gated on their own rather than trusted to the identity. For the same
+   reason the runner cross-checks that every directory under the corpus
+   root appears in `PROPOSALS`: the identity certifies that everything
+   *enumerated* is accounted for, not that the enumeration covers the
+   corpus.
 
 The five counting defects above are fixed rather than papered over: split
 `uninstantiable` from `trap`, give `skip-adr-*` a `Kind`, give every
@@ -119,6 +131,16 @@ SEGVs without it): `return=11292 (pass=10853 fail=1 skip=438)`, `CLOSED`.
 report-only (ADR-0128); `ret.fail` is not gated in jit mode, so making the
 accounting close did not silently promote the opt-in lane into a gate.
 
+**The accounting is correct and the remaining `fail=1` is real.** It is not
+an artifact of how directives were counted — the identity closes with it
+present. It is a genuine defect in the multi-value entry path
+(`invokeMulti`, `src/engine/runner.zig`), recorded as **D-590** and
+deliberately not fixed or chased here: the same module and export return
+`1 1` correctly through the CLI on both engines, so the codegen is right
+and only the persistent-instance route traps. The wasm-3.0 JIT lane is
+therefore expected to reach CI as a gate **with one accepted fail**, not
+as a fully-green lane.
+
 No number changed by this ADR is cited anywhere in the repository
 (verified by grep over `*.md`, `*.yaml`, `*.sh`, `*.zig`, and PR #186's
 body). Artifacts outside this repository were not checked; the table above
@@ -145,27 +167,34 @@ deliberately not bundled: a comparable-sized change across a 4196-line
 shared base runner that three currently-green lanes sit on. It warrants a
 debt row.
 
-`zig build test-spec` runs the two corpora through `.inherit` stdio and in
-sequence, so the printed detail is the child's own output rather than a
-re-forwarded copy, and the two runs cannot interleave.
+**The lost `test-spec` output was the runners' own writer, not the build
+layer.** `std.Io.File.stdout().writer(io, buf)` defaults to `.positional`
+mode with `pos = 0`, so every process restarts writing at offset 0 of a
+seekable stdout. Two runners redirected to the same file therefore
+overwrite each other — which is the spliced ` sections)` line in the
+original measurement. Isolated by running the two exes directly, with no
+`zig build` involved: `( exe smoke; exe wasm-1.0 ) > log` gave 9 `PASS`
+lines and 1 summary instead of 12 and 2, sequentially, deterministically.
 
-Scope of that claim, stated precisely: the forwarding layer was observed
-corrupting output twice — the spliced ` sections)` line in the original
-3-run measurement, and a piped `--summary all` run that dropped every
-`PASS` line and truncated the summary's leading token. With `.inherit` and
-the ordering, a run in which both steps execute prints 12 `PASS` lines and
-both summaries in order with no splicing. It was **not** possible to
-re-demonstrate the original plain-form failure afterwards: subsequent
-invocations reuse the cached smoke run, and neither `touch build.zig` nor a
-fresh `--cache-dir` reproduced the both-steps-run plain condition — the
-unmodified baseline behaves identically under those conditions. So the
-change is justified by the observed corruption, not by a before/after on
-the original symptom.
+Every runner under `test/` now uses `writerStreaming` — all 22, since the
+defect is in the idiom rather than in the spec lanes; `src/` already used
+`writerStreaming` throughout, so this is the harness catching up with the
+product. After the change the same command prints 12 and 2 with no
+corrupted lines, and so does `zig build test-spec` under both a file
+redirect and a pipe.
 
-That is also why the durable protection is not the printing: `runner.zig`
-now checks `passed + failed == enumerated` and exits non-zero otherwise, so
-a lost line cannot hide a lost verdict regardless of what the build layer
-does to stdout.
+Two earlier hypotheses were wrong and are recorded because they were
+plausible and cost time: that the build runner's output *forwarding* was
+lossy (it is not — the loss reproduces with no build runner), and that the
+two runs *interleaving* was the cause (they still lost lines when
+sequential). Ordering the two run steps is kept as cheap insurance against
+genuine concurrent interleaving; `stdio = .inherit` was tried and reverted,
+because it does not address the cause and it silently disables run-step
+caching (both spec runs then re-execute on every `test-all`).
+
+The durable protection is still not the printing: `runner.zig` checks
+`passed + failed == enumerated` and exits non-zero otherwise, so a lost
+line cannot hide a lost verdict whatever happens to stdout.
 
 ## Note on scoping
 

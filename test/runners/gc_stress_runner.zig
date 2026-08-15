@@ -35,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     var stdout_buf: [512]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     try stdout.print("[gc_stress_runner] skeleton (10.G impl pending; ADR-0115 + ADR-0116 Accept gates first)\n", .{});

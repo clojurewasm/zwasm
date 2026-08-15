@@ -36,14 +36,14 @@ for corpus in "${CORPORA[@]}"; do
     continue
   fi
 
-  mapfile -t manifests < <(find "$corpus" -name manifest.txt | sort)
-  if [ "${#manifests[@]}" -eq 0 ]; then
-    echo "EMPTY    $corpus (no manifest.txt found)"
-    violations=$((violations + 1))
-    continue
-  fi
-
-  for m in "${manifests[@]}"; do
+  # `while read` rather than `mapfile`: this runs in ci_gate's core leg on
+  # all three OSes, and `mapfile` is a bash 4 builtin while macOS's system
+  # bash is 3.2 — a `command not found` under `set -euo pipefail` would fail
+  # the macOS leg only.
+  manifest_count=0
+  while IFS= read -r m; do
+    [ -z "$m" ] && continue
+    manifest_count=$((manifest_count + 1))
     # Blank / whitespace-only lines: would make `wc -l` overcount vs the
     # runner, which skips them before tallying.
     n_blank=$(grep -cE '^[[:space:]]*$' "$m" || true)
@@ -61,7 +61,12 @@ for corpus in "${CORPORA[@]}"; do
       violations=$((violations + 1))
     fi
     total_lines=$((total_lines + $(wc -l < "$m")))
-  done
+  done < <(find "$corpus" -name manifest.txt | sort)
+
+  if [ "$manifest_count" -eq 0 ]; then
+    echo "EMPTY    $corpus (no manifest.txt found)"
+    violations=$((violations + 1))
+  fi
 done
 
 echo "=== spec manifest shape check ==="

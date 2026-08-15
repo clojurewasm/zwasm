@@ -56,7 +56,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
@@ -113,7 +113,7 @@ pub fn main(init: std.process.Init) !void {
     );
     // ADR-0210 — enumeration denominator alongside the verdict columns.
     try stdout.print(
-        "simd_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted > 0 means a line was tallied twice)\n",
+        "simd_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted > 0 means the columns claim more lines than were read)\n",
         .{ tally.lines, tally.accounted(), tally.residual(), tally.overcounted() },
     );
     try stdout.flush();

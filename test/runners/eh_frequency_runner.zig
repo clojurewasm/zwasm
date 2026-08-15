@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
 
     var stdout_buf: [512]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     try stdout.print("[eh_frequency_runner] skeleton (EH codegen SHIPPED 2026-05-28; benchmark scaffolding pending Phase 8b)\n", .{});

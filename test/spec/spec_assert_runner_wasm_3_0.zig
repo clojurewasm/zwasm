@@ -248,6 +248,14 @@ const ProposalSummary = struct {
     /// dropped before reaching the kind switch, so they were absent
     /// even from `asserts_return`.
     unparsed: u32 = 0,
+    /// A sub-corpus the runner could not read at all (manifest read,
+    /// engine init, or sub-dir open). NOT part of the line identity —
+    /// it CANNOT be, because a manifest that never opened contributes
+    /// zero to both sides of it. That is precisely why it needs its own
+    /// counter and its own gate: the identity is invariant under
+    /// "silently drop a whole manifest", so on its own it would certify
+    /// a run that skipped thousands of assertions.
+    manifest_errors: u32 = 0,
     // ---- assertion categories ----
     ret: KindTally = .{},
     trap: KindTally = .{},
@@ -414,7 +422,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var args = try init.minimal.args.iterateAllocator(gpa);
@@ -494,7 +502,19 @@ pub fn main(init: std.process.Init) !void {
             const manifest_path = try std.fmt.allocPrint(gpa, "{s}/manifest.txt", .{entry.name});
             defer gpa.free(manifest_path);
 
-            const manifest = pdir.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch continue;
+            // ADR-0210 — the identity is invariant under "drop a whole
+            // manifest": both `lines` and the buckets shrink by the same
+            // amount, so a manifest that never opened still printed CLOSED
+            // and exited 0. That is the failure mode ADR-0174 exists for
+            // (the windows path-resolution class), and the corpus root
+            // already FAILs loudly for it — a per-manifest read failure has
+            // to as well, or the denominator only ever certifies the subset
+            // the runner happened to reach.
+            const manifest = pdir.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-READ-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer gpa.free(manifest);
 
             summary.manifests += 1;
@@ -598,7 +618,14 @@ pub fn main(init: std.process.Init) !void {
             // Modules + Instances in arrays. Each instantiate
             // resolves against the cumulative Linker entries
             // (populated by prior `register <as>` directives).
-            var cur_engine: zwasm.Engine = zwasm.Engine.init(gpa, .{}) catch continue;
+            // Same class as the manifest read above: skipping the engine
+            // drops every directive in this manifest from the denominator
+            // as well as from the buckets, so the identity still closes.
+            var cur_engine: zwasm.Engine = zwasm.Engine.init(gpa, .{}) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-ENGINE-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer cur_engine.deinit();
             var cur_linker: zwasm.Linker = zwasm.Linker.init(&cur_engine);
             defer cur_linker.deinit();
@@ -738,7 +765,11 @@ pub fn main(init: std.process.Init) !void {
 
             // Sub-corpus dir (e.g. `tail-call/return_call/`) — both
             // the manifest AND the .wasm files it cites live here.
-            var sub_dir = pdir.openDir(io, entry.name, .{}) catch continue;
+            var sub_dir = pdir.openDir(io, entry.name, .{}) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-DIR-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer sub_dir.close(io);
 
             var lines = std.mem.splitScalar(u8, manifest, '\n');
@@ -1627,6 +1658,7 @@ pub fn main(init: std.process.Init) !void {
         grand.skips += summary.skips;
         grand.unknown += summary.unknown;
         grand.unparsed += summary.unparsed;
+        grand.manifest_errors += summary.manifest_errors;
         grand.ret.add(summary.ret);
         grand.trap.add(summary.trap);
         grand.invalid.add(summary.invalid);
@@ -1635,6 +1667,34 @@ pub fn main(init: std.process.Init) !void {
         grand.malformed.add(summary.malformed);
         grand.exception.add(summary.exception);
         grand.jit_return.add(summary.jit_return);
+    }
+
+    // ADR-0210 — the runner walks the hard-coded `PROPOSALS` list, so a
+    // corpus regen that adds a seventh proposal directory would raise the
+    // on-disk line count while `lines=` stayed put and the run still
+    // printed CLOSED. The identity certifies that everything ENUMERATED is
+    // accounted for; this certifies that the enumeration covers the corpus.
+    var unenumerated_dirs: u32 = 0;
+    {
+        // `dir` above is opened without `.iterate` (it is only ever used to
+        // open per-proposal subdirs), so this needs its own handle.
+        var root_iter_dir = cwd.openDir(io, corpus_root, .{ .iterate = true }) catch |err| {
+            try stdout.print("[wasm-3.0-assert] corpus root not re-openable for the enumeration cross-check: {s}\n", .{@errorName(err)});
+            try stdout.flush();
+            std.process.exit(1);
+        };
+        defer root_iter_dir.close(io);
+        var root_it = root_iter_dir.iterate();
+        while (try root_it.next(io)) |e| {
+            if (e.kind != .directory) continue;
+            var known = false;
+            for (PROPOSALS) |p| {
+                if (std.mem.eql(u8, p, e.name)) known = true;
+            }
+            if (known) continue;
+            unenumerated_dirs += 1;
+            try stdout.print("UNENUMERATED-PROPOSAL  {s}: present on disk, absent from PROPOSALS — its directives are in no tally\n", .{e.name});
+        }
     }
 
     try printProposal(stdout, "TOTAL", grand, jit_mode);
@@ -1687,7 +1747,15 @@ pub fn main(init: std.process.Init) !void {
     // NOTE: `unparsed` / `unknown` are NOT themselves gated — they are
     // named on stdout and counted into the denominator, so they stay
     // visible without turning a harness gap into a spec-failure claim.
-    if (grand_assert_fail > 0 or !closed) std.process.exit(1);
+    // A sub-corpus the runner never read is invisible to the identity, so
+    // it gates separately. Same reasoning as ADR-0174's missing-corpus-root
+    // FAIL: the corpus is COMMITTED, so failing to open part of it is a
+    // real error, never a fresh-checkout state.
+    if (grand.manifest_errors > 0) {
+        try stdout.print("[wasm-3.0-assert] {d} sub-corpora could not be read — the printed denominator covers only what was reachable\n", .{grand.manifest_errors});
+        try stdout.flush();
+    }
+    if (grand_assert_fail > 0 or !closed or grand.manifest_errors > 0 or unenumerated_dirs > 0) std.process.exit(1);
 }
 
 /// One assertion category: `<name>=<total>(p=… f=… s=…)`. The total is
@@ -1709,8 +1777,8 @@ fn printProposal(
     jit_mode: bool,
 ) !void {
     try stdout.print(
-        "[{s:<22}] manifests={d:<3} lines={d:<5} | module={d:<3} register={d:<2} invoke={d:<3} skip={d:<3} unknown={d:<2} unparsed={d:<2}",
-        .{ label, s.manifests, s.lines, s.modules, s.registers, s.invokes, s.skips, s.unknown, s.unparsed },
+        "[{s:<22}] manifests={d:<3} lines={d:<5} | module={d:<3} register={d:<2} invoke={d:<3} skip={d:<3} unknown={d:<2} unparsed={d:<2} manifest_err={d:<2}",
+        .{ label, s.manifests, s.lines, s.modules, s.registers, s.invokes, s.skips, s.unknown, s.unparsed, s.manifest_errors },
     );
     try printTally(stdout, "return", s.ret);
     try printTally(stdout, "trap", s.trap);

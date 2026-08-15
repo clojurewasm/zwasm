@@ -40,7 +40,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);

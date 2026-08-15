@@ -16,7 +16,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
     var ob: [512]u8 = undefined;
-    var ow = std.Io.File.stdout().writer(io, &ob);
+    var ow = std.Io.File.stdout().writerStreaming(io, &ob);
     const out = &ow.interface;
 
     const bytes = try std.Io.Dir.cwd().readFileAlloc(io, PATH, gpa, .limited(64 << 20));

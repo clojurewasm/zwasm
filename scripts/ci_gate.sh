@@ -59,7 +59,12 @@ bash scripts/check_test_discovery.sh --gate
 # break the re-derivation while both the runner and the corpus stayed
 # green. Cheap (a read of 86 manifests), so it runs on every PR.
 echo "[ci_gate] spec-manifest shape guard (check_spec_manifest_shape --gate)"
-bash scripts/check_spec_manifest_shape.sh --gate > /dev/null
+# Output kept (not `> /dev/null`, unlike the gate_commit invocations): the
+# whole value of this guard is naming WHICH manifest broke the
+# re-derivation, and a red CI leg showing only a bare non-zero exit would
+# make the next person reproduce it by hand. Matches check_test_discovery
+# above.
+bash scripts/check_spec_manifest_shape.sh --gate
 
 if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zig build lint"
