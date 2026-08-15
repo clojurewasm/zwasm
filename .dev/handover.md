@@ -5,15 +5,11 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.5.0 READY TO TAG (sweep COMPLETE 2026-08-12)**: the user-directed
-pre-tag cleanliness sweep (S1-S6) is DONE — S1-S5 merged as #175, S6
-(docs final-form) is the PR in flight / just merged. main carries
-`build.zig.zon = 2.5.0` + the CHANGELOG section; remote tags end at
-v2.4.1. **The only remaining step is the USER pushing the tag**
-(`git tag v2.5.0 <sha> && git push origin v2.5.0` → release.yml
-publishes; ADR-0156 — never autonomous). Prior line v2.4.1; v1 frozen
+**v2.5.0 TAGGED and published** — the pre-tag cleanliness sweep (S1-S6)
+is DONE (S1-S5 merged as #175, S6 as #176). Prior line v2.4.1; v1 frozen
 at `v1.11.1`. Dev model: `develop/<slug>` from `main` → PR → CI
-`ci-required` green → merge.
+`ci-required` green → merge. Release stays user-only (ADR-0156) — an
+agent-autonomy guardrail, not a bar to release automation.
 
 **The repo moved to its own org 2026-08-12**: `clojurewasm/zwasm` →
 **`zwasm/zwasm`** (`.dev/org_transfer_plan.md` phases 1-3 done; stars /
@@ -80,11 +76,16 @@ All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
 
 ## State (release = USER-ONLY, ADR-0156)
 
-- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** complete; **0.2/CM**
-  default-ON; **0.3 FULL on all 3 OSes** (official 45/45, 0 skip). Sandbox
-  triad cross-engine.
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip **on the engine CI runs**. The JIT
+  spec lane is opt-in (`ZWASM_SPEC_ENGINE=jit`) and is NOT in CI, so that row
+  is not currently re-derivable for both engines.
+- **WASI 0.1**: syscall SURFACE complete (46/46, ADR-0161). Behaviour against
+  the official wasi-testsuite was measured 2026-08-14 at **58/72 interp,
+  54/72 jit** (x86_64-linux; wasmtime 47.0.3 scores 72/72 through the same
+  harness) — nothing gated that until now. **0.2/CM** default-ON; **0.3 FULL
+  on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
-  into cljw. Realworld 56 interp 56/0; JIT diff-gated. Debt: 0 `now`-class.
+  into cljw. Realworld 56 interp 56/0; JIT diff-gated.
 
 ## Key refs
 
