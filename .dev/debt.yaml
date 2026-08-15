@@ -23,11 +23,16 @@ entries:
       Measured on the vendored 3.0 corpus, which the crash previously blacked
       out entirely: JIT fail 277 -> 1 (memory64 276 -> 0; the residual 1 is
       gc/type-subtyping, unrelated).
-      REMAINING: (a) the trap kind at the eight sites — they report code 3, but
-      after (1) the only way to reach them is `fidx >= dispatch.len`, an
-      embedder-supplied short dispatch table. That is not a spec trap at all, so
-      the question is now whether it should carry a trap kind or an assert;
-      D-293/D-294 own the taxonomy. (b) `call_ref` / `return_call_ref` load
+      REMAINING: (a) the trap kind at the eight sites — they report code 3.
+      Two paths reach them: `fidx >= dispatch.len` (an embedder-supplied short
+      dispatch table) and `JitInstance.tableSetRef`, which clears the funcptr
+      mirror while leaving the parallel typeidx intact so the D-294 sentinel
+      does NOT fire — an ordinary embedder operation, not an exotic one, and
+      the reason that function's "traps cleanly" comment only became true with
+      (2). Its "uninitialized sentinel" wording still does not match what the
+      code writes. So the sites are load-bearing; what is undecided is only
+      which kind fits, and D-293/D-294 own that taxonomy. (b) `call_ref` /
+      `return_call_ref` load
       `FuncEntity.funcptr` and jump unchecked at four sites — same
       `dispatch.len` exposure, not covered by (2). (c) the eight sites have NO
       test coverage: nothing in the suite reaches a short dispatch table, and
@@ -42,7 +47,22 @@ entries:
       again at (b)'s four call_ref sites. Twice is a class, not an oversight.
       An emit-shape sweep asserting every funcptr load is followed by a zero
       test (or a baked site count, dispatch_consistency_audit-style) would close
-      it mechanically.
+      it mechanically. (f) WIDENED, not introduced, by (1): `marshalCallArgs`
+      puts overflow (stack) arguments in the caller's outgoing-args region and
+      `frame_teardown` destroys that region before an indirect tail jump, so a
+      callee with more parameters than the register pool reads garbage. That
+      was already true for JIT-body targets; it now also reaches host imports
+      placed in a table (a `path_open`-shaped WASI import is the realistic
+      case). Only `results.len > 2` is rejected at emit time; parameter count
+      is not checked anywhere. (g) PRE-EXISTING, and the mirror image of the
+      shape (1) had to guard against: a DIRECT `call $import` to an import with
+      a MEMORY-class return LEAs the buffer into arg0 (`op_call.zig` emitCall,
+      unconditional on callee kind) and `emitImportDispatch` then overwrites
+      arg0 with `rt`, so the buffer pointer is lost and `captureCallResult`
+      reads a region nothing wrote. Not reachable for embedder host funcs —
+      `jit_host_bridge.zig` returns null for `results.len != 1`, so those fall
+      back to interp — leaving a cross-module wasm import with 3+ results. The
+      table-mirror guard does not cover this path; it is untouched.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-15"
     refs: |-

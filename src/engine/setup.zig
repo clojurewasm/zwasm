@@ -1002,6 +1002,16 @@ pub fn setupRuntimeLinked(
                     canonical_type.canonicalTypeidx(t.items, raw_typeidx)
                 else
                     raw_typeidx;
+                // D-586 — an imported callee with a MEMORY-class return
+                // (results.len > 2) is not reachable through call_indirect:
+                // emitCallIndirect puts the hidden buffer pointer in arg0
+                // while the bridge thunk overwrites arg0 with callee_rt, so
+                // the callee would write its results through the runtime
+                // pointer. The tail path rejects this shape at emit time
+                // (D-210); call_indirect cannot, the callee being dynamic.
+                // Leave the mirror null and let the null-funcptr check trap.
+                if (compiled.module.func_offsets[fidx] == linker.IMPORT_SENTINEL_OFFSET and
+                    compiled.func_sigs[fidx].results.len > 2) continue;
                 // D-586 — `func_entities` resolved this above: a body address
                 // for a local function, the bridge thunk `dispatch[fidx]` for
                 // an import, so one assignment serves both and an imported
