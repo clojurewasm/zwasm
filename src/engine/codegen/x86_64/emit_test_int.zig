@@ -1637,8 +1637,8 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     const funcptr_off = body_start + 61;
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[funcptr_off .. funcptr_off + expected_funcptr_load.len]);
     // D-586 null-funcptr check: TEST RAX,RAX (3 bytes) ; JE → the cind sig trap
-    // stub (6 bytes). An imported function's funcptr mirror is null by design,
-    // and without this the CALL executed it.
+    // stub (6 bytes). A host-cleared slot leaves a zero funcptr with a valid
+    // typeidx, and without this the CALL executed it.
     const expected_fp_test = inst.encTestRR(.q, .rax, .rax);
     const fp_test_off = body_start + 65;
     try testing.expectEqualSlices(u8, expected_fp_test.slice(), out.bytes[fp_test_off .. fp_test_off + expected_fp_test.len]);

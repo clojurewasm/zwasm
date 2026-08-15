@@ -3,6 +3,33 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-587"
+    layer: "test"
+    status: "note"
+    description: |-
+      **`zig build test-all` is not safe to run twice concurrently on one
+      machine.** Measured 2026-08-15 on an identical tree: with two runs
+      overlapping, the second exited 1 on a WASI guest panicking
+      `failed to create file: Os { code: 44, kind: NotFound }`; an isolated
+      re-run of that same tree exited 0 with no failures. The tree was green
+      and the overlap was the only variable.
+      The mechanism is INFERRED, not isolated. The failing step writes through
+      a preopened directory and the log interleaved output from concurrent
+      build steps, so the likely cause is one run's fixture or temp cleanup
+      removing a path the other was still using. Nobody has bisected which
+      fixture owns the directory. Same family as the `dangling_symlink` case,
+      where leftover state made a later run falsely PASS — there the shared
+      state hid a failure, here it invents one.
+      Harmless today: CI gives each OS its own runner running one job, and
+      locally it is operator discipline. It bites if a self-hosted runner grows
+      parallel jobs, if the matrix ever shares a machine, or when two gates are
+      launched by hand — which is how it was found.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      `zig build test-all` (the test/ aggregator); the WASI fixtures that take
+      a preopen directory; `scripts/gate_commit.sh` + `scripts/ci_gate.sh` (the
+      two entry points that invoke it)
   - id: "D-586"
     layer: "code"
     status: "now"
@@ -12,7 +39,7 @@ entries:
       `funcptrs[i]` null on purpose — the JIT emits no host-dispatch trampoline
       of its own — and the inline path executed that null: SIGSEGV, with zwasm's
       own handler reporting "a bug in zwasm (not a wasm trap)".
-      Three changes landed together. (1) The mirror now takes
+      Two changes landed together. (1) The mirror now takes
       `func_entities[fidx].funcptr`, which for an import is the bridge thunk
       `dispatch[fidx]` — the same value `jitTableGrowCore` already copied on the
       `table.set` path, so reachability no longer depends on HOW the element
@@ -20,12 +47,6 @@ entries:
       (call_indirect and return_call_indirect, single- and multi-table on each
       arch), mirroring the test the subtyping path already had; the tail-call
       four surfaced only when review re-derived the funcptr-load site list.
-      (3) The D-225 loop does not plant a bridge thunk for an import whose
-      signature has a MEMORY-class return (`results.len > 2`), leaving
-      `dispatch[j]` at its pre-seeded `hostDispatchTrap`: that shape cannot
-      cross the thunk, which overwrites arg0 (the hidden buffer pointer) with
-      `callee_rt`, so the callee would write its results through the runtime
-      pointer. See (g) for why the guard sits at the origin.
       Measured on the vendored 3.0 corpus, which the crash previously blacked
       out entirely: JIT fail 277 -> 1 (memory64 276 -> 0; the residual 1 is
       gc/type-subtyping, unrelated).
@@ -63,24 +84,36 @@ entries:
       was already true for JIT-body targets; it now also reaches host imports
       placed in a table (a `path_open`-shaped WASI import is the realistic
       case). Only `results.len > 2` is rejected at emit time; parameter count
-      is not checked anywhere. (g) CLOSED by (3), recorded because the shape is
-      easy to reintroduce: a DIRECT `call $import` to an import with a
-      MEMORY-class return LEAs the buffer into arg0 (`op_call.zig` emitCall,
-      unconditional on callee kind) and `emitImportDispatch` then overwrites
-      arg0 with `rt`, losing the buffer pointer. A first attempt guarded only
-      the elem-segment mirror write and left `table.set` / `table.grow` /
-      `applyTableInitForTable`'s `global.get` form — and this direct path —
-      open. (3) moves the guard to the single origin instead: the D-225 loop
-      does not plant a bridge thunk for a MEMORY-class import, so `dispatch[j]`
-      keeps its pre-seeded `hostDispatchTrap` and every consumer of
-      `fe.funcptr` traps. Guard the origin, not the writers. (h) That origin
-      guard is UNVERIFIED. Reaching it needs a cross-module wasm import with
-      3+ results placed in a table, which `runVoidExportWasi` cannot build (one
-      module, no registry) and the vendored 3.0 corpus does not contain — the
-      lane reported an identical `pass=10853 fail=1 skip=435` with no guard,
-      with the first elem-only guard, and with this one, so no existing test
-      distinguishes them. Closing it means a cross-module fixture on the spec
-      runner side.
+      is not checked anywhere. (g) SEPARATE, PRE-EXISTING, own PR: an imported
+      callee with a MEMORY-class return (`results.len > 2`) is called with the
+      wrong pointer in arg0. `emitCall` / `emitCallIndirect` LEA the hidden
+      return buffer into arg0 unconditionally; the bridge thunk then overwrites
+      arg0 with `callee_rt`, and `emitImportDispatch` does the same on the
+      direct path. The callee writes its results through the runtime pointer.
+      This predates (1): `table.set`, `table.grow` and
+      `applyTableInitForTable`'s `global.get` form already copied
+      `fe.funcptr` — the thunk — for such an import, so three of the four table
+      routes reached it before this row existed. (1) changes only the fourth:
+      the elem-segment route stops crashing on a null and joins them.
+      Two attempted fixes are recorded as rejected. Guarding the elem-segment
+      mirror write alone left the other three routes open. Guarding the origin
+      (skip the thunk, leave `hostDispatchTrap`) is WORSE: that stub is
+      `fn(rt: *JitRuntime)` and reads arg0 as the runtime pointer, so for this
+      exact shape it stores into the caller's return buffer, never sets
+      `trap_flag`, and the call proceeds with garbage results. A trap stub
+      cannot be the fallback for a signature whose arg0 is not `rt`.
+      Candidates for the real fix: zero `fe.funcptr` at its origin AND
+      null-test the four `call_ref` sites (b); an arch-aware MEMORY-class trap
+      stub (x86_64 needs `rt` in arg1, arm64 already has it in X0); or refuse
+      to JIT a module with such an import, mirroring `jit_host_bridge`'s
+      existing `results.len != 1` interp fallback. (h) NOTHING EXERCISES THIS.
+      The shape needs a cross-module wasm import with 3+ results in a table.
+      `runVoidExportWasi` cannot build it (one module, no registry) and the
+      vendored 3.0 corpus does not contain it — the lane reported an identical
+      `pass=10853 fail=1 skip=435` with no guard, with the elem-only guard and
+      with the origin guard, so no test distinguishes any of them. Review found
+      this class by reading the code, never by running it. (g)'s PR has to
+      solve the fixture problem too, or it ships unverifiable.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-15"
     refs: |-

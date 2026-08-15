@@ -1387,8 +1387,8 @@ pub fn jitGcRefCast(rt: *JitRuntime, ref: u64, ht: u32) callconv(.c) u64 {
 /// callee identity. An empty slot (sentinel typeidx `maxInt(u32)`) reaches no
 /// type → 0 → trap. An imported-function slot returns the bridge thunk and IS
 /// callable (D-586 — it used to hold 0 and the inline sites dereferenced it);
-/// the shapes the thunk cannot carry never reach a table, being excluded where
-/// `dispatch` is populated. Both arches treat a `0` return
+/// a MEMORY-class signature is the one shape the thunk cannot carry, and it is
+/// mis-called rather than rejected — D-586 (g). Both arches treat a `0` return
 /// as a trap; arm64 then calls the returned funcptr directly (it survives the
 /// arg marshal in a reserved scratch reg), x86_64 re-derives the funcptr inline
 /// (its idx survives in the all-callee-saved regalloc pool). gti null is

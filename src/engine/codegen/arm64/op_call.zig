@@ -455,8 +455,8 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         // Funcptr load + BLR. Restore X0 = runtime_ptr (ADR-0017
         // sub-2d-ii) before transferring control.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 26, 17));
-        // D-586 — see the x86_64 mirror. X17 = funcptr; null means an imported
-        // function with no trampoline emitted.
+        // D-586 — see the x86_64 mirror. X17 = funcptr; zero means a host
+        // cleared the slot via `tableSetRef` (typeidx still valid).
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(17, 0));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -525,8 +525,8 @@ pub fn emitCallIndirect(ctx: *EmitCtx, ins: *const ZirInstr) Error!void {
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_funcptr_byte_off)));
         // LDR X17, [X16, X17, LSL #3]  — funcptr_base[idx]
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(17, 16, 17));
-        // D-586 — see the x86_64 mirror. X17 = funcptr; null means an imported
-        // function with no trampoline emitted.
+        // D-586 — see the x86_64 mirror. X17 = funcptr; zero means a host
+        // cleared the slot via `tableSetRef` (typeidx still valid).
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(17, 0));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);

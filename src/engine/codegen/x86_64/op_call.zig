@@ -583,11 +583,11 @@ pub fn emitCallIndirect(
         // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
-        // D-586 — an imported function in a table has a null funcptr mirror by
-        // design: setup.zig emits no host_dispatch trampoline and elects a NULL
-        // deref over running arbitrary host code. The deref was never a trap
-        // though — it killed the process. Test for it, as the subtyping path
-        // above already does, and report what that path reports.
+        // D-586 — a zero funcptr with a VALID typeidx: a host cleared this
+        // slot through `tableSetRef`, which leaves the typeidx mirror intact so
+        // the D-294 sentinel does not fire. Imports themselves hold the bridge
+        // thunk. Without this test the CALL executed the zero and the process
+        // died; test for it as the subtyping path above already does.
         try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
         {
             const fixup_at: u32 = @intCast(buf.items.len);
@@ -654,11 +654,11 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_funcptr_disp).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
-        // D-586 — an imported function in a table has a null funcptr mirror by
-        // design: setup.zig emits no host_dispatch trampoline and elects a NULL
-        // deref over running arbitrary host code. The deref was never a trap
-        // though — it killed the process. Test for it, as the subtyping path
-        // above already does, and report what that path reports.
+        // D-586 — a zero funcptr with a VALID typeidx: a host cleared this
+        // slot through `tableSetRef`, which leaves the typeidx mirror intact so
+        // the D-294 sentinel does not fire. Imports themselves hold the bridge
+        // thunk. Without this test the CALL executed the zero and the process
+        // died; test for it as the subtyping path above already does.
         try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
         {
             const fixup_at: u32 = @intCast(buf.items.len);

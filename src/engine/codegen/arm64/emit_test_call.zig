@@ -386,7 +386,7 @@ test "compile: call_indirect — bounds (CMP/B.HS) + sig (LDR/CMP/B.NE) + funcpt
 
     // Layout (post-sub-2d-ii prologue=32; D-294 inserted CMN+B.EQ null-check
     // between the sig load and the sig CMP; D-586 inserted CMP+B.EQ after the
-    // funcptr load — an imported function's mirror is null by design and the
+    // funcptr load — a host-cleared slot leaves a zero funcptr and the
     // call would otherwise execute it):
     //   [32..36] MOVZ W9, #5                   ; idx const
     //   [36..40] ORR W17, WZR, W9              ; zero-extend idx

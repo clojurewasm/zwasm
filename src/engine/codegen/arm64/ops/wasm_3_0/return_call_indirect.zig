@@ -1,6 +1,6 @@
 //! arm64 emit handler for `return_call_indirect` — Zone 2 per
-//! ADR-0074 + ADR-0112 D2. A null funcptr (imported function in a
-//! table) traps per D-586.
+//! ADR-0074 + ADR-0112 D2. A zero funcptr (host-cleared table
+//! slot) traps per D-586.
 //!
 //! Wasm spec 3.0 §3.3.8.19 (tail-call proposal). Pop index from
 //! the operand stack, bounds + sig check, then frame teardown

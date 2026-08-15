@@ -310,7 +310,7 @@ pub fn emitIndirectReturnCall(
         // scratch; R11 is the JMP target per `tail_target_gpr`.
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromBaseIdxLsl3(tail_target_gpr, .rax, idx_r).slice());
-        // D-586 — null funcptr (imported function in a table): trap, do not JMP.
+        // D-586 — zero funcptr (host-cleared slot, typeidx valid): trap, do not JMP.
         try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, tail_target_gpr, tail_target_gpr).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -363,7 +363,7 @@ pub fn emitIndirectReturnCall(
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_funcptr_disp).slice());
         try ctx.buf.appendSlice(ctx.allocator, inst.encMovR64FromBaseIdxLsl3(tail_target_gpr, .rax, idx_r).slice());
-        // D-586 — null funcptr (imported function in a table): trap, do not JMP.
+        // D-586 — zero funcptr (host-cleared slot, typeidx valid): trap, do not JMP.
         try ctx.buf.appendSlice(ctx.allocator, inst.encTestRR(.q, tail_target_gpr, tail_target_gpr).slice());
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);

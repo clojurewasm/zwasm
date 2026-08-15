@@ -1,5 +1,5 @@
 //! arm64 emit handler for `call_indirect` — Zone 2 per ADR-0074.
-//! A null funcptr (imported function in a table) traps per D-586.
+//! A zero funcptr (host-cleared table slot) traps per D-586.
 
 const meta = @import("../../../../../instruction/wasm_1_0/call_indirect.zig");
 const ctx_mod = @import("../../ctx.zig");

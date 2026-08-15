@@ -483,16 +483,6 @@ pub fn setupRuntimeLinked(
             thunk_arena = arena;
             for (func_import_targets, 0..) |t, j| {
                 if (j >= num_func_imports or t.callee_entry == 0) continue;
-                // D-586 — a MEMORY-class return (results.len > 2) cannot cross
-                // the bridge thunk: emitCall / emitCallIndirect put the hidden
-                // buffer pointer in arg0 and the thunk overwrites it with
-                // callee_rt, so the callee would write its results through the
-                // runtime pointer. Leave the slot at its pre-seeded
-                // `hostDispatchTrap`. Guarding the origin closes every consumer
-                // of `fe.funcptr` at once — elem segments, `table.set`,
-                // `table.grow`, `applyTableInitForTable`, `call_ref`, and the
-                // direct call path — instead of one writer at a time.
-                if (j < compiled.func_sigs.len and compiled.func_sigs[j].results.len > 2) continue;
                 const slot = shared_thunk.thunkSlot(arena, j);
                 shared_thunk.emitThunk(slot, t.callee_rt, t.callee_entry);
                 dispatch[j] = @intFromPtr(slot.ptr);
@@ -1015,13 +1005,16 @@ pub fn setupRuntimeLinked(
                 // D-586 — `func_entities` resolved this above: a body address
                 // for a local function, `dispatch[fidx]` for an import, so one
                 // assignment serves both and an imported table element is
-                // callable. Same value `jitTableGrowCore` copies on the
-                // `table.set` path, so reachability no longer depends on how
-                // the element got here — and a signature the bridge thunk
-                // cannot carry is excluded at the origin (the D-225 loop),
-                // which is what makes this single write safe for every writer.
-                // This branch used to leave an import's mirror null and the
-                // emit sites executed it (SIGSEGV).
+                // callable. This is the same value `jitTableGrowCore` already
+                // copied on the `table.set` path, so reachability stops
+                // depending on how the element got here; this branch used to
+                // leave the mirror null and the emit sites executed it
+                // (SIGSEGV). One signature the bridge thunk cannot carry — a
+                // MEMORY-class return — is still mis-called on every route,
+                // including the three that already reached the thunk before
+                // this line changed. D-586 (g) owns that; it is not guarded
+                // here, because a guard on this write alone would leave those
+                // three open.
                 tbl_funcptrs[base + i] = func_entities[fidx].funcptr;
             }
         }

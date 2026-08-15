@@ -293,7 +293,7 @@ pub fn emitIndirectReturnCall(
         // Funcptr load: LDR X16, [X26, X17, LSL #3]. X16 = tail-target
         // (per `tail_target_gpr`) — matches the BR X16 in step (7).
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 26, 17));
-        // D-586 — null funcptr (imported function in a table): trap, do not BR.
+        // D-586 — zero funcptr (host-cleared slot, typeidx valid): trap, do not BR.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(tail_target_gpr, 0));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
@@ -346,7 +346,7 @@ pub fn emitIndirectReturnCall(
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, rt_reg, jit_abi.tables_jit_ci_ptr_off));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrImm(16, 16, @intCast(ci_funcptr_byte_off)));
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encLdrXRegLsl3(tail_target_gpr, 16, 17));
-        // D-586 — null funcptr (imported function in a table): trap, do not BR.
+        // D-586 — zero funcptr (host-cleared slot, typeidx valid): trap, do not BR.
         try gpr.writeU32(ctx.allocator, ctx.buf, inst.encCmpImmX(tail_target_gpr, 0));
         {
             const fixup_at: u32 = @intCast(ctx.buf.items.len);
