@@ -63,8 +63,9 @@ preserved long-term.
   (aarch64-darwin) + `ubuntu-latest` (x86_64-linux). **Trigger is
   `workflow_dispatch` only** — the push trigger was disabled
   2026-05-25 because local development is the primary path and the
-  auto-runs produced noise; start it with `gh workflow run
-  bench.yml --ref main`. Each arch uploads a YAML
+  auto-runs produced noise. It watched `zwasm-from-scratch`, the
+  then-current dev branch, not `main`. Start a run with
+  `gh workflow run bench.yml --ref main`. Each arch uploads a YAML
   fragment as an artifact; an `aggregate` job merges them in
   arch-name-sorted order into `history.yaml` and pushes one bot
   commit tagged `[skip ci]`. windowsmini stays a local-only path
@@ -117,7 +118,8 @@ cranelift, wasmer singlepass) is recorded but not gated.
 
 ## Current status (post-Phase-7, Phase-8 onward)
 
-`scripts/run_bench.sh` is hyperfine-driven; CI records two arch
-rows per push (per the cadence above). Local phase-boundary
-rows continue to land via `--phase-record`. The pre-Phase-6
+`scripts/run_bench.sh` is hyperfine-driven; the CI job records two
+arch rows when it is dispatched (per the cadence above) — nothing
+runs it automatically. Local phase-boundary rows continue to land
+via `--phase-record`, and are the path that actually gets used. The pre-Phase-6
 trap-time baseline rows are preserved per ADR-0011 §3.
