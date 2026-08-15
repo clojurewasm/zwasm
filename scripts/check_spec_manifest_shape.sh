@@ -82,6 +82,26 @@ for corpus in "${CORPORA[@]}"; do
     echo "EMPTY    $corpus (no manifest.txt found)"
     violations=$((violations + 1))
   fi
+
+  # The depth pin above keeps the guard counting exactly what the runner
+  # reads — but that cuts both ways: a manifest at any OTHER depth is read
+  # by neither, so the corpus could grow directives that both numbers
+  # ignore and the two would still agree at a stale total. Flag any that
+  # the pinned shape excludes. (`raw/` is excluded on purpose: the runner
+  # skips it by name.)
+  # Depth is measured on the path, not with -mindepth/-maxdepth: those are
+  # global traversal options in find, so combining them with -o does NOT
+  # express "shallower than 3 OR deeper than 3" and silently matches nothing.
+  while IFS= read -r stray; do
+    [ -z "$stray" ] && continue
+    rel="${stray#"$corpus"/}"
+    depth=$(printf '%s' "$rel" | tr -cd '/' | wc -c)
+    # <proposal>/<subdir>/manifest.txt == 2 separators. Anything else is
+    # outside the shape the runner walks.
+    [ "$depth" -eq 2 ] && continue
+    echo "UNREAD   $stray  (outside <proposal>/<subdir>/manifest.txt — the runner never reads it, so its directives are in no tally)"
+    violations=$((violations + 1))
+  done < <(find "$corpus" -name manifest.txt -not -path '*/raw/*' | sort)
 done
 
 echo "=== spec manifest shape check ==="

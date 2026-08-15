@@ -1528,6 +1528,21 @@ pub fn main(init: std.process.Init) !void {
                         }
                     },
                     .assert_exception => {
+                        // ASYMMETRY, deliberate and worth naming: unlike
+                        // assert_return / assert_trap this arm has no jit
+                        // branch, so under ZWASM_SPEC_ENGINE=jit it still
+                        // evaluates the INTERP instance — whose state the
+                        // jit-mode `.invoke` arm never drives (that arm
+                        // routes setup through cur_jit and continues before
+                        // invokeInstanceVoid). The printed row therefore
+                        // carries `return=` as the engine-under-test's
+                        // verdict next to `exception=`, which is interp-only
+                        // in both lanes. All four corpus directives are
+                        // stateless enough that nothing is hidden today; a
+                        // future STATEFUL exception fixture would fail the
+                        // jit lane for a harness reason and read as an
+                        // engine defect. Give this arm a jit branch before
+                        // adding one.
                         summary.exception.total += 1;
                         _ = cur_module_bytes orelse {
                             summary.exception.skip += 1;
