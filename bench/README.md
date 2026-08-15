@@ -58,10 +58,14 @@ preserved long-term.
   separate PR per merge). Put the PR intent in `--reason`; the
   entry's SHA is the branch tip (cosmetic). Skip for trivial /
   doc-only changes.
-- **Per-push CI**: [`.github/workflows/bench.yml`](../.github/workflows/bench.yml)
-  runs `--quick --phase-record` on every push to
-  `main` across `macos-latest` (aarch64-darwin) +
-  `ubuntu-latest` (x86_64-linux). Each arch uploads a YAML
+- **On-demand CI**: [`.github/workflows/bench.yml`](../.github/workflows/bench.yml)
+  runs `--quick --phase-record` across `macos-latest`
+  (aarch64-darwin) + `ubuntu-latest` (x86_64-linux). **Trigger is
+  `workflow_dispatch` only** — the push trigger was disabled
+  2026-05-25 because local development is the primary path and the
+  auto-runs produced noise. It watched `zwasm-from-scratch`, the
+  then-current dev branch, not `main`. Start a run with
+  `gh workflow run bench.yml --ref main`. Each arch uploads a YAML
   fragment as an artifact; an `aggregate` job merges them in
   arch-name-sorted order into `history.yaml` and pushes one bot
   commit tagged `[skip ci]`. windowsmini stays a local-only path
@@ -96,8 +100,9 @@ ADR-0056.)
 
 `bench/results/history.yaml` is append-only (ROADMAP §A9). Rows
 are added by `scripts/run_bench.sh --phase-record` (manual /
-phase boundary) and the per-push CI bench-aggregate job
-([`.github/workflows/bench.yml`](../.github/workflows/bench.yml)).
+phase boundary) and the CI bench-aggregate job
+([`.github/workflows/bench.yml`](../.github/workflows/bench.yml),
+`workflow_dispatch` only).
 Never edit historical rows.
 
 `bench/results/recent.yaml` is gitignored and overwritten on
@@ -113,7 +118,9 @@ cranelift, wasmer singlepass) is recorded but not gated.
 
 ## Current status (post-Phase-7, Phase-8 onward)
 
-`scripts/run_bench.sh` is hyperfine-driven; CI records two arch
-rows per push (per the cadence above). Local phase-boundary
-rows continue to land via `--phase-record`. The pre-Phase-6
+`scripts/run_bench.sh` is hyperfine-driven; the CI job records two
+arch rows when it is dispatched (per the cadence above) — nothing
+runs it automatically. Local phase-boundary rows continue to
+land via `--phase-record`, and are the path that actually gets
+used. The pre-Phase-6
 trap-time baseline rows are preserved per ADR-0011 §3.
