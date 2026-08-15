@@ -57,7 +57,9 @@ For the wasm-3.0 runner, in full:
    `cat test/spec/wasm-3.0-assert/*/*/manifest.txt | wc -l`.
    `scripts/check_spec_manifest_shape.sh --gate` pins the property that
    makes that true (one directive per line; no blanks, comments, or
-   indentation).
+   indentation), and is wired into `ci_gate.sh`'s core leg (every PR, all
+   three OSes) plus `gate_commit.sh`. A guard nothing invokes pins
+   nothing.
 4. Both identities are printed (`RECONCILE` / `ACCOUNTING: CLOSED|OPEN`)
    and gated. A conformance number computed from a tally that cannot
    account for its own denominator is worse than no number: it reads as
@@ -65,6 +67,17 @@ For the wasm-3.0 runner, in full:
 5. `unparsed` and `unknown` are counted and named on stdout but are **not**
    themselves gated — a harness gap must be visible without being
    reported as a spec failure.
+6. A fail must be **locatable in a default run**. The per-manifest locator
+   keys off `jit_return.fail` as well as `ret.fail` / `trap.fail`: in jit
+   mode the verdict lands in `jit_return`, so a JIT return-fail used to
+   appear in the totals with nothing naming the manifest unless
+   `--fail-detail` was passed. That was the symptom that started this
+   work, and closing the accounting did not by itself close it.
+7. The lanes that print a bare `residual` also print `overcounted`.
+   `residual` saturates at zero, so a corpus whose columns claim more
+   lines than were read — a line tallied twice, the exact defect the
+   wasm-3.0 shared `skips` bucket had — would read as perfectly
+   accounted.
 
 The five counting defects above are fixed rather than papered over: split
 `uninstantiable` from `trap`, give `skip-adr-*` a `Kind`, give every

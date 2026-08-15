@@ -506,6 +506,14 @@ pub fn main(init: std.process.Init) !void {
             // map for the next cycle.
             const mf_ret_fail0 = summary.ret.fail;
             const mf_trap_fail0 = summary.trap.fail;
+            // In jit mode the assert_return verdict lands in `jit_return`
+            // (the interp path is bypassed), so `ret.fail` stays 0 for the
+            // whole loop and the locator below never fired — a JIT
+            // return-fail was counted in the totals with nothing naming the
+            // manifest it came from unless `--fail-detail` was passed.
+            // That was the originally-reported symptom, and closing the
+            // accounting alone did not close it.
+            const mf_jit_fail0 = summary.jit_return.fail;
 
             // Active module bytes for assert_return dispatch. A new
             // `module <path>` directive replaces the slice; the
@@ -1587,8 +1595,9 @@ pub fn main(init: std.process.Init) !void {
             }
             const mf_ret_fail = summary.ret.fail - mf_ret_fail0;
             const mf_trap_fail = summary.trap.fail - mf_trap_fail0;
-            if (mf_ret_fail + mf_trap_fail > 0) {
-                try stdout.print("  [{s}/{s}] return_fail={d} trap_fail={d}\n", .{ proposal, entry.name, mf_ret_fail, mf_trap_fail });
+            const mf_jit_fail = summary.jit_return.fail - mf_jit_fail0;
+            if (mf_ret_fail + mf_trap_fail + mf_jit_fail > 0) {
+                try stdout.print("  [{s}/{s}] return_fail={d} trap_fail={d} jit_return_fail={d}\n", .{ proposal, entry.name, mf_ret_fail, mf_trap_fail, mf_jit_fail });
             }
         }
 

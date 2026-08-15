@@ -144,6 +144,18 @@ pub const AssertTally = struct {
         const acc = self.accounted();
         return if (self.lines > acc) self.lines - acc else 0;
     }
+
+    /// Columns claiming MORE lines than were read — i.e. some line was
+    /// tallied twice. `residual()` alone cannot show this: it saturates
+    /// at zero, so an over-count reads exactly like a perfectly
+    /// accounted corpus. Printed alongside so the clamp cannot hide the
+    /// very failure mode this accounting exists to catch (the wasm-3.0
+    /// runner's shared `skips` bucket double-counted for exactly this
+    /// reason).
+    pub fn overcounted(self: AssertTally) u32 {
+        const acc = self.accounted();
+        return if (acc > self.lines) acc - self.lines else 0;
+    }
 };
 
 /// ADR-0029 Path B classification — categorise a manifest line's
