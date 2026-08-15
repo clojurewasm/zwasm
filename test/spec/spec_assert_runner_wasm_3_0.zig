@@ -195,35 +195,102 @@ const PROPOSALS = [_][]const u8{
     "multi-memory",
 };
 
+/// One assertion category's tally. The runner's central invariant is
+/// that this closes: every directive of the category reaches exactly one
+/// of pass / fail / skip. Before ADR-0210 several arms had `continue`
+/// paths that incremented none of them, so `total` silently exceeded
+/// pass+fail and the difference had no name (73 assert_return directives
+/// on the interp lane).
+const KindTally = struct {
+    total: u32 = 0,
+    pass: u32 = 0,
+    fail: u32 = 0,
+    skip: u32 = 0,
+
+    fn closes(self: KindTally) bool {
+        return self.total == self.pass + self.fail + self.skip;
+    }
+
+    fn add(self: *KindTally, other: KindTally) void {
+        self.total += other.total;
+        self.pass += other.pass;
+        self.fail += other.fail;
+        self.skip += other.skip;
+    }
+};
+
 const ProposalSummary = struct {
     name: []const u8,
     manifests: u32 = 0,
+    /// ADR-0210 — the enumeration denominator: every non-blank manifest
+    /// line seen. Externally re-derivable without running the runner:
+    ///   cat <proposal>/*/manifest.txt | wc -l
+    /// (the corpus is one directive per line, no blanks and no comments;
+    /// `check_spec_manifest_shape.sh` pins that).
+    lines: u32 = 0,
+    // ---- non-assertion directives: executed, but carry no verdict ----
     modules: u32 = 0,
-    asserts_return: u32 = 0,
-    asserts_return_pass: u32 = 0,
-    asserts_return_fail: u32 = 0,
-    asserts_trap: u32 = 0,
-    asserts_trap_pass: u32 = 0,
-    asserts_trap_fail: u32 = 0,
-    asserts_invalid: u32 = 0,
-    asserts_invalid_pass: u32 = 0,
-    asserts_invalid_fail: u32 = 0,
-    asserts_unlinkable: u32 = 0,
-    asserts_unlinkable_pass: u32 = 0,
-    asserts_unlinkable_fail: u32 = 0,
-    asserts_malformed: u32 = 0,
-    asserts_malformed_pass: u32 = 0,
-    asserts_malformed_fail: u32 = 0,
-    asserts_exception: u32 = 0,
-    asserts_exception_pass: u32 = 0,
-    asserts_exception_fail: u32 = 0,
+    registers: u32 = 0,
+    invokes: u32 = 0,
+    /// Manifest-level skip lines ONLY (`skip-impl` / `skip-validator` /
+    /// `skip-runtime` / `skip-adr-<id>`). Pre-ADR-0210 this doubled as a
+    /// dumping ground for per-assertion skips raised by the module /
+    /// register / return / trap arms, which both double-counted (the
+    /// assert kind had already been tallied) and made the printed
+    /// `skip=` unattributable to any category.
     skips: u32 = 0,
-    // §1 (ADR-0128) — JIT execution-mode tallies (populated only when
-    // ZWASM_SPEC_ENGINE=jit). pass/fail are real JIT outcomes; skip = a
-    // shape not yet wired through the JIT (see jitReturnEligible).
-    jit_return_pass: u32 = 0,
-    jit_return_fail: u32 = 0,
-    jit_return_skip: u32 = 0,
+    /// Parsed fine but named no kind the runner handles. Was `=> {}`:
+    /// 95 `skip-adr-*` lines vanished here before the parser learned
+    /// the kind, and any future corpus directive would too.
+    unknown: u32 = 0,
+    /// `parseLine` returned an error. Was `catch continue` — 3 corpus
+    /// lines (1 over-wide result list + 2 spaced export names) were
+    /// dropped before reaching the kind switch, so they were absent
+    /// even from `asserts_return`.
+    unparsed: u32 = 0,
+    /// A sub-corpus the runner could not read at all (manifest read,
+    /// engine init, or sub-dir open). NOT part of the line identity —
+    /// it CANNOT be, because a manifest that never opened contributes
+    /// zero to both sides of it. That is precisely why it needs its own
+    /// counter and its own gate: the identity is invariant under
+    /// "silently drop a whole manifest", so on its own it would certify
+    /// a run that skipped thousands of assertions.
+    manifest_errors: u32 = 0,
+    // ---- assertion categories ----
+    ret: KindTally = .{},
+    trap: KindTally = .{},
+    invalid: KindTally = .{},
+    unlinkable: KindTally = .{},
+    /// Split out of `trap` by ADR-0210. Merging the two made the printed
+    /// `trap=2573` irreconcilable with the corpus's 2553 `assert_trap`
+    /// lines (the 20 `assert_uninstantiable` lines were hiding in it).
+    uninstantiable: KindTally = .{},
+    malformed: KindTally = .{},
+    exception: KindTally = .{},
+    // §1 (ADR-0128) — JIT execution-mode tally for assert_return
+    // (populated only when ZWASM_SPEC_ENGINE=jit). pass/fail are real JIT
+    // outcomes; skip = a shape not yet wired through the JIT (see
+    // jitReturnEligible). `total` mirrors `ret.total`, so this closes
+    // against the same denominator the interp lane uses.
+    jit_return: KindTally = .{},
+
+    /// ADR-0210 — the whole point of the accounting: every line read from
+    /// a manifest lands in exactly one bucket, and every assertion
+    /// category resolves to pass / fail / skip. Both halves are checked;
+    /// a false verdict fails the run rather than printing a number nobody
+    /// can reconcile.
+    fn closes(self: ProposalSummary) bool {
+        const bucketed = self.modules + self.registers + self.invokes +
+            self.skips + self.unknown + self.unparsed +
+            self.ret.total + self.trap.total + self.invalid.total +
+            self.unlinkable.total + self.uninstantiable.total +
+            self.malformed.total + self.exception.total;
+        if (bucketed != self.lines) return false;
+        return self.ret.closes() and self.trap.closes() and
+            self.invalid.closes() and self.unlinkable.closes() and
+            self.uninstantiable.closes() and self.malformed.closes() and
+            self.exception.closes();
+    }
 };
 
 /// §1 (ADR-0128) — JIT execution-mode eligibility for an `assert_return`
@@ -339,10 +406,10 @@ fn recordJitRunErr(
     fname: []const u8,
 ) !void {
     if (jitErrorIsUnwiredShape(e)) {
-        summary.jit_return_skip += 1;
+        summary.jit_return.skip += 1;
         if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (unwired shape: err={s})\n", .{ proposal, ename, fname, @errorName(e) });
     } else {
-        summary.jit_return_fail += 1;
+        summary.jit_return.fail += 1;
         if (fail_detail) try stdout.print("  JITfail [{s}/{s}] {s} err={s}\n", .{ proposal, ename, fname, @errorName(e) });
     }
 }
@@ -355,7 +422,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var args = try init.minimal.args.iterateAllocator(gpa);
@@ -412,30 +479,31 @@ pub fn main(init: std.process.Init) !void {
     };
     defer dir.close(io);
 
-    var grand_total_manifests: u32 = 0;
-    var grand_total_directives: u32 = 0;
-    var grand_total_return_pass: u32 = 0;
-    var grand_total_return_fail: u32 = 0;
-    var grand_total_trap_pass: u32 = 0;
-    var grand_total_trap_fail: u32 = 0;
-    var grand_total_invalid_pass: u32 = 0;
-    var grand_total_invalid_fail: u32 = 0;
-    var grand_total_unlinkable_pass: u32 = 0;
-    var grand_total_unlinkable_fail: u32 = 0;
-    var grand_total_malformed_pass: u32 = 0;
-    var grand_total_malformed_fail: u32 = 0;
-    var grand_total_exception_pass: u32 = 0;
-    var grand_total_exception_fail: u32 = 0;
-    // §1 (ADR-0128) — JIT execution-mode grand tallies.
-    var grand_total_jit_pass: u32 = 0;
-    var grand_total_jit_fail: u32 = 0;
-    var grand_total_jit_skip: u32 = 0;
+    // ADR-0210 — the grand total is the same shape as a per-proposal
+    // summary, so the identity that is checked per proposal is checked
+    // once more over the whole corpus by exactly the same code.
+    var grand: ProposalSummary = .{ .name = "wasm-3.0-assert" };
+    var mismatched_proposals: u32 = 0;
 
     for (PROPOSALS) |proposal| {
         var summary: ProposalSummary = .{ .name = proposal };
 
-        var pdir = dir.openDir(io, proposal, .{ .iterate = true }) catch {
-            try stdout.print("[{s}] (no subdir; 0 manifests)\n", .{proposal});
+        // ADR-0210 — the fourth sibling of the swallow points below, and the
+        // widest: dropping a PROPOSALS entry removes a whole proposal's
+        // assertions from both sides of the identity, so the run still
+        // printed `[gc] (no subdir; 0 manifests)` and `ACCOUNTING: CLOSED`
+        // and exited 0. All six directories are committed (verified
+        // 2026-08-15), so the Phase-10 build-out tolerance this message was
+        // written for no longer has anything to tolerate — any failure to
+        // open one is the ADR-0174 path-resolution class, exactly like the
+        // corpus root above.
+        var pdir = dir.openDir(io, proposal, .{ .iterate = true }) catch |err| {
+            // Straight onto `grand`: this `continue` skips the accumulation
+            // at the end of the loop, so an increment on `summary` would be
+            // discarded — and would silently become a double count the day
+            // someone moves the accumulation earlier.
+            grand.manifest_errors += 1;
+            try stdout.print("PROPOSAL-DIR-FAIL  {s}: {s} — a committed sub-corpus that cannot be opened is a real error, not 0 manifests\n", .{ proposal, @errorName(err) });
             continue;
         };
         defer pdir.close(io);
@@ -448,7 +516,19 @@ pub fn main(init: std.process.Init) !void {
             const manifest_path = try std.fmt.allocPrint(gpa, "{s}/manifest.txt", .{entry.name});
             defer gpa.free(manifest_path);
 
-            const manifest = pdir.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch continue;
+            // ADR-0210 — the identity is invariant under "drop a whole
+            // manifest": both `lines` and the buckets shrink by the same
+            // amount, so a manifest that never opened still printed CLOSED
+            // and exited 0. That is the failure mode ADR-0174 exists for
+            // (the windows path-resolution class), and the corpus root
+            // already FAILs loudly for it — a per-manifest read failure has
+            // to as well, or the denominator only ever certifies the subset
+            // the runner happened to reach.
+            const manifest = pdir.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-READ-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer gpa.free(manifest);
 
             summary.manifests += 1;
@@ -458,8 +538,16 @@ pub fn main(init: std.process.Init) !void {
             // below only when this manifest contributed > 0 fails — turns
             // the diffuse per-proposal totals into a targetable per-feature
             // map for the next cycle.
-            const mf_ret_fail0 = summary.asserts_return_fail;
-            const mf_trap_fail0 = summary.asserts_trap_fail;
+            const mf_ret_fail0 = summary.ret.fail;
+            const mf_trap_fail0 = summary.trap.fail;
+            // In jit mode the assert_return verdict lands in `jit_return`
+            // (the interp path is bypassed), so `ret.fail` stays 0 for the
+            // whole loop and the locator below never fired — a JIT
+            // return-fail was counted in the totals with nothing naming the
+            // manifest it came from unless `--fail-detail` was passed.
+            // That was the originally-reported symptom, and closing the
+            // accounting alone did not close it.
+            const mf_jit_fail0 = summary.jit_return.fail;
 
             // Active module bytes for assert_return dispatch. A new
             // `module <path>` directive replaces the slice; the
@@ -544,7 +632,14 @@ pub fn main(init: std.process.Init) !void {
             // Modules + Instances in arrays. Each instantiate
             // resolves against the cumulative Linker entries
             // (populated by prior `register <as>` directives).
-            var cur_engine: zwasm.Engine = zwasm.Engine.init(gpa, .{}) catch continue;
+            // Same class as the manifest read above: skipping the engine
+            // drops every directive in this manifest from the denominator
+            // as well as from the buckets, so the identity still closes.
+            var cur_engine: zwasm.Engine = zwasm.Engine.init(gpa, .{}) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-ENGINE-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer cur_engine.deinit();
             var cur_linker: zwasm.Linker = zwasm.Linker.init(&cur_engine);
             defer cur_linker.deinit();
@@ -684,7 +779,11 @@ pub fn main(init: std.process.Init) !void {
 
             // Sub-corpus dir (e.g. `tail-call/return_call/`) — both
             // the manifest AND the .wasm files it cites live here.
-            var sub_dir = pdir.openDir(io, entry.name, .{}) catch continue;
+            var sub_dir = pdir.openDir(io, entry.name, .{}) catch |err| {
+                summary.manifest_errors += 1;
+                try stdout.print("MANIFEST-DIR-FAIL  {s}/{s}: {s}\n", .{ proposal, entry.name, @errorName(err) });
+                continue;
+            };
             defer sub_dir.close(io);
 
             var lines = std.mem.splitScalar(u8, manifest, '\n');
@@ -698,9 +797,21 @@ pub fn main(init: std.process.Init) !void {
                 // already trim `" \r\t"`; the wasm-3.0 runner was the lone miss.
                 const line = std.mem.trim(u8, raw, " \r\t");
                 if (line.len == 0) continue;
+                summary.lines += 1;
                 var args_buf: [4]manifest_parser.TypedValue = undefined;
-                var results_buf: [4]manifest_parser.TypedValue = undefined;
-                const d = manifest_parser.parseLine(line, &args_buf, &results_buf) catch continue;
+                // Corpus max is 8 (gc/type-subtyping's 8×i32 multi-value
+                // `run`); a [4] buffer made that line OutOfRange, and the
+                // `catch continue` below then erased it entirely.
+                var results_buf: [16]manifest_parser.TypedValue = undefined;
+                const d = manifest_parser.parseLine(line, &args_buf, &results_buf) catch |err| {
+                    // ADR-0210 / ADR-0174 no-silent-skip: a manifest line the
+                    // parser cannot read is a REAL gap in the harness, not an
+                    // absent directive. Counted into the denominator and named
+                    // on stdout so it cannot masquerade as "nothing was there".
+                    summary.unparsed += 1;
+                    try stdout.print("UNPARSED  {s}/{s}: {s} ({s})\n", .{ proposal, entry.name, line, @errorName(err) });
+                    continue;
+                };
                 switch (d.kind) {
                     .module => {
                         summary.modules += 1;
@@ -729,8 +840,17 @@ pub fn main(init: std.process.Init) !void {
                             // .wasm that can't be read is a REAL error, not a skip —
                             // surfacing it roots-caused the windowsmini pass=0 anomaly
                             // (every module silently un-loaded → asserts un-evaluated).
-                            // No-op on hosts where the read succeeds (Mac/ubuntu).
-                            std.debug.print("[wasm-3.0-assert] {s}/{s} MODULE-READ-FAIL: {s}\n", .{ proposal, d.module_path, @errorName(err) });
+                            // ADR-0210 — and it must GATE, which printing alone did
+                            // not do. Every later assert for this module takes the
+                            // `cur_module_bytes orelse` path and lands in `ret.skip` /
+                            // `trap.skip`, so the identity closes and the run exits 0
+                            // with hundreds of assertions quietly downgraded to skips.
+                            // Counted with the other sub-corpus-level read failures,
+                            // and on stdout so it sits in the same stream as the
+                            // accounting it invalidates (std.debug.print goes to
+                            // stderr, which the summary reader never sees).
+                            summary.manifest_errors += 1;
+                            try stdout.print("MODULE-READ-FAIL  {s}/{s}: {s} — later asserts for this module become skips\n", .{ proposal, d.module_path, @errorName(err) });
                             cur_module_bytes = null;
                             cur_inst_idx = null;
                             continue;
@@ -837,6 +957,7 @@ pub fn main(init: std.process.Init) !void {
                         }
                     },
                     .register => {
+                        summary.registers += 1;
                         // 10.M-D195b cycle 71 — bind the most-recent
                         // instance's memory exports into the shared
                         // Linker under `<as>` so subsequent modules'
@@ -845,10 +966,10 @@ pub fn main(init: std.process.Init) !void {
                         // wired this cycle (func/table/global cross-
                         // module imports are out of scope until a
                         // fixture surfaces the gap).
-                        const idx = cur_inst_idx orelse {
-                            summary.skips += 1;
-                            continue;
-                        };
+                        // No live instance to register — already counted as a
+                        // `register` directive; adding to `skips` on top would
+                        // double-count it against the denominator.
+                        const idx = cur_inst_idx orelse continue;
                         const inst = &instances_list.items[idx];
                         const exports = inst.handle.exports_storage;
                         const inst_rt = inst.handle.runtime;
@@ -925,10 +1046,9 @@ pub fn main(init: std.process.Init) !void {
                             }
                             jit_exporters.put(d.func_name, j) catch {};
                         }
-                        summary.skips += 1;
                     },
                     .assert_return => {
-                        summary.asserts_return += 1;
+                        summary.ret.total += 1;
                         // §1 (ADR-0128) — JIT execution mode. The no-arg-i32
                         // same-module subset runs through the JIT entry and
                         // is compared; every other shape is a tracked skip.
@@ -947,19 +1067,19 @@ pub fn main(init: std.process.Init) !void {
                                 d.module_id.len,
                             );
                             if (!elig) {
-                                summary.jit_return_skip += 1;
+                                summary.jit_return.skip += 1;
                                 if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (args={d} results={d} — scalar 0/1-arg only)\n", .{ proposal, entry.name, d.func_name, d.args_len, d.results_len });
                                 continue;
                             }
                             const inst = if (cur_jit) |j| j else {
                                 // module did not JIT-compile/instantiate → enumerated skip
-                                summary.jit_return_skip += 1;
+                                summary.jit_return.skip += 1;
                                 continue;
                             };
                             if (jit_setup_failed) {
                                 // A prior setup `(invoke …)` couldn't run (non-scalar
                                 // arg) → state incomplete → can't attempt → skip.
-                                summary.jit_return_skip += 1;
+                                summary.jit_return.skip += 1;
                                 if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (setup invoke unrun — non-scalar arg)\n", .{ proposal, entry.name, d.func_name });
                                 continue;
                             }
@@ -980,7 +1100,7 @@ pub fn main(init: std.process.Init) !void {
                                 };
                             }
                             if (!args_ok) {
-                                summary.jit_return_skip += 1;
+                                summary.jit_return.skip += 1;
                                 continue;
                             }
                             // Multi-value result — route through invokeMulti
@@ -995,7 +1115,7 @@ pub fn main(init: std.process.Init) !void {
                                     }
                                 }
                                 if (!all_scalar) {
-                                    summary.jit_return_skip += 1;
+                                    summary.jit_return.skip += 1;
                                     if (fail_detail) try stdout.print("  JITskip [{s}/{s}] {s} (multi-value with non-scalar result)\n", .{ proposal, entry.name, d.func_name });
                                     continue;
                                 }
@@ -1019,11 +1139,11 @@ pub fn main(init: std.process.Init) !void {
                                     }
                                 }
                                 if (!mv_parse_ok) {
-                                    summary.jit_return_skip += 1;
+                                    summary.jit_return.skip += 1;
                                 } else if (mv_match) {
-                                    summary.jit_return_pass += 1;
+                                    summary.jit_return.pass += 1;
                                 } else {
-                                    summary.jit_return_fail += 1;
+                                    summary.jit_return.fail += 1;
                                 }
                                 continue;
                             }
@@ -1036,28 +1156,37 @@ pub fn main(init: std.process.Init) !void {
                             // = invoke ran without trapping; its side effect now
                             // persists for later asserts.
                             const got_val = got orelse {
-                                summary.jit_return_pass += 1;
+                                summary.jit_return.pass += 1;
                                 continue;
                             };
                             const exp_tv = d.results[0];
                             const exp_rv = manifest_parser.parsePayload(exp_tv) catch {
-                                summary.jit_return_skip += 1;
+                                summary.jit_return.skip += 1;
                                 continue;
                             };
                             const exp_zv = manifest_parser.runtimeToZwasm(exp_rv, exp_tv.ty);
                             if (jitScalarResultMatches(exp_tv.ty, got_val, exp_zv)) {
-                                summary.jit_return_pass += 1;
+                                summary.jit_return.pass += 1;
                             } else {
-                                summary.jit_return_fail += 1;
+                                summary.jit_return.fail += 1;
                                 if (fail_detail) try stdout.print("  JITval [{s}/{s}] {s} ty={s} got=0x{x:0>16}\n", .{ proposal, entry.name, d.func_name, exp_tv.ty, got_val });
                             }
                             continue;
                         }
-                        _ = cur_module_bytes orelse continue;
+                        // ADR-0210 — each of the four gates below is a real
+                        // "the interp lane could not attempt this shape"
+                        // outcome, i.e. a skip. They used to `continue` with no
+                        // increment at all, which is how 73 assert_return
+                        // directives ended up in neither pass, fail nor skip.
+                        _ = cur_module_bytes orelse {
+                            summary.ret.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPret [{s}/{s}] {s} (no module in scope)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        };
                         // Build args slice (zwasm.Value); skip if any
                         // typed arg can't parse (e.g. v128 / refs not yet
                         // mapped). Skip BEFORE instance gate so unsupported
-                        // shapes stay un-counted regardless of setup state.
+                        // shapes stay attributable regardless of setup state.
                         var call_args: [4]zwasm.Value = undefined;
                         var call_args_ok = true;
                         var ai: u8 = 0;
@@ -1069,15 +1198,23 @@ pub fn main(init: std.process.Init) !void {
                             };
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
-                        if (!call_args_ok) continue;
+                        if (!call_args_ok) {
+                            summary.ret.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPret [{s}/{s}] {s} (unparseable arg payload)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        }
                         // Multi-value defer (cycle-3 scope); void
                         // (0 results) handled inline below so the
                         // state-mutating call still runs.
-                        if (d.results_len > 1) continue;
+                        if (d.results_len > 1) {
+                            summary.ret.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPret [{s}/{s}] {s} (multi-value: {d} results)\n", .{ proposal, entry.name, d.func_name, d.results_len });
+                            continue;
+                        }
                         // 10.M-D195b cycle 72 — tagged dispatch.
                         const idx_ret: usize = if (d.module_id.len > 0)
                             (name_to_idx.get(d.module_id) orelse {
-                                summary.asserts_return_fail += 1;
+                                summary.ret.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILdispatch [{s}/{s}] {s} id={s}\n", .{ proposal, entry.name, d.func_name, d.module_id });
                                 continue;
                             })
@@ -1086,7 +1223,7 @@ pub fn main(init: std.process.Init) !void {
                                 // Setup failure earlier in this module block;
                                 // count as fail since the assert couldn't
                                 // be evaluated.
-                                summary.asserts_return_fail += 1;
+                                summary.ret.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILsetup [{s}/{s}] {s}\n", .{ proposal, entry.name, d.func_name });
                                 continue;
                             });
@@ -1098,17 +1235,21 @@ pub fn main(init: std.process.Init) !void {
                             // see the mutation. Pass on clean return,
                             // fail on trap or setup error.
                             manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch |e| {
-                                summary.asserts_return_fail += 1;
+                                summary.ret.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILvoid [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
                                 continue;
                             };
-                            summary.asserts_return_pass += 1;
+                            summary.ret.pass += 1;
                             continue;
                         }
                         const expected_tv = d.results[0];
-                        const expected_rv = manifest_parser.parsePayload(expected_tv) catch continue;
+                        const expected_rv = manifest_parser.parsePayload(expected_tv) catch {
+                            summary.ret.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPret [{s}/{s}] {s} (unparseable expected payload ty={s})\n", .{ proposal, entry.name, d.func_name, expected_tv.ty });
+                            continue;
+                        };
                         const got = manifest_parser.invokeInstance(instance, d.func_name, call_args[0..d.args_len]) catch |e| {
-                            summary.asserts_return_fail += 1;
+                            summary.ret.fail += 1;
                             if (fail_detail) try stdout.print("  FAILtrap [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
                             continue;
                         };
@@ -1134,21 +1275,27 @@ pub fn main(init: std.process.Init) !void {
                             };
                             if (verdict) |ok| {
                                 if (ok) {
-                                    summary.asserts_return_pass += 1;
+                                    summary.ret.pass += 1;
                                 } else {
-                                    summary.asserts_return_fail += 1;
+                                    summary.ret.fail += 1;
                                     if (fail_detail) try stdout.print("  FAILref [{s}/{s}] {s} ty={s} exp_null={}\n", .{ proposal, entry.name, d.func_name, ty, is_null });
                                 }
                             } else {
-                                summary.skips += 1;
+                                // Uncomparable ref shape. Belongs to this
+                                // assertion's own skip column — routing it to
+                                // the shared `skips` also left `ret.total`
+                                // incremented, double-counting it against the
+                                // denominator.
+                                summary.ret.skip += 1;
+                                if (fail_detail) try stdout.print("  SKIPret [{s}/{s}] {s} (uncomparable ref result ty={s})\n", .{ proposal, entry.name, d.func_name, ty });
                             }
                             continue;
                         }
                         const expected_zv = manifest_parser.runtimeToZwasm(expected_rv, ty);
                         // Compare by the result type's discriminator (is_numeric ⇒ one of i32/i64/f32/f64).
                         const match = if (std.mem.eql(u8, ty, "i32")) got.i32 == expected_zv.i32 else if (std.mem.eql(u8, ty, "i64")) got.i64 == expected_zv.i64 else if (std.mem.eql(u8, ty, "f32")) got.f32 == expected_zv.f32 else got.f64 == expected_zv.f64;
-                        if (match) summary.asserts_return_pass += 1 else {
-                            summary.asserts_return_fail += 1;
+                        if (match) summary.ret.pass += 1 else {
+                            summary.ret.fail += 1;
                             if (fail_detail) {
                                 if (std.mem.eql(u8, ty, "i32")) {
                                     try stdout.print("  FAILval [{s}/{s}] {s} exp={d} got={d} ty=i32\n", .{ proposal, entry.name, d.func_name, expected_zv.i32, got.i32 });
@@ -1161,7 +1308,7 @@ pub fn main(init: std.process.Init) !void {
                         }
                     },
                     .assert_trap => {
-                        summary.asserts_trap += 1;
+                        summary.trap.total += 1;
                         // §10 both-backends (D-233) — in jit_mode evaluate the
                         // trap on the JIT (cur_jit), NOT the interp instance
                         // (whose setup state the jit-mode `(invoke)` action never
@@ -1172,11 +1319,11 @@ pub fn main(init: std.process.Init) !void {
                         // return → fail (the expected trap did not fire).
                         if (jit_mode) {
                             const inst = if (cur_jit) |j| j else {
-                                summary.skips += 1;
+                                summary.trap.skip += 1;
                                 continue;
                             };
                             if (jit_setup_failed) {
-                                summary.skips += 1;
+                                summary.trap.skip += 1;
                                 continue;
                             }
                             var ab: [4]u64 = undefined;
@@ -1195,22 +1342,26 @@ pub fn main(init: std.process.Init) !void {
                                 };
                             }
                             if (!ab_ok) {
-                                summary.skips += 1;
+                                summary.trap.skip += 1;
                                 continue;
                             }
                             _ = inst.invoke(gpa, d.func_name, ab[0..d.args_len]) catch |e| {
                                 if (jitErrorIsUnwiredShape(e)) {
-                                    summary.skips += 1;
+                                    summary.trap.skip += 1;
                                 } else {
-                                    summary.asserts_trap_pass += 1; // trapped = expected
+                                    summary.trap.pass += 1; // trapped = expected
                                 }
                                 continue;
                             };
-                            summary.asserts_trap_fail += 1;
+                            summary.trap.fail += 1;
                             if (fail_detail) try stdout.print("  FAILtrapNoTrap [{s}/{s}] {s} (jit returned; expected trap)\n", .{ proposal, entry.name, d.func_name });
                             continue;
                         }
-                        _ = cur_module_bytes orelse continue;
+                        _ = cur_module_bytes orelse {
+                            summary.trap.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPtrap [{s}/{s}] {s} (no module in scope)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        };
                         // Build args (skip if any typed arg can't
                         // parse — same gate as assert_return).
                         var call_args: [4]zwasm.Value = undefined;
@@ -1224,16 +1375,20 @@ pub fn main(init: std.process.Init) !void {
                             };
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
-                        if (!call_args_ok) continue;
+                        if (!call_args_ok) {
+                            summary.trap.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPtrap [{s}/{s}] {s} (unparseable arg payload)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        }
                         const idx_trap: usize = if (d.module_id.len > 0)
                             (name_to_idx.get(d.module_id) orelse {
-                                summary.asserts_trap_fail += 1;
+                                summary.trap.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILtrapDispatch [{s}/{s}] {s} id={s}\n", .{ proposal, entry.name, d.func_name, d.module_id });
                                 continue;
                             })
                         else
                             (cur_inst_idx orelse {
-                                summary.asserts_trap_fail += 1;
+                                summary.trap.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILtrapSetup [{s}/{s}] {s}\n", .{ proposal, entry.name, d.func_name });
                                 continue;
                             });
@@ -1246,45 +1401,45 @@ pub fn main(init: std.process.Init) !void {
                         // lookup) propagate as RunError → counted as
                         // fail (the assert couldn't be evaluated).
                         const outcome = manifest_parser.invokeInstanceTrap(instance, d.func_name, call_args[0..d.args_len]) catch |e| {
-                            summary.asserts_trap_fail += 1;
+                            summary.trap.fail += 1;
                             if (fail_detail) try stdout.print("  FAILtrapErr [{s}/{s}] {s} err={s}\n", .{ proposal, entry.name, d.func_name, @errorName(e) });
                             continue;
                         };
                         switch (outcome) {
-                            .trapped => summary.asserts_trap_pass += 1,
+                            .trapped => summary.trap.pass += 1,
                             .returned_normally => {
-                                summary.asserts_trap_fail += 1;
+                                summary.trap.fail += 1;
                                 if (fail_detail) try stdout.print("  FAILtrapNoTrap [{s}/{s}] {s} (returned normally; expected trap)\n", .{ proposal, entry.name, d.func_name });
                             },
                         }
                     },
                     .assert_invalid => {
-                        summary.asserts_invalid += 1;
+                        summary.invalid.total += 1;
                         // Read the named .wasm sibling and try to
                         // compile it; rejection = pass, acceptance
                         // = fail. read errors / OOM = fail (the
                         // assert couldn't be evaluated).
                         const inv_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
-                            summary.asserts_invalid_fail += 1;
+                            summary.invalid.fail += 1;
                             continue;
                         };
                         defer gpa.free(inv_bytes);
                         const outcome = manifest_parser.compileExpectInvalid(gpa, inv_bytes) catch {
-                            summary.asserts_invalid_fail += 1;
+                            summary.invalid.fail += 1;
                             continue;
                         };
                         switch (outcome) {
-                            .rejected => summary.asserts_invalid_pass += 1,
+                            .rejected => summary.invalid.pass += 1,
                             .accepted => {
                                 std.debug.print("[wasm-3.0-assert] {s}/{s} invalid-accepted (D-188 / D-195 — depends)\n", .{ proposal, d.module_path });
-                                summary.asserts_invalid_fail += 1;
+                                summary.invalid.fail += 1;
                             },
                         }
                     },
                     .assert_malformed => {
-                        summary.asserts_malformed += 1;
+                        summary.malformed.total += 1;
                         const mal_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
-                            summary.asserts_malformed_fail += 1;
+                            summary.malformed.fail += 1;
                             continue;
                         };
                         defer gpa.free(mal_bytes);
@@ -1294,12 +1449,12 @@ pub fn main(init: std.process.Init) !void {
                         // surfaced by the c_api boundary. Any
                         // compile-side rejection counts as pass.
                         const outcome = manifest_parser.compileExpectInvalid(gpa, mal_bytes) catch {
-                            summary.asserts_malformed_fail += 1;
+                            summary.malformed.fail += 1;
                             continue;
                         };
                         switch (outcome) {
-                            .rejected => summary.asserts_malformed_pass += 1,
-                            .accepted => summary.asserts_malformed_fail += 1,
+                            .rejected => summary.malformed.pass += 1,
+                            .accepted => summary.malformed.fail += 1,
                         }
                     },
                     .assert_uninstantiable => {
@@ -1312,9 +1467,9 @@ pub fn main(init: std.process.Init) !void {
                         // subsequent asserts depend on. Does NOT change the
                         // "current" instance (tagged asserts target the
                         // registered module).
-                        summary.asserts_trap += 1;
+                        summary.uninstantiable.total += 1;
                         const un_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
-                            summary.asserts_trap_fail += 1;
+                            summary.uninstantiable.fail += 1;
                             continue;
                         };
                         defer gpa.free(un_bytes);
@@ -1322,21 +1477,21 @@ pub fn main(init: std.process.Init) !void {
                         var compiled = cur_engine.compile(un_bytes) catch {
                             // Rejected at compile — still did not
                             // instantiate; count pass (no side effects).
-                            summary.asserts_trap_pass += 1;
+                            summary.uninstantiable.pass += 1;
                             continue;
                         };
                         modules_list.append(gpa, compiled) catch {
                             compiled.deinit();
-                            summary.asserts_trap_fail += 1;
+                            summary.uninstantiable.fail += 1;
                             continue;
                         };
                         const m_ptr = &modules_list.items[modules_list.items.len - 1];
                         if (cur_linker.instantiate(m_ptr, .{})) |inst| {
                             var bad_inst = inst;
                             bad_inst.deinit();
-                            summary.asserts_trap_fail += 1; // unexpectedly instantiated
+                            summary.uninstantiable.fail += 1; // unexpectedly instantiated
                         } else |_| {
-                            summary.asserts_trap_pass += 1; // failed as expected
+                            summary.uninstantiable.pass += 1; // failed as expected
                         }
                     },
                     .assert_unlinkable => {
@@ -1346,35 +1501,54 @@ pub fn main(init: std.process.Init) !void {
                         // instantiation fails. Verifies the REJECT direction
                         // of cross-module import subtyping (cyc192
                         // funcTypeImportCompatible).
-                        summary.asserts_unlinkable += 1;
+                        summary.unlinkable.total += 1;
                         const ul_bytes = sub_dir.readFileAlloc(io, d.module_path, gpa, .limited(4 << 20)) catch {
-                            summary.asserts_unlinkable_fail += 1;
+                            summary.unlinkable.fail += 1;
                             continue;
                         };
                         defer gpa.free(ul_bytes);
                         zwasm.diagnostic.clearDiag();
                         var compiled = cur_engine.compile(ul_bytes) catch {
                             // Rejected at compile — never linked; count pass.
-                            summary.asserts_unlinkable_pass += 1;
+                            summary.unlinkable.pass += 1;
                             continue;
                         };
                         modules_list.append(gpa, compiled) catch {
                             compiled.deinit();
-                            summary.asserts_unlinkable_fail += 1;
+                            summary.unlinkable.fail += 1;
                             continue;
                         };
                         const m_ptr = &modules_list.items[modules_list.items.len - 1];
                         if (cur_linker.instantiate(m_ptr, .{})) |inst| {
                             var bad_inst = inst;
                             bad_inst.deinit();
-                            summary.asserts_unlinkable_fail += 1; // unexpectedly linked
+                            summary.unlinkable.fail += 1; // unexpectedly linked
                         } else |_| {
-                            summary.asserts_unlinkable_pass += 1; // failed to link as expected
+                            summary.unlinkable.pass += 1; // failed to link as expected
                         }
                     },
                     .assert_exception => {
-                        summary.asserts_exception += 1;
-                        _ = cur_module_bytes orelse continue;
+                        // ASYMMETRY, deliberate and worth naming: unlike
+                        // assert_return / assert_trap this arm has no jit
+                        // branch, so under ZWASM_SPEC_ENGINE=jit it still
+                        // evaluates the INTERP instance — whose state the
+                        // jit-mode `.invoke` arm never drives (that arm
+                        // routes setup through cur_jit and continues before
+                        // invokeInstanceVoid). The printed row therefore
+                        // carries `return=` as the engine-under-test's
+                        // verdict next to `exception=`, which is interp-only
+                        // in both lanes. All four corpus directives are
+                        // stateless enough that nothing is hidden today; a
+                        // future STATEFUL exception fixture would fail the
+                        // jit lane for a harness reason and read as an
+                        // engine defect. Give this arm a jit branch before
+                        // adding one.
+                        summary.exception.total += 1;
+                        _ = cur_module_bytes orelse {
+                            summary.exception.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPexc [{s}/{s}] {s} (no module in scope)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        };
                         // Parse args (same gate as assert_return /
                         // assert_trap); v128 / refs skip.
                         var call_args: [4]zwasm.Value = undefined;
@@ -1388,28 +1562,35 @@ pub fn main(init: std.process.Init) !void {
                             };
                             call_args[ai] = manifest_parser.runtimeToZwasm(rv, tv.ty);
                         }
-                        if (!call_args_ok) continue;
+                        if (!call_args_ok) {
+                            summary.exception.skip += 1;
+                            if (fail_detail) try stdout.print("  SKIPexc [{s}/{s}] {s} (unparseable arg payload)\n", .{ proposal, entry.name, d.func_name });
+                            continue;
+                        }
                         const idx_exc: usize = if (d.module_id.len > 0)
                             (name_to_idx.get(d.module_id) orelse {
-                                summary.asserts_exception_fail += 1;
+                                summary.exception.fail += 1;
                                 continue;
                             })
                         else
                             (cur_inst_idx orelse {
-                                summary.asserts_exception_fail += 1;
+                                summary.exception.fail += 1;
                                 continue;
                             });
                         const instance = &instances_list.items[idx_exc];
                         const outcome = manifest_parser.invokeInstanceExpectException(instance, d.func_name, call_args[0..d.args_len]) catch {
-                            summary.asserts_exception_fail += 1;
+                            summary.exception.fail += 1;
                             continue;
                         };
                         switch (outcome) {
-                            .uncaught_exception => summary.asserts_exception_pass += 1,
-                            .returned_normally, .other_trap => summary.asserts_exception_fail += 1,
+                            .uncaught_exception => summary.exception.pass += 1,
+                            .returned_normally, .other_trap => summary.exception.fail += 1,
                         }
                     },
                     .invoke => {
+                        // Counted so it lands in the denominator; an action
+                        // carries no expected outcome, so it has no tally.
+                        summary.invokes += 1;
                         // D-191 — wast `(invoke "fn" args)` action.
                         // Side-effect driver for subsequent state-
                         // dependent asserts. Drop result silently
@@ -1470,66 +1651,228 @@ pub fn main(init: std.process.Init) !void {
                         // wasn't an assertion. Counters don't increment.
                         manifest_parser.invokeInstanceVoid(instance, d.func_name, call_args[0..d.args_len]) catch {};
                     },
-                    .skip_impl, .skip_validator, .skip_runtime => summary.skips += 1,
-                    .unknown => {},
+                    .skip_impl, .skip_validator, .skip_runtime, .skip_adr => summary.skips += 1,
+                    .unknown => {
+                        // ADR-0210 — a directive the runner has no arm for is
+                        // a harness gap, not an absence. Named on stdout so a
+                        // future corpus regen that introduces a new directive
+                        // cannot slip past as silently-executed-zero.
+                        summary.unknown += 1;
+                        try stdout.print("UNKNOWN-DIRECTIVE  {s}/{s}: {s}\n", .{ proposal, entry.name, line });
+                    },
                 }
             }
-            const mf_ret_fail = summary.asserts_return_fail - mf_ret_fail0;
-            const mf_trap_fail = summary.asserts_trap_fail - mf_trap_fail0;
-            if (mf_ret_fail + mf_trap_fail > 0) {
-                try stdout.print("  [{s}/{s}] return_fail={d} trap_fail={d}\n", .{ proposal, entry.name, mf_ret_fail, mf_trap_fail });
+            const mf_ret_fail = summary.ret.fail - mf_ret_fail0;
+            const mf_trap_fail = summary.trap.fail - mf_trap_fail0;
+            const mf_jit_fail = summary.jit_return.fail - mf_jit_fail0;
+            if (mf_ret_fail + mf_trap_fail + mf_jit_fail > 0) {
+                try stdout.print("  [{s}/{s}] return_fail={d} trap_fail={d} jit_return_fail={d}\n", .{ proposal, entry.name, mf_ret_fail, mf_trap_fail, mf_jit_fail });
             }
         }
 
-        const total_directives = summary.modules + summary.asserts_return + summary.asserts_trap +
-            summary.asserts_invalid + summary.asserts_unlinkable + summary.asserts_malformed + summary.asserts_exception + summary.skips;
-        try stdout.print(
-            "[{s:<22}] manifests={d:<3} module={d:<3} return={d:<4} (pass={d:<4} fail={d:<4}) trap={d:<4} (pass={d:<4} fail={d:<4}) invalid={d:<3} (pass={d:<3} fail={d:<3}) malformed={d:<3} (pass={d:<3} fail={d:<3}) exception={d:<3} (pass={d:<3} fail={d:<3}) skip={d}\n",
-            .{ proposal, summary.manifests, summary.modules, summary.asserts_return, summary.asserts_return_pass, summary.asserts_return_fail, summary.asserts_trap, summary.asserts_trap_pass, summary.asserts_trap_fail, summary.asserts_invalid, summary.asserts_invalid_pass, summary.asserts_invalid_fail, summary.asserts_malformed, summary.asserts_malformed_pass, summary.asserts_malformed_fail, summary.asserts_exception, summary.asserts_exception_pass, summary.asserts_exception_fail, summary.skips },
-        );
-        grand_total_manifests += summary.manifests;
-        grand_total_directives += total_directives;
-        grand_total_return_pass += summary.asserts_return_pass;
-        grand_total_return_fail += summary.asserts_return_fail;
-        grand_total_trap_pass += summary.asserts_trap_pass;
-        grand_total_trap_fail += summary.asserts_trap_fail;
-        grand_total_invalid_pass += summary.asserts_invalid_pass;
-        grand_total_invalid_fail += summary.asserts_invalid_fail;
-        grand_total_unlinkable_pass += summary.asserts_unlinkable_pass;
-        grand_total_unlinkable_fail += summary.asserts_unlinkable_fail;
-        grand_total_malformed_pass += summary.asserts_malformed_pass;
-        grand_total_malformed_fail += summary.asserts_malformed_fail;
-        grand_total_exception_pass += summary.asserts_exception_pass;
-        grand_total_exception_fail += summary.asserts_exception_fail;
+        // In jit mode the assert_return arm bypasses the interp path
+        // entirely (every branch inside `if (jit_mode)` ends in `continue`),
+        // so the verdict lives in `jit_return` and `ret` holds only the
+        // denominator. Mirror it back: `ret` is "this category's verdict on
+        // the engine under test", whichever engine that is, so the identity
+        // is one rule rather than one rule per lane. Measured 2026-08-15:
+        // without this the jit lane printed `return=11292(p=0 f=0 s=0)` and
+        // the interp identity read OPEN for a reason that was an artifact of
+        // the model, not a lost directive.
         if (jit_mode) {
-            try stdout.print("[{s:<22}]   JIT: return pass={d} fail={d} skip={d}\n", .{ proposal, summary.jit_return_pass, summary.jit_return_fail, summary.jit_return_skip });
-            grand_total_jit_pass += summary.jit_return_pass;
-            grand_total_jit_fail += summary.jit_return_fail;
-            grand_total_jit_skip += summary.jit_return_skip;
+            summary.jit_return.total = summary.ret.total;
+            summary.ret.pass = summary.jit_return.pass;
+            summary.ret.fail = summary.jit_return.fail;
+            summary.ret.skip = summary.jit_return.skip;
+        }
+        try printProposal(stdout, proposal, summary, jit_mode);
+        if (!summary.closes()) mismatched_proposals += 1;
+
+        grand.manifests += summary.manifests;
+        grand.lines += summary.lines;
+        grand.modules += summary.modules;
+        grand.registers += summary.registers;
+        grand.invokes += summary.invokes;
+        grand.skips += summary.skips;
+        grand.unknown += summary.unknown;
+        grand.unparsed += summary.unparsed;
+        grand.manifest_errors += summary.manifest_errors;
+        grand.ret.add(summary.ret);
+        grand.trap.add(summary.trap);
+        grand.invalid.add(summary.invalid);
+        grand.unlinkable.add(summary.unlinkable);
+        grand.uninstantiable.add(summary.uninstantiable);
+        grand.malformed.add(summary.malformed);
+        grand.exception.add(summary.exception);
+        grand.jit_return.add(summary.jit_return);
+    }
+
+    // ADR-0210 — the runner walks the hard-coded `PROPOSALS` list, so a
+    // corpus regen that adds a seventh proposal directory would raise the
+    // on-disk line count while `lines=` stayed put and the run still
+    // printed CLOSED. The identity certifies that everything ENUMERATED is
+    // accounted for; this certifies that the enumeration covers the corpus.
+    var unenumerated_dirs: u32 = 0;
+    {
+        // `dir` above is opened without `.iterate` (it is only ever used to
+        // open per-proposal subdirs), so this needs its own handle.
+        var root_iter_dir = cwd.openDir(io, corpus_root, .{ .iterate = true }) catch |err| {
+            try stdout.print("[wasm-3.0-assert] corpus root not re-openable for the enumeration cross-check: {s}\n", .{@errorName(err)});
+            try stdout.flush();
+            std.process.exit(1);
+        };
+        defer root_iter_dir.close(io);
+        var root_it = root_iter_dir.iterate();
+        while (try root_it.next(io)) |e| {
+            if (e.kind != .directory) continue;
+            var known = false;
+            for (PROPOSALS) |p| {
+                if (std.mem.eql(u8, p, e.name)) known = true;
+            }
+            if (known) continue;
+            unenumerated_dirs += 1;
+            try stdout.print("UNENUMERATED-PROPOSAL  {s}: present on disk, absent from PROPOSALS — its directives are in no tally\n", .{e.name});
         }
     }
 
-    try stdout.print(
-        "[wasm-3.0-assert] total: {d} manifests, {d} directives; assert_return pass={d} fail={d}; assert_trap pass={d} fail={d}; assert_invalid pass={d} fail={d}; assert_unlinkable pass={d} fail={d}; assert_malformed pass={d} fail={d}; assert_exception pass={d} fail={d} (multi-value execution + assert_trap class discrimination land in follow-on cycles)\n",
-        .{ grand_total_manifests, grand_total_directives, grand_total_return_pass, grand_total_return_fail, grand_total_trap_pass, grand_total_trap_fail, grand_total_invalid_pass, grand_total_invalid_fail, grand_total_unlinkable_pass, grand_total_unlinkable_fail, grand_total_malformed_pass, grand_total_malformed_fail, grand_total_exception_pass, grand_total_exception_fail },
-    );
+    try printProposal(stdout, "TOTAL", grand, jit_mode);
     if (jit_mode) {
         try stdout.print(
-            "[wasm-3.0-assert] JIT execution mode (ADR-0128 §1): assert_return pass={d} fail={d} skip={d} (skip = JIT could not attempt this shape: eligibility-gated [args / v128 / multi-value / void / cross-module] OR compile/setup-rejected [multi-memory / unemitted-op / const-expr-or-validate gap, per jitErrorIsUnwiredShape]; fail = JIT executed and got the wrong observable result [trap or value mismatch])\n",
-            .{ grand_total_jit_pass, grand_total_jit_fail, grand_total_jit_skip },
+            "[wasm-3.0-assert] JIT execution mode (ADR-0128 §1): skip = JIT could not attempt this shape: eligibility-gated [args / v128 / multi-value / void / cross-module] OR compile/setup-rejected [multi-memory / unemitted-op / const-expr-or-validate gap, per jitErrorIsUnwiredShape]; fail = JIT executed and got the wrong observable result [trap or value mismatch]\n",
+            .{},
         );
     }
+
+    // ADR-0210 — the reconciliation. `lines` is the enumeration
+    // denominator and is re-derivable without running this binary:
+    //   cat test/spec/wasm-3.0-assert/*/*/manifest.txt | wc -l
+    // Printing the identity term-by-term is what lets a third party check
+    // the conformance numbers instead of taking them on trust.
+    const bucketed = grand.modules + grand.registers + grand.invokes +
+        grand.skips + grand.unknown + grand.unparsed +
+        grand.ret.total + grand.trap.total + grand.invalid.total +
+        grand.unlinkable.total + grand.uninstantiable.total +
+        grand.malformed.total + grand.exception.total;
+    try stdout.print(
+        "[wasm-3.0-assert] RECONCILE: lines={d} = module {d} + register {d} + invoke {d} + skip {d} + unknown {d} + unparsed {d} + return {d} + trap {d} + invalid {d} + unlinkable {d} + uninstantiable {d} + malformed {d} + exception {d} => {d} [{s}]\n",
+        .{ grand.lines, grand.modules, grand.registers, grand.invokes, grand.skips, grand.unknown, grand.unparsed, grand.ret.total, grand.trap.total, grand.invalid.total, grand.unlinkable.total, grand.uninstantiable.total, grand.malformed.total, grand.exception.total, bucketed, if (bucketed == grand.lines) "OK" else "MISMATCH" },
+    );
+    const closed = grand.closes() and mismatched_proposals == 0;
+    try stdout.print(
+        "[wasm-3.0-assert] ACCOUNTING: {s} ({d} proposal(s) failed the identity)\n",
+        .{ if (closed) "CLOSED" else "OPEN", mismatched_proposals },
+    );
     try stdout.flush();
+
     // ADR-0174 — GATE on declarative-assert fails (close the "OK-verdict-hides-
     // pass=0" anomaly fully: the CRLF fix restored real windows coverage, but the
     // runner still always-exit-0'd, so a future real wasm-3.0 fail wouldn't turn
     // test-all red). 0 fails on all 3 hosts today (verified), so this gates clean.
-    // JIT-path fails (jit_return_fail) are NOT gated — that's the opt-in JIT run
-    // stage with known eligibility-skips (handover JIT long-tail), reported only.
-    const grand_assert_fail = grand_total_return_fail + grand_total_trap_fail +
-        grand_total_invalid_fail + grand_total_unlinkable_fail +
-        grand_total_malformed_fail + grand_total_exception_fail;
-    if (grand_assert_fail > 0) std.process.exit(1);
+    // JIT-path RETURN fails (jit_return.fail) are NOT gated — that's the opt-in
+    // JIT run stage with known eligibility-skips (handover JIT long-tail),
+    // reported only. Read that narrowly: `trap.fail` below IS summed
+    // unconditionally, and in jit mode the assert_trap arm evaluates `cur_jit`,
+    // so a JIT-only trap regression already exits non-zero. That asymmetry
+    // predates this file's accounting rework; D-590 hands it to #12.
+    // In jit mode `ret.fail` mirrors the JIT verdict, which ADR-0128 keeps
+    // report-only — gating it here would silently promote the opt-in JIT
+    // lane into a merge gate. That promotion is a deliberate decision for
+    // whoever closes the remaining JIT fail, not a side effect of making
+    // the accounting close.
+    const gated_ret_fail = if (jit_mode) 0 else grand.ret.fail;
+    const grand_assert_fail = gated_ret_fail + grand.trap.fail +
+        grand.invalid.fail + grand.unlinkable.fail + grand.uninstantiable.fail +
+        grand.malformed.fail + grand.exception.fail;
+    // ADR-0210 — an unclosed identity gates too. A conformance number
+    // computed from a tally that does not account for its own denominator
+    // is worse than no number: it reads as authoritative and isn't.
+    // NOTE: `unparsed` / `unknown` are NOT themselves gated — they are
+    // named on stdout and counted into the denominator, so they stay
+    // visible without turning a harness gap into a spec-failure claim.
+    // A sub-corpus the runner never read is invisible to the identity, so
+    // it gates separately. Same reasoning as ADR-0174's missing-corpus-root
+    // FAIL: the corpus is COMMITTED, so failing to open part of it is a
+    // real error, never a fresh-checkout state.
+    if (grand.manifest_errors > 0) {
+        try stdout.print("[wasm-3.0-assert] {d} sub-corpora could not be read — the printed denominator covers only what was reachable\n", .{grand.manifest_errors});
+        try stdout.flush();
+    }
+    if (grand_assert_fail > 0 or !closed or grand.manifest_errors > 0 or unenumerated_dirs > 0) std.process.exit(1);
+}
+
+/// One assertion category: `<name>=<total>(p=… f=… s=…)`. The total is
+/// printed next to its parts so `total == p+f+s` is checkable by eye on
+/// the same line the runner checks it in code.
+fn printTally(stdout: *std.Io.Writer, name: []const u8, t: KindTally) !void {
+    try stdout.print(" | {s}={d}(p={d} f={d} s={d})", .{ name, t.total, t.pass, t.fail, t.skip });
+}
+
+/// ADR-0210 — one printer for a proposal row and for the grand total, so
+/// the two can never drift into reporting different shapes. Every
+/// assertion category prints its own denominator and its own skip column;
+/// `unlinkable` and `uninstantiable` had no column at all before, which
+/// is how 30 + 20 directives stayed invisible per proposal.
+fn printProposal(
+    stdout: *std.Io.Writer,
+    label: []const u8,
+    s: ProposalSummary,
+    jit_mode: bool,
+) !void {
+    try stdout.print(
+        "[{s:<22}] manifests={d:<3} lines={d:<5} | module={d:<3} register={d:<2} invoke={d:<3} skip={d:<3} unknown={d:<2} unparsed={d:<2} manifest_err={d:<2}",
+        .{ label, s.manifests, s.lines, s.modules, s.registers, s.invokes, s.skips, s.unknown, s.unparsed, s.manifest_errors },
+    );
+    try printTally(stdout, "return", s.ret);
+    try printTally(stdout, "trap", s.trap);
+    try printTally(stdout, "invalid", s.invalid);
+    try printTally(stdout, "unlinkable", s.unlinkable);
+    try printTally(stdout, "uninst", s.uninstantiable);
+    try printTally(stdout, "malformed", s.malformed);
+    try printTally(stdout, "exception", s.exception);
+    try stdout.print(" | {s}\n", .{if (s.closes()) "CLOSED" else "OPEN"});
+    if (jit_mode) {
+        try stdout.print(
+            "[{s:<22}]   JIT: return={d} (pass={d} fail={d} skip={d}) [{s}]\n",
+            .{ label, s.jit_return.total, s.jit_return.pass, s.jit_return.fail, s.jit_return.skip, if (s.jit_return.closes()) "CLOSED" else "OPEN" },
+        );
+    }
+}
+
+test "ADR-0210: a category that loses a directive fails its own tally" {
+    // The property the whole accounting rests on: a directive that reaches
+    // neither pass, fail nor skip must be detectable. Before ADR-0210 the
+    // assert_return arm had four such paths and nothing noticed.
+    try std.testing.expect((KindTally{ .total = 3, .pass = 1, .fail = 1, .skip = 1 }).closes());
+    try std.testing.expect(!(KindTally{ .total = 3, .pass = 1, .fail = 1, .skip = 0 }).closes());
+    // Over-counting is a failure too: it is how a skip routed to the shared
+    // `skips` bucket used to be tallied twice against the denominator.
+    try std.testing.expect(!(KindTally{ .total = 2, .pass = 1, .fail = 1, .skip = 1 }).closes());
+}
+
+test "ADR-0210: the summary identity catches an unbucketed line" {
+    var s: ProposalSummary = .{ .name = "t" };
+    s.lines = 10;
+    s.modules = 2;
+    s.registers = 1;
+    s.invokes = 1;
+    s.skips = 1;
+    s.ret = .{ .total = 5, .pass = 3, .fail = 1, .skip = 1 };
+    try std.testing.expect(s.closes());
+
+    // An 11th line read but bucketed nowhere — exactly the shape of the
+    // `catch continue` / `=> {}` drops (unparsed lines, unknown kinds).
+    s.lines = 11;
+    try std.testing.expect(!s.closes());
+
+    // ...and naming it restores the identity. `unparsed` / `unknown` are
+    // real buckets, not an excuse to stop counting.
+    s.unparsed = 1;
+    try std.testing.expect(s.closes());
+
+    // A per-category hole must fail even when the line total balances.
+    s.ret.skip = 0;
+    s.skips = 2;
+    try std.testing.expect(!s.closes());
 }
 
 test "wasm-3.0-assert: PROPOSALS list matches design plan §3.1-§3.5 + §4.6 + 10.M extension" {

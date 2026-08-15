@@ -336,6 +336,18 @@ pub fn build(b: *std.Build) void {
     run_spec_smoke.addArg(b.pathFromRoot("test/spec/smoke"));
     const run_spec_mvp = b.addRunArtifact(spec_runner_exe);
     run_spec_mvp.addArg(b.pathFromRoot("test/spec/wasm-1.0"));
+    // ADR-0210 — `zig build test-spec` did not print what it ran: three
+    // consecutive runs each showed 8 `PASS` lines while the two summaries
+    // claimed 3 + 9 = 12, one line spliced mid-token. The cause was NOT
+    // this build wiring — it was `std.Io.File.stdout().writer()`, whose
+    // default `.positional` mode restarts at offset 0 in every process, so
+    // the second runner overwrote the first's output whenever stdout was a
+    // regular file. Every runner under `test/` now uses `writerStreaming`
+    // (as all of `src/` already did). Ordering the two runs is the residual
+    // half: with both appending, concurrent runs could still interleave
+    // mid-line, and a denominator is worthless if the lines backing it can
+    // be shredded between the runner and the log a reviewer reads.
+    run_spec_mvp.step.dependOn(&run_spec_smoke.step);
     const test_spec_step = b.step("test-spec", "Run the Wasm spec test runner");
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);

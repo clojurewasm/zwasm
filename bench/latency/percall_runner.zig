@@ -160,7 +160,7 @@ pub fn main(init: std.process.Init) !void {
     const builtin = @import("builtin");
 
     var buf: [8192]u8 = undefined;
-    var w = std.Io.File.stdout().writer(io, &buf);
+    var w = std.Io.File.stdout().writerStreaming(io, &buf);
     const out = &w.interface;
 
     try verify(gpa);
