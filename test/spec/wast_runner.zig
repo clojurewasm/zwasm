@@ -75,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
 
     try stdout.print("\nwast_runner: {d} passed, {d} failed\n", .{ passed, failed });
     // ADR-0210 — the denominator next to the verdict columns.
-    try stdout.print("wast_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column)\n", .{ lines, passed + failed, if (lines > passed + failed) lines - (passed + failed) else 0, if (passed + failed > lines) (passed + failed) - lines else 0 });
+    try stdout.print("wast_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice\n", .{ lines, passed + failed, if (lines > passed + failed) lines - (passed + failed) else 0, if (passed + failed > lines) (passed + failed) - lines else 0 });
     try stdout.flush();
     if (failed != 0) std.process.exit(1);
 }

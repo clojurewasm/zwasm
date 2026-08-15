@@ -61,7 +61,14 @@ for corpus in "${CORPORA[@]}"; do
       violations=$((violations + 1))
     fi
     total_lines=$((total_lines + $(wc -l < "$m")))
-  done < <(find "$corpus" -name manifest.txt | sort)
+    # Depth pinned to the shape the runner actually reads:
+    # `<corpus>/<proposal>/<subdir>/manifest.txt`, and never under `raw/`.
+    # An unrestricted `find` would count lines from a manifest nested one
+    # level deeper — which the runner would not read — so the guard's
+    # `lines:` and the runner's `lines=` would silently diverge, and the
+    # re-derivation this guard exists to pin would stop holding with
+    # nothing comparing the two numbers.
+  done < <(find "$corpus" -mindepth 3 -maxdepth 3 -name manifest.txt -not -path '*/raw/*' | sort)
 
   if [ "$manifest_count" -eq 0 ]; then
     echo "EMPTY    $corpus (no manifest.txt found)"

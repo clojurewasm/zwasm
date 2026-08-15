@@ -108,7 +108,16 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
     options.addOption(WasiLevel, "wasi_level", wasi_level);
+    const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
     options.addOption(EngineMode, "engine_mode", engine_mode);
+    // ADR-0209 — the mode `core_rs` is built with, which is not the mode the
+    // caller asked for: `runner_optimize` floors Debug at ReleaseSafe for
+    // iteration speed. `bench/latency` imports the engine through `core_rs`, so
+    // reporting its own `builtin.mode` would label ReleaseSafe numbers `Debug`.
+    // Named for the twin it describes, not "engine_optimize": this same
+    // `build_options` module is shared by `core` and `exe_mod`, which are built
+    // with the raw `-Doptimize`, and a bare name would be wrong for them.
+    options.addOption(std.builtin.OptimizeMode, "runner_engine_optimize", runner_optimize);
     options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_component", enable_component);
@@ -176,7 +185,6 @@ pub fn build(b: *std.Build) void {
     // routes through the cohort trampoline). Production (`exe`/lib) keeps `core`
     // honouring `-Doptimize`. Floor at ReleaseSafe so a plain Debug build still
     // runs runners fast; a higher `-Doptimize` (ReleaseFast) wins.
-    const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
     const core_rs = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),
         .target = target,
@@ -824,6 +832,42 @@ pub fn build(b: *std.Build) void {
     run_realworld.has_side_effects = true;
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
+
+    // `zig build bench-latency` — ADR-0209. Steady-state per-call latency on an
+    // already-instantiated module. Every other bench goes through `hyperfine`
+    // on a whole process, which is one guest call per process, so a per-call
+    // cost is paid once there and vanishes into process startup. D-584 / D-585
+    // were both invisible to that harness by construction. NOT in `test-all`:
+    // it is a measurement, not an assertion, and its numbers move with machine
+    // state (7% between rounds on one host).
+    const latency_runner_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("bench/latency/percall_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    latency_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    latency_runner_mod.addImport("build_options", build_options_mod);
+    const latency_runner_exe = b.addExecutable(.{
+        .name = "zwasm-latency-runner",
+        .root_module = latency_runner_mod,
+    });
+    const run_latency = b.addRunArtifact(latency_runner_exe);
+    // has_side_effects: the guest is `@embedFile`d so it IS a tracked input,
+    // but the run must not be cached on the exe hash either way — the whole
+    // point is to re-measure, and a cached run would silently report the
+    // previous machine state's numbers.
+    run_latency.has_side_effects = true;
+    const bench_latency_step = b.step("bench-latency", "Measure steady-state per-call latency (ADR-0209; not an assertion, not in test-all)");
+    bench_latency_step.dependOn(&run_latency.step);
+
+    // ADR-0209 — compile-only, so the gate catches public-API drift
+    // (`Instance.typedFunc`, `Module.InstantiateOpts.engine`, `std.Io.Clock`)
+    // without spending gate wall-clock on a measurement. Running it in CI would
+    // record a shared runner's numbers as if they meant something; not
+    // compiling it at all lets it bit-rot silently, which is the failure this
+    // whole PR is about.
+    const bench_latency_build_step = b.step("bench-latency-build", "Compile the per-call latency runner without running it (ADR-0209)");
+    bench_latency_build_step.dependOn(&latency_runner_exe.step);
 
     // `zig build test-fuzz` — §14.3 / D-256 fuzz smoke. Feeds each
     // committed seed-corpus file's raw bytes through `parser.parse` +

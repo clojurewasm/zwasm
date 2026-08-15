@@ -488,8 +488,19 @@ pub fn main(init: std.process.Init) !void {
     for (PROPOSALS) |proposal| {
         var summary: ProposalSummary = .{ .name = proposal };
 
-        var pdir = dir.openDir(io, proposal, .{ .iterate = true }) catch {
-            try stdout.print("[{s}] (no subdir; 0 manifests)\n", .{proposal});
+        // ADR-0210 — the fourth sibling of the swallow points below, and the
+        // widest: dropping a PROPOSALS entry removes a whole proposal's
+        // assertions from both sides of the identity, so the run still
+        // printed `[gc] (no subdir; 0 manifests)` and `ACCOUNTING: CLOSED`
+        // and exited 0. All six directories are committed (verified
+        // 2026-08-15), so the Phase-10 build-out tolerance this message was
+        // written for no longer has anything to tolerate — any failure to
+        // open one is the ADR-0174 path-resolution class, exactly like the
+        // corpus root above.
+        var pdir = dir.openDir(io, proposal, .{ .iterate = true }) catch |err| {
+            summary.manifest_errors += 1;
+            grand.manifest_errors += 1;
+            try stdout.print("PROPOSAL-DIR-FAIL  {s}: {s} — a committed sub-corpus that cannot be opened is a real error, not 0 manifests\n", .{ proposal, @errorName(err) });
             continue;
         };
         defer pdir.close(io);

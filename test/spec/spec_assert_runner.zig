@@ -81,7 +81,7 @@ pub fn main(init: std.process.Init) !void {
     // `overcounted > 0` means a line was tallied twice; a bare residual
     // saturates at zero and would report that as a perfectly accounted
     // corpus (ADR-0210).
-    try stdout.print("spec_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column)\n", .{ lines, accounted, if (lines > accounted) lines - accounted else 0, if (accounted > lines) accounted - lines else 0 });
+    try stdout.print("spec_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice\n", .{ lines, accounted, if (lines > accounted) lines - accounted else 0, if (accounted > lines) accounted - lines else 0 });
     try stdout.flush();
     if (failed != 0) std.process.exit(1);
 }
