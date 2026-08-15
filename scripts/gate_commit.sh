@@ -207,6 +207,11 @@ else
     # (which covers runtime SKIP-* token taxonomy from spec runners).
     echo "[gate_commit] check_skip_helpers --gate ..."
     bash scripts/check_skip_helpers.sh --gate > /dev/null
+
+    # ADR-0210 — the spec runners' enumeration denominator is only
+    # re-derivable while the corpora stay one directive per line.
+    echo "[gate_commit] check_spec_manifest_shape --gate ..."
+    bash scripts/check_spec_manifest_shape.sh --gate > /dev/null
 fi
 
 # --- gate: check_adr_history (only when an ADR changed or empty diff) ---

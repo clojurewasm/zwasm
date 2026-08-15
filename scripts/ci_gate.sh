@@ -62,6 +62,20 @@ fi
 echo "[ci_gate] test-discovery guard (check_test_discovery --gate)"
 bash scripts/check_test_discovery.sh --gate
 
+# Spec-manifest shape guard (ADR-0210). The spec runners print an
+# enumeration denominator whose whole value is that a third party can
+# re-derive it with `wc -l`. That only holds while the corpora stay one
+# directive per line — a regen introducing blank or comment lines would
+# break the re-derivation while both the runner and the corpus stayed
+# green. Cheap (a read of 86 manifests), so it runs on every PR.
+echo "[ci_gate] spec-manifest shape guard (check_spec_manifest_shape --gate)"
+# Output kept (not `> /dev/null`, unlike the gate_commit invocations): the
+# whole value of this guard is naming WHICH manifest broke the
+# re-derivation, and a red CI leg showing only a bare non-zero exit would
+# make the next person reproduce it by hand. Matches check_test_discovery
+# above.
+bash scripts/check_spec_manifest_shape.sh --gate
+
 if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zig build lint"
     zig build lint
