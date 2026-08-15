@@ -59,7 +59,11 @@ entries:
     last_reviewed: "2026-08-15"
     refs: |-
       build.zig (run_oob_trap - the fix; the 19 no-op has_side_effects sites);
-      std/Build/Step/Run.zig:221,707-715,926 (zig 0.16.0, the mechanism);
+      std/Build/Step/Run.zig:221,707-715,926,1555 (zig 0.16.0, the mechanism -
+      1555 is the `.infer_from_args` stdio arm that decides inherit vs ignore);
+      scripts/record_latency_bench.sh (its comment named the same wrong
+      mechanism; the stdout-inheritance coupling it relies on is real, but it
+      follows from having no output arg, not from the flag);
       .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md
       (corrected in the same commit - its diagnosis was wrong when written);
       .dev/decisions/0210_spec_runner_enumeration_accounting.md
