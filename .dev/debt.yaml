@@ -71,7 +71,17 @@ entries:
       two-call contract — the former's `global.get` branch resolves imports via
       `fe.funcptr` while its `IMPORT_SENTINEL` branch defers to the latter.
       Nothing makes a caller do both; the spec runner is the only caller and
-      does. (e) class guard: the null test exists only where someone remembered
+      does. (1) widened the gap rather than closing it: `setup.zig` now resolves
+      an import in ONE assignment while `compile_init.zig` still needs the
+      paired call, so the two table-init implementations disagree in shape and
+      the next reader will assume this PR unified them. The eight null tests
+      bound the consequence — a caller that forgets the pair traps instead of
+      SEGVing — but the divergence is the thing to fix. (i) `hostDispatchTrap`
+      sets `trap_flag` and never writes `trap_kind`, so a call reaching it
+      reports whatever kind was last in the field. Pre-existing on the direct
+      `call $import` route; (1) makes it reachable from tables too, including
+      through `return_call_indirect`, where the frame is already gone and the
+      grand-caller's post-call check is what raises it. (e) class guard: the null test exists only where someone remembered
       to emit it — the return_call_indirect mirrors surfaced only when review
       re-derived the funcptr-load site list, and review then found the same gap
       again at (b)'s four call_ref sites. Twice is a class, not an oversight.

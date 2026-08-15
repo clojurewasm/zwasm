@@ -237,12 +237,18 @@ fn emitCrossModuleReturnCall(
 /// refuses to (D-586): that path routes `return_call $import`
 /// through call-and-return because a frame-consuming BR to a
 /// different-rt callee would leave the callee's cohort installed
-/// when control reaches a same-module grand-caller. The bridge
-/// thunk here is call-and-return internally — it STRs X19/X24,
-/// BLRs, LDRs them back and RETs (`shared/thunk.zig`) — so the
-/// grand-caller sees its own cohort. That save list is load-bearing,
-/// not incidental: an earlier 56-byte thunk saved only X19 and left
-/// X24 stale, surfacing as an `imports.1.wasm` sig mismatch.
+/// when control reaches a same-module grand-caller. Whatever
+/// `dispatch[i]` holds returns the cohort intact, but for two
+/// DIFFERENT reasons. A cross-module wasm import holds the ADR-0066
+/// thunk, which STRs X19/X24, BLRs, LDRs them back and RETs
+/// (`shared/thunk.zig`) — an explicit save list, load-bearing rather
+/// than incidental: an earlier 56-byte thunk saved only X19, left X24
+/// stale, and surfaced as an `imports.1.wasm` sig mismatch. A WASI
+/// import, an embedder host func or the `hostDispatchTrap` fallback
+/// holds an ordinary `callconv(.c)` function instead, safe because
+/// AAPCS64 §6.4.1 makes X19..X28 callee-saved. The fixtures in
+/// `runner_trap_test.zig` pin the SECOND case, so do not read the
+/// thunk's save list as the guarantee for all of them.
 pub fn emitIndirectReturnCall(
     ctx: *ctx_mod.EmitCtx,
     ins: *const zir.ZirInstr,

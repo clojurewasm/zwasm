@@ -233,9 +233,21 @@ fn emitCrossModuleReturnCall(
 ///   (9) JMP R11 (emitTailJump).
 ///
 /// Why this may JMP to an import while the direct cross-module path
-/// refuses to: see the arm64 mirror's note. The bridge thunk is
-/// call-and-return internally (PUSH/POP R15, RET), so a same-module
-/// grand-caller sees its own pinned runtime pointer.
+/// refuses to: see the arm64 mirror's note. A cross-module wasm
+/// import holds the ADR-0066 thunk, which PUSH/POPs R15 around its
+/// CALL and RETs; a WASI import, an embedder host func or the
+/// `hostDispatchTrap` fallback holds an ordinary `callconv(.c)`
+/// function, safe because SysV §3.2.1 makes R15 callee-saved. Either
+/// way a same-module grand-caller sees its own pinned runtime
+/// pointer, but the second case is the one the fixtures pin.
+///
+/// There is no `emitPostCallTrapCheck` here and there cannot be —
+/// control never returns. A tail-called import that raises
+/// `trap_flag` (`proc_exit`, or `hostDispatchTrap` for an unresolved
+/// import) returns past this frame to the grand-caller, whose own
+/// post-call check raises it; at the entry frame the runner's
+/// trap-flag read does. Every intermediate frame is safe because a
+/// tail-called frame executes nothing after the jump.
 ///
 /// Note (x86_64 fixup-list shape, D-293): cind bounds route to
 /// `oobtable_fixups` (oob_table, code 2) and cind sig to
