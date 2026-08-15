@@ -602,20 +602,26 @@ pub fn parseLine(
     // runner's `catch continue` then dropped with no counter.
     var name_start: ?usize = null;
     var name_end: usize = 0;
+    // The name run is CONTIGUOUS from the first token. Anything that is not
+    // a name token closes it for good — including `()`, which is why this is
+    // a flag rather than a `seen_arrow or args_len > 0` test: `()` consumes
+    // itself with a bare `continue`, setting neither, so `assert_return f ()
+    // g -> i32:1` would have glued `g` on and produced the name `"f () g"`
+    // (the span covers the intervening bytes) instead of surfacing as
+    // malformed. A corrupted corpus line would then have run against a
+    // differently-named function and been tallied as a normal verdict.
+    var name_run_open = true;
     while (tokens.next()) |tok| {
         if (tok.len == 0) continue;
         if (std.mem.eql(u8, tok, "->")) {
             seen_arrow = true;
+            name_run_open = false;
             continue;
         }
         const is_name_token = !std.mem.eql(u8, tok, "()") and
             (std.mem.findScalar(u8, tok, ':') == null or std.mem.find(u8, tok, "::") != null);
         if (is_name_token) {
-            // A name token may only appear in the leading name run: once
-            // an arg or the arrow has been consumed the grammar admits
-            // only typed values / `()`, so anything else is malformed and
-            // must surface rather than be absorbed into the name.
-            if (seen_arrow or directive.args_len > 0) return Error.MalformedTypedValue;
+            if (!name_run_open) return Error.MalformedTypedValue;
             const off = @intFromPtr(tok.ptr) - @intFromPtr(rest.ptr);
             if (name_start == null) {
                 // 10.M-D195b cycle 72 — `$module::field` syntax splits
@@ -634,9 +640,11 @@ pub fn parseLine(
         }
         // Typed value or empty-result marker `()`.
         if (std.mem.eql(u8, tok, "()")) {
-            // Void result — no typed value added.
+            // Void result — no typed value added, but the name run ends here.
+            name_run_open = false;
             continue;
         }
+        name_run_open = false;
         const colon = std.mem.findScalar(u8, tok, ':') orelse return Error.MalformedTypedValue;
         const tv: TypedValue = .{ .ty = tok[0..colon], .payload = tok[colon + 1 ..] };
         if (seen_arrow) {
@@ -817,6 +825,21 @@ test "parseLine: a bare token after an arg stays malformed" {
     var results: [4]TypedValue = undefined;
     try testing.expectError(Error.MalformedTypedValue, parseLine("assert_return foo i32:1 bar -> i32:2", &args, &results));
     try testing.expectError(Error.MalformedTypedValue, parseLine("assert_return foo () -> i32:2 bar", &args, &results));
+}
+
+test "parseLine: `()` closes the name run" {
+    // The empty-argument marker consumes itself; if it does not also END the
+    // name run, a stray token after it is glued onto the name and the line
+    // runs against a differently-named function instead of surfacing as
+    // unparsed. The span covers the intervening bytes, so the name would
+    // have come out as the literal "f () g".
+    var args: [4]TypedValue = undefined;
+    var results: [4]TypedValue = undefined;
+    try testing.expectError(Error.MalformedTypedValue, parseLine("assert_return f () g -> i32:1", &args, &results));
+    // ...and the legitimate spaced-name form, where the run is contiguous
+    // and `()` comes after it, still parses.
+    const d = try parseLine("assert_return get table[0] () -> i32:1", &args, &results);
+    try testing.expectEqualStrings("get table[0]", d.func_name);
 }
 
 test "parseLine: skip-adr-<id> classifies as skip_adr, not unknown" {

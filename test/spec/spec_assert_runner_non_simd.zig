@@ -150,7 +150,7 @@ pub fn main(init: std.process.Init) !void {
     // work enumerated: a directive dropped before reaching a column is
     // indistinguishable from one that was never in the corpus.
     try stdout.print(
-        "spec_assert_runner_non_simd: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice\n",
+        "spec_assert_runner_non_simd: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice)\n",
         .{ tally.lines, tally.accounted(), tally.residual(), tally.overcounted() },
     );
     try stdout.flush();

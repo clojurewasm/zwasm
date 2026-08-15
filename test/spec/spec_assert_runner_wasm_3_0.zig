@@ -837,8 +837,17 @@ pub fn main(init: std.process.Init) !void {
                             // .wasm that can't be read is a REAL error, not a skip —
                             // surfacing it roots-caused the windowsmini pass=0 anomaly
                             // (every module silently un-loaded → asserts un-evaluated).
-                            // No-op on hosts where the read succeeds (Mac/ubuntu).
-                            std.debug.print("[wasm-3.0-assert] {s}/{s} MODULE-READ-FAIL: {s}\n", .{ proposal, d.module_path, @errorName(err) });
+                            // ADR-0210 — and it must GATE, which printing alone did
+                            // not do. Every later assert for this module takes the
+                            // `cur_module_bytes orelse` path and lands in `ret.skip` /
+                            // `trap.skip`, so the identity closes and the run exits 0
+                            // with hundreds of assertions quietly downgraded to skips.
+                            // Counted with the other sub-corpus-level read failures,
+                            // and on stdout so it sits in the same stream as the
+                            // accounting it invalidates (std.debug.print goes to
+                            // stderr, which the summary reader never sees).
+                            summary.manifest_errors += 1;
+                            try stdout.print("MODULE-READ-FAIL  {s}/{s}: {s} — later asserts for this module become skips\n", .{ proposal, d.module_path, @errorName(err) });
                             cur_module_bytes = null;
                             cur_inst_idx = null;
                             continue;

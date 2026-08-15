@@ -78,7 +78,16 @@ For the wasm-3.0 runner, in full:
    lines than were read — a line tallied twice, the exact defect the
    wasm-3.0 shared `skips` bucket had — would read as perfectly
    accounted.
-8. **What the identity cannot see, gates separately.** The identity is
+8. **A stricter corpus contract, accepted deliberately.** Because a
+   manifest that fails to read now gates, a sub-corpus directory with no
+   `manifest.txt` at all turns the build red rather than being skipped.
+   Only the six `raw/` dirs qualify today and those are explicitly
+   skipped, so the tree is clean — but `scripts/regen_spec_3_0_assert.sh`
+   `mkdir -p`s the output directory before writing the manifest, so an
+   aborted regen leaves an empty sub-corpus that now fails the gate. That
+   is the intended direction: a half-regenerated corpus should be loud,
+   not silently smaller. Re-run or remove the stray directory.
+9. **What the identity cannot see, gates separately.** The identity is
    invariant under "drop a whole manifest": a sub-corpus that fails to
    open contributes zero to both sides, so `lines` and the buckets shrink
    together and the run still prints CLOSED. Verified by injecting a
