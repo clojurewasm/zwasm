@@ -136,8 +136,10 @@ an artifact of how directives were counted — the identity closes with it
 present. It is a genuine defect in the multi-value entry path
 (`invokeMulti`, `src/engine/runner.zig`), recorded as **D-590** and
 deliberately not fixed or chased here: the same module and export return
-`1 1` correctly through the CLI on both engines, so the codegen is right
-and only the persistent-instance route traps. The wasm-3.0 JIT lane is
+`1 1` correctly through the CLI on both engines, so the codegen for this
+shape is right and only the persistent-instance route traps. Whether the
+defect is in `invokeMulti` itself or in the runner's use of it was not
+isolated, and is not claimed either way. The wasm-3.0 JIT lane is
 therefore expected to reach CI as a gate **with one accepted fail**, not
 as a fully-green lane.
 
