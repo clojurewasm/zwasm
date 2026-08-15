@@ -121,6 +121,65 @@ entries:
       src/wasi/** (preview1 syscall implementations); test/wasi/wasip1_official/**;
       ROADMAP §11.1 (syscall surface 46/46); ADR-0161 (preview1 completion
       program); ADR-0174 (no-silent-skip); D-582 (the gate that measures this)
+  - id: "D-584"
+    layer: "perf"
+    status: "now"
+    description: |-
+      The JIT entry helpers recompute `computeStackLimit` on EVERY invocation
+      (entry.zig 232/255, entry_buffer_write.zig 86). On Linux/glibc initial
+      threads glibc's `pthread_getattr_np` answers by opening and parsing
+        /proc/self/maps: 24.6-26.9 us per call across rounds on one host, the
+        committed baseline reading 26.8 (strace: openat + read x3 + close +
+        fstat + prlimit64 + sched_getaffinity, per invoke).
+      Worker threads answer from the thread descriptor (561-578 ns);
+      aarch64-macos is a user-space struct read (3.1-7.2 ns). The interpreter
+      CACHES the same value (runtime.zig:593), so the cost lands on one side of
+      any engine comparison only. AOT pays it identically: the .cwasm load path
+      reaches the same entry helpers. Consequence on x86_64-linux, the JIT needs
+      ~6,500 wasm instructions per call before it beats the interpreter, and
+      `.auto` (which prefers JIT unconditionally) picks the slower engine for
+      small frequent calls. Deliberate decision (a31e00558) whose commit message
+      estimated the cost at "~us", off by more than an order of magnitude.
+      per-call is CORRECT for thread validity (the value must describe the
+      calling thread, and an embedder may call from different threads over an
+      instance's life), so an instance-scoped cache would be WRONG; a
+      thread-local cache satisfies both.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/engine/codegen/shared/entry.zig (232, 255);
+      src/engine/codegen/shared/entry_buffer_write.zig (86);
+      src/runtime/runtime.zig (593, the cached interp side);
+      src/platform/stack_limit.zig; ADR-0105 D1 (specifies instantiation time,
+      not call time); commit a31e00558; ADR-0209
+  - id: "D-585"
+    layer: "perf"
+    status: "now"
+    description: |-
+      The public embedding API resolves the export by NAME on every call:
+      `JitInstance.invoke` calls `findExportFunc`, which runs `parser.parse()`
+      over the WHOLE module. Measured on aarch64-macos (where D-584's constant
+      is absent, so this is visible): the public API costs 161 ns against
+      10.5 ns for `invokeIdx` underneath it, about 15x, and LOSES to `.interp`
+      at 0 and 1 loop trips on a 107-byte guest. The cost is LINEAR in module
+      size: 687-859 ns per KiB above a few KiB. Measured, not extrapolated:
+      a 101 KiB module costs 76.0-78.0 us per call and a 1.1 MiB module
+      779-781 us. This is the
+      more serious of the two per-call costs for embedding use, because module
+      size is what an embedding host varies, whereas D-584 is a fixed ~25 us.
+      The fix shape already exists: `invokeIdx(func_idx, args)` is public and
+      takes the index directly, so resolving once into the typed-func handle
+      would do it. Note `Instance.jitHandle` is private, so an embedder cannot
+      reach `invokeIdx` today. NOT YET TRACED: `Instance.invokeJit` also calls
+      `exportFuncSig`, which parses a second time, yet the measured overhead
+      matches roughly ONE findExportFunc, so either the second parse is much
+      cheaper or the facade path does not reach it.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/engine/runner.zig (invoke / findExportFunc / invokeIdx);
+      src/zwasm/instance.zig (jitHandle, private);
+      bench/latency/percall_runner.zig; ADR-0209
   - id: "D-580"
     layer: "code"
     status: "note"

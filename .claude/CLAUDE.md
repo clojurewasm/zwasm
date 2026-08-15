@@ -78,7 +78,8 @@ text or code identifiers.
   is PR-only, and CI's `ci-required` runs `scripts/ci_gate.sh` on **all 3 OSes**
   (aarch64-macos + x86_64-linux + x86_64-windows) for **every** PR. That IS the
   merge gate. A PR run gets the **core** gate — zig fmt + `test-all` +
-  `run-rust-host` + the test-discovery guard. The **extended** checks (lint /
+  `bench-latency-build` (compile-only, ADR-0209) + `run-rust-host` + the
+  test-discovery guard. The **extended** checks (lint /
   build-option DCE / ReleaseSafe JIT smoke / AOT cross-compile / `zone_check` /
   `spill_aware`) are gated on `ZWASM_CI_EXTENDED`, which `ci.yml` sets only on
   the **push to `main`** — they are up to ~20 cold-cache ReleaseSafe builds and
