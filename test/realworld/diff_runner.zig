@@ -178,8 +178,11 @@ pub fn main(init: std.process.Init) !void {
     var jit_mismatched: u32 = 0;
     var jit_skipped: u32 = 0;
     var jit_skipped_empty: u32 = 0;
-    // Denominator for the JIT lane: fixtures for which the ORACLE produced a
-    // result, i.e. every fixture the lane owes a verdict on. `jit_matched +
+    // Denominator for the JIT lane: fixtures the oracle ANSWERED for — i.e.
+    // wasmtime spawned and produced a stdout + exit code, whatever that exit
+    // code was. Not "fixtures wasmtime ran successfully": a non-zero `wt_exit`
+    // still gives the lane something to diff against, exactly as it does for
+    // the shared lane, so it still owes a verdict. `jit_matched +
     // jit_mismatched + jit_skipped + jit_skipped_empty` MUST equal this.
     //
     // The lane sits directly below the increment, so today nothing can come
@@ -260,6 +263,14 @@ pub fn main(init: std.process.Init) !void {
         // itself tolerates, failed the JIT gate with the wrong explanation.
         // The wasmer lane genuinely needs `v2_stdout`, so it stays below.
         //
+        // BISECT NOTE: this puts up to two in-process native executions ahead of
+        // the shared lane's run of the same fixture. D-489 investigated exactly
+        // that class — tinygo_json diverged under the diff runner but not
+        // standalone, an in-process ripple (`zig build d489-repro`). Measured
+        // green on x86_64-linux across all three lanes after the move, but if a
+        // shared-lane MISMATCH ever appears on another host, suspect this
+        // ordering before the engines.
+        //
         // Flush per fixture so incremental output shows progress.
         if (aot_lane) {
             if (bytes.len > aot_size_cap) {
@@ -324,7 +335,6 @@ pub fn main(init: std.process.Init) !void {
         // falls through to MISMATCH below, so genuine output regressions are
         // NOT masked. (The standard-Go CallStackExhausted case that used to
         // land here was the label-stack depth bug, resolved in D-242.)
-
         if (v2_exit != 0 and wt_exit == 0) {
             try stdout.print("SKIP-V2-TRAP  {s} (v2 exit={d}, wasmtime exit=0 — v2 could not complete)\n", .{ entry.name, v2_exit });
             skipped_v2 += 1;
@@ -393,8 +403,8 @@ pub fn main(init: std.process.Init) !void {
     // outside `jit_mismatched`. So all three arms gate:
     //
     //   mismatch    a fixture's JIT stdout differs from wasmtime's
-    //   skip        the JIT could not complete a fixture the oracle ran
-    //   shortfall   a fixture the oracle ran never reached the lane at all —
+    //   skip        the JIT could not complete a fixture the oracle answered for
+    //   shortfall   a fixture the oracle answered for never reached the lane —
     //               unreachable as the loop is written today (the lane sits
     //               directly under the increment); it is the guard that keeps
     //               it that way
@@ -410,8 +420,8 @@ pub fn main(init: std.process.Init) !void {
         }
         if (jit_skipped != 0) {
             try stdout.print(
-                "error: JIT lane could not complete {d} of {d} fixture(s) wasmtime ran; a skip is an " ++
-                    "unverified fixture, not a pass (fix the JIT gap or shrink the corpus deliberately)\n",
+                "error: JIT lane could not complete {d} of {d} fixture(s) the oracle answered for; a skip is " ++
+                    "an unverified fixture, not a pass (fix the JIT gap or shrink the corpus deliberately)\n",
                 .{ jit_skipped, jit_eligible },
             );
             try stdout.flush();
@@ -419,8 +429,8 @@ pub fn main(init: std.process.Init) !void {
         }
         if (accounted != jit_eligible) {
             try stdout.print(
-                "error: JIT lane accounted for {d} of {d} fixture(s) wasmtime ran — {d} left the corpus " ++
-                    "without a JIT verdict; a `continue` was added above the lane in the per-fixture loop\n",
+                "error: JIT lane accounted for {d} of {d} fixture(s) the oracle answered for — {d} left the " ++
+                    "corpus without a JIT verdict; a `continue` was added above the lane in the loop\n",
                 // Saturating: `accounted > jit_eligible` is unreachable (the lane
                 // runs at most once per eligible fixture), but a gate that panics
                 // on an impossible state is worse than one that still reports.
@@ -608,7 +618,20 @@ fn jitCompare(
         &.{.{ .host_path = preopen_scratch, .guest_path = "." }}
     else
         &.{};
-    const jit_exit: u8 = cli_run.runWasmJitCaptured(gpa, io, bytes, null, argv, preopens, &.{}, &.{}, .{}, &jit_stdout, null) catch |err| {
+    // Per-fixture deadline. This lane runs the guest IN-PROCESS, so a JIT hang
+    // (the D-468 `proc_exit` class) would wedge `test-all` until the CI job's
+    // 120-minute cap rather than failing loudly. The removed `run_runner_jit`
+    // run stage bounded its own guests with fork + SIGALRM; this is the
+    // in-process equivalent, via the cooperative interrupt both engines poll
+    // (ADR-0179 #3a-4). Slowest fixture measured 3.4s (`go_json_marshal`,
+    // x86_64-linux), so 60s is ~18x headroom for a slower runner while still
+    // turning a hang into a SKIP-JIT-TRAP the gate fails on.
+    //
+    // Bounded here only. The shared lane below still runs unbounded — that is
+    // pre-existing (as is `test-realworld-run`'s), and arming it would change
+    // what that lane exercises, so it is left alone rather than swept in.
+    const jit_limits: cli_run.Limits = .{ .timeout_ms = 60_000 };
+    const jit_exit: u8 = cli_run.runWasmJitCaptured(gpa, io, bytes, null, argv, preopens, &.{}, &.{}, jit_limits, &jit_stdout, null) catch |err| {
         try out.print("  SKIP-JIT-RUN  {s}: {s}\n", .{ name, @errorName(err) });
         return .skip;
     };

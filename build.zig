@@ -1061,7 +1061,13 @@ pub fn build(b: *std.Build) void {
     const run_realworld_diff = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
-    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
+    // Nothing in the build graph depends on this step any more — `test-all`
+    // takes `test-realworld-diff-jit`, which is the same runner plus `--jit`.
+    // It survives as the manual entry point for the shared lane alone (a
+    // faster loop when triaging a non-JIT divergence). Being CI-unreached, its
+    // wiring can rot silently; the `--jit` step below shares this exe and
+    // corpus arg, so a break here shows up there.
+    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime (shared lane only; not in test-all)");
     test_realworld_diff_step.dependOn(&run_realworld_diff.step);
 
     // `zig build test-realworld-diff-aot` — D-283 widen / D-251 validate.
