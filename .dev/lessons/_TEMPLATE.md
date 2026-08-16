@@ -23,8 +23,7 @@ naming what changed; cite the production commit SHA in **Citing** above.>
 ## Why this didn't surface earlier
 
 <Optional but recommended for surprise-class lessons. Names the conditions
-that masked the issue — prevents "why didn't we catch this in CI?"
-re-investigation.>
+that masked the issue, preventing "why didn't CI catch this?" re-investigation.>
 
 ## Re-derivability
 
@@ -34,9 +33,10 @@ observational knowledge worth keeping.>
 
 ## Related
 
-<Optional. ADRs this lesson seeded or amends (per
-`.claude/rules/lessons_vs_adr.md` "Lesson alongside ADR amend" — both
-coexist); sibling lessons (same domain, same shape); debt rows citing it.>
+<Optional. Link to:
+- ADRs seeded or amended (per `lessons_vs_adr.md` "Lesson alongside ADR amend")
+- Sibling lessons (same domain, same shape)
+- Debt rows that reference this lesson>
 
 <!--
 Template hygiene:
