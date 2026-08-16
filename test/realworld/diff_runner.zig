@@ -208,6 +208,12 @@ pub fn main(init: std.process.Init) !void {
     // loud shortfall instead of a fixture that silently stops being checked.
     // wasmtime-less hosts leave it at 0, so the invariant stays portable.
     var jit_eligible: u32 = 0;
+    // The two ways a fixture leaves the corpus WITHOUT reaching the JIT lane.
+    // ADR-0210 rule 5: a tally that cannot account for its own denominator reads
+    // as authoritative and is not — so these are counted and printed, not merely
+    // logged, and the identity below reconciles them against `total`.
+    var jit_oracle_failed: u32 = 0;
+    var jit_pre_oracle: u32 = 0;
 
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
@@ -221,6 +227,7 @@ pub fn main(init: std.process.Init) !void {
         const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch {
             try stdout.print("SKIP-V2-READ  {s}\n", .{entry.name});
             skipped_v2 += 1;
+            jit_pre_oracle += 1;
             continue;
         };
         defer gpa.free(bytes);
@@ -271,6 +278,7 @@ pub fn main(init: std.process.Init) !void {
         if (jit_owed) jit_eligible += 1;
         if (jit_lane and wt_exit != 0) {
             try stdout.print("  ORACLE-FAILED-JIT  {s} (wasmtime exit={d} — outside the differential's scope)\n", .{ entry.name, wt_exit });
+            jit_oracle_failed += 1;
         }
 
         // Mirror wasmtime's default of `argv[0] = <wasm filename>`
@@ -411,6 +419,14 @@ pub fn main(init: std.process.Init) !void {
                 "{d} skipped-empty, {d} unaccounted — GATING (fatal on mismatch, skip, or shortfall)\n",
             .{ jit_matched, jit_eligible, jit_mismatched, jit_skipped, jit_skipped_empty, jit_eligible -| (jit_matched + jit_mismatched + jit_skipped + jit_skipped_empty) },
         );
+        // ADR-0210 rule 4: print the identity, do not leave it implied. `{d}/{d}`
+        // above is against the ELIGIBLE set, so the corpus-level denominator has
+        // to be reconciled separately or the ratio reads as full coverage.
+        const jit_denominator = jit_eligible + jit_oracle_failed + skipped_wasmtime_fail + jit_pre_oracle;
+        try stdout.print(
+            "diff_runner [jit] RECONCILE: total {d} = eligible {d} + oracle-failed {d} + oracle-unspawnable {d} + dropped-before-oracle {d} → {s}\n",
+            .{ total, jit_eligible, jit_oracle_failed, skipped_wasmtime_fail, jit_pre_oracle, if (jit_denominator == total) "CLOSED" else "OPEN" },
+        );
     }
     // Flush the summary unconditionally: the green path (no mismatch, matched
     // >= 30) returns at the bottom WITHOUT hitting any of the branch-local
@@ -451,6 +467,16 @@ pub fn main(init: std.process.Init) !void {
                 "error: JIT lane could not complete {d} of {d} fixture(s) the oracle answered for; a skip is " ++
                     "an unverified fixture, not a pass (fix the JIT gap or shrink the corpus deliberately)\n",
                 .{ jit_skipped, jit_eligible },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        const jit_denominator = jit_eligible + jit_oracle_failed + skipped_wasmtime_fail + jit_pre_oracle;
+        if (jit_denominator != total) {
+            try stdout.print(
+                "error: JIT lane accounting OPEN — {d} of {d} fixture(s) fall in no bucket; the matched " ++
+                    "ratio is against the eligible set and cannot be read as corpus coverage\n",
+                .{ total -| jit_denominator, total },
             );
             try stdout.flush();
             std.process.exit(1);
