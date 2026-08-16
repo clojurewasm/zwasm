@@ -28,12 +28,16 @@ clean `brew` state) and **phase 5** (cljw pin + wind-down).
   claimed does not hold; the real defect was `run_oob_trap` never re-running),
   #192 (the JIT realworld differential had no caller — now in `test-all` with
   denominator accounting), #191 / #193 (records).
+- `develop/wasi-p1-official-impl` carries #183's implementation — 147 files
+  (vendored corpus + runner + advisory gate), pushed, **no PR**; it lands with
+  the ADR once the review answers.
 - **Next dispatchable — the wasmtime differential is double fail-open.**
-  `.github/workflows/ci.yml:194` installs the oracle with
-  `continue-on-error: true`, and `test/realworld/diff_runner.zig` returns early
-  at 143 and 509 — both ahead of the `matched < 30` gate at 511. A host without
-  wasmtime therefore leaves the lane GREEN without running it. Fixing it
-  touches `ci.yml`, so it is not a maintainer-free change.
+  `test/realworld/diff_runner.zig` has a `matched < 30` denominator gate that is
+  unreachable: two early returns precede it — the oracle missing
+  (`SKIP-WASMTIME-MISSING`) and the oracle resolving but every spawn failing
+  (`SKIP-WASMTIME-UNUSABLE`). `.github/workflows/ci.yml` installs wasmtime with
+  `continue-on-error: true`, so absent OR broken, the lane goes GREEN without
+  running. Fixing it touches `ci.yml`, so it is not a maintainer-free change.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
