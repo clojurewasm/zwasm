@@ -1120,7 +1120,7 @@ pub fn build(b: *std.Build) void {
     // fixture via the WASI-aware `--engine jit` path (runWasmJitCaptured) +
     // byte-diffs stdout vs wasmtime. Superseded the run_runner_jit run-stage,
     // which ran with a null WASI host and so reported false traps.
-    // Measured cost over the interp-only step: +27s (21.4 → 48.3) on
+    // Measured cost over the shared-lane-only step: +29s (19.3 → 48.3) on
     // x86_64-linux — a rounding error against the ~10 min core gate, which is
     // why this sits in the core gate rather than behind ZWASM_CI_EXTENDED.
     const run_realworld_diff_jit = b.addRunArtifact(realworld_diff_runner_exe);

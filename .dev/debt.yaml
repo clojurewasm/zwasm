@@ -1928,7 +1928,7 @@ entries:
     front: B-hardening
   - id: "D-283"
     layer: "test"
-    status: "note"
+    status: "now"
     description: |-
       note: the realworld AOT differential lane (`test-realworld-diff-aot`, `diff_runner.zig --aot`) runs
       IN-PROCESS with a <64KB fixture cap, so it cannot per-fixture-timeout a slow JIT-compile and the large
@@ -1968,6 +1968,27 @@ entries:
       `emcc_fannkuch` alone) or state the lane as `.auto` everywhere and stop calling it interp. Not
       closed here: this PR only corrected the prose (README / handover / build.zig comment) so nothing
       claims an interp result-check that does not exist.
+      ---
+      **OPEN, scoped not closed (2026-08-16): a wasmtime-less host makes this lane contribute nothing,
+      silently.** `diff_runner` returns before the per-fixture loop when `resolveWasmtime` finds nothing,
+      so `test-all` stays green with the lane never run. The three gate arms cannot close that branch —
+      they are reachable only once wasmtime resolved; the branch they DO close is "resolved but every
+      spawn failed" (SKIP-WASMTIME-UNUSABLE).
+      SCOPE OF THE LOSS: the independent oracle alone. Measured with wasmtime off PATH, `run_aot_diff`
+      (63 fixtures; lane A is a fresh JIT compile + run) and `run_edge_realworld_p10` (8 vs `.expect`)
+      both still gate, so realworld JIT output stays result-checked — against zwasm itself and against
+      checked-in expectations. What only an independent oracle catches is a miscompile present on BOTH
+      sides of a self-differential: the D-330 class (c_sha256_hash / emcc_fasta).
+      DENOMINATOR for calling it rare: 6 CI host-legs over 2 gated runs, 0 actual occurrences. Measured
+      with the runner-only string "no nix-store wrapper found"; a first pass grepping "wasmtime absent"
+      was WRONG — that text is the `|| echo` in `ci.yml` echoed into the log, the D-590 shape.
+      REJECTED: making the CI install mandatory. It trades a rare, partial, logged loss for every PR
+      going red on one download flake, and `wasm-tools` (genuinely required) has the same exposure.
+      THIRD OPTION, unexplored and out of #13's scope: `ci.yml` caches `zig-pkg` and
+      `~/.local/zig-0.16.0` (lines 148-160) but caches NEITHER wasmtime nor wasm-tools. Caching them
+      would cut the download-failure probability and change the mandatory-install trade-off.
+      ALSO UNVERIFIED: CI pins the oracle at wasmtime 45.0.0 (`.github/versions.lock`); the 56/56 JIT
+      figure was measured against 47.0.3, so the JIT lane's CI result is not predicted by it.
     first_raised: "2026-06-05"
     last_reviewed: "2026-08-16"
     refs: |-
