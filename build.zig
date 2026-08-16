@@ -988,9 +988,9 @@ pub fn build(b: *std.Build) void {
     // baseline. Walks the same corpus and drives each fixture
     // through `engine.runner.compileWasm` (the JIT pipeline).
     // Reports compile-side coverage: COMPILE-PASS / COMPILE-IMPORTS
-    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Chunks 7.9-b/c/d
-    // turn COMPILE-PASS into RUN-PASS by adding host-import
-    // dispatch + JitRuntime memory init + WASI stub handlers.
+    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Compilation ONLY —
+    // whether the emitted code computes the right answer is
+    // `test-realworld-diff-jit`'s question, not this step's.
     const realworld_run_jit_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/run_runner_jit.zig"),
         .target = target,
@@ -1061,7 +1061,13 @@ pub fn build(b: *std.Build) void {
     const run_realworld_diff = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
-    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
+    // Nothing in the build graph depends on this step any more — `test-all`
+    // takes `test-realworld-diff-jit`, which is the same runner plus `--jit`.
+    // It survives as the manual entry point for the shared lane alone (a
+    // faster loop when triaging a non-JIT divergence). Being CI-unreached, its
+    // wiring can rot silently; the `--jit` step below shares this exe and
+    // corpus arg, so a break here shows up there.
+    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime (shared lane only; not in test-all)");
     test_realworld_diff_step.dependOn(&run_realworld_diff.step);
 
     // `zig build test-realworld-diff-aot` — D-283 widen / D-251 validate.
@@ -1107,16 +1113,21 @@ pub fn build(b: *std.Build) void {
     const test_realworld_diff_wasmer_step = b.step("test-realworld-diff-wasmer", "Realworld differential incl. the opt-in wasmer second-oracle lane (§9.6 A3)");
     test_realworld_diff_wasmer_step.dependOn(&run_realworld_diff_wasmer.step);
 
-    // `zig build test-realworld-diff-jit` — D-283 the real JIT-correctness net.
-    // Same wasmtime differential PLUS a `--jit` lane that runs each fixture via
-    // the WASI-aware `--engine jit` path (runWasmJitCaptured) + byte-diffs stdout
-    // vs wasmtime. Replaces the misleading run_runner_jit run-stage (null WASI
-    // host → false traps). Report-only first; gates once clean.
+    // `zig build test-realworld-diff-jit` — D-283 the real JIT-correctness net,
+    // and the lane `test-all` depends on (NOT `test-realworld-diff`, which is the
+    // same runner minus `--jit`; depending on both would run the interp lane
+    // twice). Same wasmtime differential PLUS a `--jit` lane that runs each
+    // fixture via the WASI-aware `--engine jit` path (runWasmJitCaptured) +
+    // byte-diffs stdout vs wasmtime. Superseded the run_runner_jit run-stage,
+    // which ran with a null WASI host and so reported false traps.
+    // Measured cost over the shared-lane-only step: +29s (19.3 → 48.3) on
+    // x86_64-linux — a rounding error against the ~10 min core gate, which is
+    // why this sits in the core gate rather than behind ZWASM_CI_EXTENDED.
     const run_realworld_diff_jit = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff_jit.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff_jit.addArg("--jit");
     run_realworld_diff_jit.has_side_effects = true;
-    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the opt-in WASI-aware JIT lane (D-283)");
+    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the gating WASI-aware JIT lane (D-283)");
     test_realworld_diff_jit_step.dependOn(&run_realworld_diff_jit.step);
 
     // `zig build test-api-zig-facade` — Phase 10 / §10.J / J.6.
@@ -1416,7 +1427,14 @@ pub fn build(b: *std.Build) void {
     // fixtures") — they are SKIP, not FAIL, so the runner
     // exits zero. Hosts without `wasmtime` on PATH degrade to
     // SKIP-WASMTIME-FAIL gracefully and do not break the gate.
-    test_all_step.dependOn(&run_realworld_diff.step);
+    // The `--jit` variant, NOT `run_realworld_diff`: same runner, same default-
+    // engine lane, plus the gating JIT lane — so one dependency, no double run
+    // of the shared lane. Note what that shared lane is NOT: it calls
+    // `runWasmCaptured` with default `Limits`, i.e. `.auto`, which tries the JIT
+    // first and reaches the interp only where the JIT cannot instantiate. It is
+    // not an interp result-check, and `test-all` currently has none over the
+    // realworld corpus.
+    test_all_step.dependOn(&run_realworld_diff_jit.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     // §10 / 10.T-2b: wasm-3.0 assertion runner skeleton — enumerates
     // baked manifests, exits clean. Adopts JIT-execute as impl rows
@@ -1475,9 +1493,12 @@ pub fn build(b: *std.Build) void {
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.
     //
-    // test-realworld-run-jit reports RUN-PASS / FAIL
-    // classifications; its 40+ RUN-PASS floor is §9.7 / 7.9-a's
-    // exit criterion.
+    // test-realworld-run-jit compiles every fixture through the JIT
+    // pipeline. Its RUN-PASS stage — and the 40+ RUN-PASS floor that
+    // was §9.7 / 7.9-a's exit criterion — is GONE: it invoked `_start`
+    // with a null WASI host, so its traps measured the harness, not
+    // the JIT. `test-realworld-diff-jit` carries the execution side
+    // now (D-283).
     //
     // test-wasmtime-misc-runtime (today 266/0/0 with panics
     // resolved) is the only runtime-asserting runner for non-SIMD
