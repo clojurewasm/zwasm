@@ -150,7 +150,7 @@ defect is in `invokeMulti` itself or in the runner's use of it was not
 isolated, and is not claimed either way.
 
 Its disposition is **out of scope for this ADR and unsettled** — recorded
-as **D-590**, decided at #12 when the JIT lane's CI gating is designed.
+as **D-590**, decided when the JIT lane's CI gating is designed.
 Leaving it unfixed and gating the lane with one accepted fail is one
 candidate; it conflicts with ADR-0153 (a measured violation of a 完成形
 dimension "schedules a rework"), and 100% spec is one of those dimensions.
