@@ -34,16 +34,16 @@ observational knowledge worth keeping.>
 ## Related
 
 <Optional. Link to:
-- ADRs seeded or amended (per `lessons_vs_adr.md` "Lesson alongside ADR amend")
+- ADRs seeded or amended (per `.claude/references/lessons_vs_adr.md`
+  "Lesson alongside ADR amend")
 - Sibling lessons (same domain, same shape)
 - Debt rows that reference this lesson>
 
-<!--
-Template hygiene:
+<!-- Template hygiene:
 - Keep ≤ 50 lines total per `.claude/rules/lessons_vs_adr.md`.
 - Add one row to `.dev/lessons/INDEX.md` in the SAME commit.
-- If `Citing` is `<backfill>`, fix it at next phase boundary alongside
-  the SHA-pointer backfill pass.
-- Promotion to ADR: see `lessons_vs_adr.md` "Promotion: lesson → ADR" —
-  delete the lesson + INDEX row in the same commit as the new ADR.
+- `Citing: <backfill>` → fix at the next phase-boundary SHA-pointer pass.
+- Promotion to ADR ("Promotion: lesson → ADR" in
+  `.claude/references/lessons_vs_adr.md`) — delete the lesson + INDEX row
+  in the same commit as the new ADR.
 -->
