@@ -109,7 +109,10 @@ Host = Mac / ubuntunote?
 │   └── Recipe 18 (`scripts/jit_value_trace.sh`): disasm the suspect func,
 │       then VALUE-trace the instruction (regs/mem) interp-vs-jit. This is
 │       the lens IR/vreg-level analysis (liveness/regalloc) cannot give.
-├── SEGV reproduces in test-realworld-run-jit?
+├── SEGV reproduces in test-realworld-diff-jit?
+│   (test-realworld-run-jit only COMPILES — it stopped executing fixtures
+│    when its null-WASI-host run stage was removed; a SEGV during execution
+│    reproduces in the diff lane, or via `zwasm run --engine jit <fixture>`)
 │   ├── YES → Recipe 1 (lldb -b) for first triage. Read fault RIP.
 │   │        ├── RIP inside JIT block (block.bytes.ptr ≤ RIP < ptr+len)?
 │   │        │   ├── YES → Recipe 2 (ndisasm) on the byte range.
