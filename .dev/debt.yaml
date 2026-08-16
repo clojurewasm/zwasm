@@ -1928,59 +1928,73 @@ entries:
     front: B-hardening
   - id: "D-283"
     layer: "test"
-    status: "note"
+    status: "now"
     description: |-
-      note (D-244 JIT-WASI retrospective follow-up): **PHASE-B ANCHOR of the 2026-06-14 real-world reproduction
-      agenda — see `.dev/realworld_reproduction_plan.md`.** Live signal (cljw-excluded, `ZWASM_JIT_RUN=1` on the
-      50-fixture corpus 2026-06-14): interp 55/55 but JIT 35 pass / **6 RUN-TRAP** (tinygo_{fib,hello,json,sort},
-      rust_file_io, c_sha256_hash — interp-passes ⇒ JIT miscompile/WASI-gap) / **9 COMPILE-OP** (all go_* —
-      UnsupportedOp ⇒ unimplemented JIT op). Triage+fix per the plan.
+      note: the realworld AOT differential lane (`test-realworld-diff-aot`, `diff_runner.zig --aot`) runs
+      IN-PROCESS with a <64KB fixture cap, so it cannot per-fixture-timeout a slow JIT-compile and the large
+      libc / Go / Rust guests are SKIP-AOT-LARGE. A **subprocess-based** lane (`zwasm run <.cwasm>` per
+      fixture, the way the wasmtime oracle is spawned) would cover them and isolate native execution.
+      REPORT-ONLY by design; nothing gates on it. Result on what it does cover: AOT byte-matches wasmtime on
+      7/7 runnable fixtures, 0 MISMATCH-AOT (2026-06-05, `a81a388e`+`d7e3f131`).
       ---
-      **TRIAGE FINDING 2026-06-14 — the "RUN-TRAP" premise was WRONG.** The 12 RUN-TRAP (current 56-fixture corpus)
-      are NOT JIT miscompiles: `run_runner_jit.zig`'s run stage invokes `_start` via `engine.runner.runVoidExport`
-      → `runVoidExportWasi(.., wasi_host=NULL, ..)` — i.e. it runs the JIT-compiled program with **NO WASI host**, so
-      any fixture that reaches a WASI call (`fd_write`/`proc_exit`) mid-run traps. Proven: the WASI-aware CLI path
-      `zwasm run --engine jit <fixture>` runs BOTH `emcc_primes` and `tinygo_sort` (sampled from the trap set)
-      CORRECTLY (right stdout, exit 0), consistently. So the JIT compiles AND executes these fine; the harness just
-      lacks a WASI host. DISCHARGE (per this row's own text): add a **`--jit` lane to `diff_runner.zig`** (mirror the
-      landed `--aot`/`--wasmer` lanes) that runs each fixture via the WASI-aware JIT path + byte-diffs stdout vs
-      wasmtime — the real JIT-correctness net. The 9 COMPILE-OP (go_* UnsupportedOp) remain genuine unimplemented-op
-      gaps (separate, real).
+      **JIT-lane reason DISCHARGED 2026-08-16.** History, since the row carried it for two months: the
+      original signal ("6 RUN-TRAP / 9 COMPILE-OP" under `ZWASM_JIT_RUN=1`) was a harness artifact —
+      `run_runner_jit`'s run stage invoked `_start` via `runVoidExport` with **no WASI host**, so every
+      fixture reaching `fd_write`/`proc_exit` trapped (lesson
+      `2026-06-14-jit-realworld-runtraps-are-null-wasi-harness-artifacts.md`). The `--jit` lane landed
+      `219dbd17` as the replacement and flipped REPORT-ONLY → GATING at `3b6f8d5b5` (56/56 matched, after the
+      2 real miscompiles D-330 and the 9 go_* proc_exit hangs D-468/ADR-0199 cleared). **But that flip only
+      changed the runner's exit code — the step was wired into nothing**, so the gate never ran: not
+      `test-all`, not `ci_gate.sh`, not any workflow. Measured on `origin/main` 2026-08-15: CI's realworld
+      JIT coverage was `test-realworld-run-jit` (56/56 **compile**-pass, execution disabled) plus 7
+      `.expect`-checked fixtures in `test/realworld/p10/` (8, not 7 — the earlier count was read off `ls`
+      rather than the runner's own `.wasm`-with-sibling-`.expect` condition). Closed by wiring
+      `test-realworld-diff-jit` into `test-all` + making the lane account for its own denominator (a skip
+      and an unreached fixture now fail it, not just a mismatch — ADR-0210's rule); the misleading run
+      stage was removed in the same change.
       ---
-      **LANE LANDED 2026-06-15 `219dbd17`** (`zig build test-realworld-diff-jit`; `runWasmJitCaptured`). REAL signal
-      replacing the false 12-trap framing: **`diff_runner [jit]: 45/56 matched vs wasmtime, 2 mismatched, 9 skipped`**.
-      So the true remaining JIT work is precise: (A) **2 genuine JIT miscompiles** — `c_sha256_hash` (wasmtime 107B /
-      jit 91B) + `emcc_fasta` (154B / 87B); interp byte-matches wasmtime, JIT emits SHORT/wrong output ⇒ a real
-      codegen bug (next: root-cause via debug_jit_auto — bundle B2). (B) **9 `go_*` UnsupportedOp** compile-gaps
-      (unimplemented JIT op at a specific func) — discharge predicate clear, file/fix per-op. Lane stays REPORT-ONLY
-      until (A)+(B) clear, then gates. **CLEARED 2026-06-20 → 56/56 matched, lane now GATING @3b6f8d5b5.** (A): both
-      c_sha256 (D-330 liveness) + emcc_fasta now byte-match. (B): the 9 go_* were NOT compile-gaps (they compile)
-      but exit-HANGS — JIT proc_exit didn't terminate (D-468/ADR-0199 post-call trap_flag check); all 9 now exit
-      rc=0 + match wasmtime. `diff_runner [jit]` fails on any byte mismatch. JIT-lane reason for `note` discharged;
-      only the AOT-subprocess-lane note (below) remains. — the realworld WASI corpus is NOT exercised
-      end-to-end under
-      `--engine jit`. `test/realworld/run_runner_jit.zig` compiles the fixtures via JIT (46/55 compile-pass) but its
-      RUN stage is OPT-IN (`ZWASM_JIT_RUN=1`, default-off) — so the new full-46 JIT WASI surface (D-244,
-      `wasi/jit_dispatch.zig` + `cli/run.zig runWasmJit`) is verified by per-syscall unit tests + a handful of
-      runWasmJit smoke tests, NOT by running real programs (c_hello_wasi / tinygo / rust) under the JIT and
-      byte-diffing stdout against wasmtime like the interp `diff_runner` does. DISCHARGE: run the corpus with
-      `ZWASM_JIT_RUN=1`, triage failures (some fixtures use ops the JIT can't yet compile — separate from WASI), and
-      either enable the JIT run stage by default for the runnable subset OR a JIT variant of `diff_runner` that
-      stdout-diffs `--engine jit` vs wasmtime. Confidence is currently good (3-host green + interp handlers reused)
-      but this is the missing differential net. Not blocking — D-244 is functionally complete + 3-host green.
+      **OPEN, found while closing the above (2026-08-16): the paired lane is NOT the interpreter, so
+      `test-all` has no forced-interp result-check over the realworld corpus.** `diff_runner.zig`'s
+      non-`--jit` lane calls `cli_run.runWasmCaptured` with default `Limits`, i.e. `engine = .auto`
+      (`src/cli/run.zig:52`), and `.auto` calls `instantiateJit` FIRST and reaches the interp only where
+      the JIT cannot instantiate (`src/api/instance.zig:945`). `run_realworld_run` (`cli_run.runWasm`) is
+      the same. Measured x86_64-linux 2026-08-16: `emcc_fannkuch` runs in 9.76s under `--engine interp`,
+      0.13s under `--engine jit`, 0.12s under the default; sweeping the corpus with a 3s cap, 7 of 56
+      fixtures complete under the default while the interp times out, so those 7 provably do not take the
+      interp (the other 49 finish under 3s either way and this method cannot separate them). CONSEQUENCE:
+      any claim of the form "realworld interp N/N" is unsupported by a gate — the engine is host- and
+      fixture-dependent because it is whatever `.auto` picked. DISCHARGE: either pin the lane's engine
+      (`Limits{ .engine = .interp }`, which costs the interp's wall-clock on every fixture — 9.76s for
+      `emcc_fannkuch` alone) or state the lane as `.auto` everywhere and stop calling it interp. Not
+      closed here: this PR only corrected the prose (README / handover / build.zig comment) so nothing
+      claims an interp result-check that does not exist.
       ---
-      AOT update (2026-06-05, `a81a388e`+`d7e3f131`): an opt-in **AOT** differential lane landed
-      (`test-realworld-diff-aot`; `diff_runner.zig --aot`, <64KB fixture cap). Result: **AOT byte-matches wasmtime
-      on 7/7 runnable fixtures, 0 MISMATCH-AOT** — the AOT-WASI differential net now EXISTS for the small corpus.
-      REMAINING (why this stays a note): (1) the in-process lane can't per-fixture-timeout slow JIT-compiles, so
-      large libc/Go/Rust guests are SKIP-AOT-LARGE — a **subprocess-based** lane (`zwasm run <.cwasm>` per fixture,
-      like wasmtime) would cover them + isolate native exec; (2) the symmetric JIT lane (above) is still opt-in.
+      **OPEN, scoped not closed (2026-08-16): a wasmtime-less host makes this lane contribute nothing,
+      silently.** `diff_runner` returns before the per-fixture loop when `resolveWasmtime` finds nothing,
+      so `test-all` stays green with the lane never run. The three gate arms cannot close that branch —
+      they are reachable only once wasmtime resolved; the branch they DO close is "resolved but every
+      spawn failed" (SKIP-WASMTIME-UNUSABLE).
+      SCOPE OF THE LOSS: the independent oracle alone. Measured with wasmtime off PATH, `run_aot_diff`
+      (63 fixtures; lane A is a fresh JIT compile + run) and `run_edge_realworld_p10` (8 vs `.expect`)
+      both still gate, so realworld JIT output stays result-checked — against zwasm itself and against
+      checked-in expectations. What only an independent oracle catches is a miscompile present on BOTH
+      sides of a self-differential: the D-330 class (c_sha256_hash / emcc_fasta).
+      DENOMINATOR for calling it rare: 6 CI host-legs over 2 gated runs, 0 actual occurrences. Measured
+      with the runner-only string "no nix-store wrapper found"; a first pass grepping "wasmtime absent"
+      was WRONG — that text is the `|| echo` in `ci.yml` echoed into the log, the D-590 shape.
+      REJECTED: making the CI install mandatory. It trades a rare, partial, logged loss for every PR
+      going red on one download flake, and `wasm-tools` (genuinely required) has the same exposure.
+      THIRD OPTION, unexplored and out of #13's scope: `ci.yml` caches `zig-pkg` and
+      `~/.local/zig-0.16.0` (lines 148-160) but caches NEITHER wasmtime nor wasm-tools. Caching them
+      would cut the download-failure probability and change the mandatory-install trade-off.
+      ALSO UNVERIFIED: CI pins the oracle at wasmtime 45.0.0 (`.github/versions.lock`); the 56/56 JIT
+      figure was measured against 47.0.3, so the JIT lane's CI result is not predicted by it.
     first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-08-16"
     refs: |-
-      test/realworld/run_runner_jit.zig (run-stage disabled); test/realworld/diff_runner.zig (interp + opt-in
-      --aot lane); build.zig (test-realworld-diff-aot); src/wasi/jit_dispatch.zig; src/cli/run.zig (runWasmJit /
-      runCwasmWasi); D-244 (JIT-WASI) / D-251 (AOT-WASI), both done
+      test/realworld/diff_runner.zig (--aot lane + the gating --jit lane); build.zig
+      (test-realworld-diff-aot, test-realworld-diff-jit, test_all_step); src/cli/run.zig (runCwasmWasi);
+      D-251 (AOT-WASI, done); ADR-0210 (runners account for their own denominator)
     front: B-hardening
   - id: "D-295"
     layer: "cli"
