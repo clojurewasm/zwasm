@@ -33,11 +33,12 @@ clean `brew` state) and **phase 5** (cljw pin + wind-down).
   the ADR once the review answers.
 - **Next dispatchable — the wasmtime differential is double fail-open.**
   `test/realworld/diff_runner.zig` has a `matched < 30` denominator gate that is
-  unreachable: two early returns precede it — the oracle missing
-  (`SKIP-WASMTIME-MISSING`) and the oracle resolving but every spawn failing
-  (`SKIP-WASMTIME-UNUSABLE`). `.github/workflows/ci.yml` installs wasmtime with
-  `continue-on-error: true`, so absent OR broken, the lane goes GREEN without
-  running. Fixing it touches `ci.yml`, so it is not a maintainer-free change.
+  bypassed on any host without a working wasmtime: two early returns precede it
+  — the oracle missing (`SKIP-WASMTIME-MISSING`) and the oracle resolving but
+  every spawn failing (`SKIP-WASMTIME-UNUSABLE`). `.github/workflows/ci.yml`
+  installs wasmtime with `continue-on-error: true`, so absent OR broken, the
+  lane goes GREEN without running. Fixing it touches `ci.yml`, so it is not a
+  maintainer-free change.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
