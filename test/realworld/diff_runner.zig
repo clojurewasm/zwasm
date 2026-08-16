@@ -226,13 +226,11 @@ pub fn main(init: std.process.Init) !void {
         defer gpa.free(bytes);
 
         const needs_preopen = fixtureNeedsPreopen(entry.name);
-        if (needs_preopen) {
-            resetPreopenScratch(io, cwd) catch |err| {
-                try stdout.print("SKIP-V2-PREOPEN  {s}: createDirPath {s}\n", .{ entry.name, @errorName(err) });
-                skipped_v2 += 1;
-                continue;
-            };
-        }
+        // `try`, not a categorised skip: being unable to create a directory
+        // under `zig-out/` is a broken host, not a property of the fixture, and
+        // the three per-lane resets below cannot `continue` anyway without
+        // breaking the JIT lane's accounting. One failure mode, one handling.
+        if (needs_preopen) try resetPreopenScratch(io, cwd);
         defer if (needs_preopen) {
             cwd.deleteTree(io, preopen_scratch) catch {};
         };
@@ -261,8 +259,19 @@ pub fn main(init: std.process.Init) !void {
             .exited => |c| c,
             else => 1,
         };
-        // The oracle answered for this fixture — the JIT lane now owes a verdict.
-        if (jit_lane) jit_eligible += 1;
+        // The JIT lane owes a verdict only where the oracle RAN, not merely
+        // spawned. A non-zero `wt_exit` means wasmtime itself could not complete
+        // the fixture, so there is no trustworthy reference to diff against —
+        // the same guard SKIP-JIT-TRAP already applies one level down. Without
+        // it an oracle-side gap fails the gate blaming the JIT, and that is
+        // reachable: CI pins wasmtime 45.0.0 (`.github/versions.lock`) while
+        // this corpus is measured against newer builds. All 56 fixtures exit 0
+        // under the runner's own invocation today, so this changes nothing now.
+        const jit_owed = jit_lane and wt_exit == 0;
+        if (jit_owed) jit_eligible += 1;
+        if (jit_lane and wt_exit != 0) {
+            try stdout.print("  ORACLE-FAILED-JIT  {s} (wasmtime exit={d} — outside the differential's scope)\n", .{ entry.name, wt_exit });
+        }
 
         // Mirror wasmtime's default of `argv[0] = <wasm filename>`
         // so guests like `c_hello_wasi` that print argv[0] produce
@@ -305,7 +314,7 @@ pub fn main(init: std.process.Init) !void {
             try stdout.flush();
         }
 
-        if (jit_lane) {
+        if (jit_owed) {
             if (needs_preopen) try resetPreopenScratch(io, cwd);
             switch (try jitCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
                 .match => jit_matched += 1,
