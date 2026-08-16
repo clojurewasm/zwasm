@@ -1,7 +1,6 @@
 # <one-line title in imperative or descriptive form>
 
 **Date**: YYYY-MM-DD
-**Keywords**: <comma-separated keywords for INDEX grep — domain + symptom + remediation>
 **Citing**: <commit SHA or §9.<N> / N.M chunk id; use `<backfill>` until commit lands>
 
 ## What happened

@@ -1773,7 +1773,8 @@ pub fn main(init: std.process.Init) !void {
     // reported only. Read that narrowly: `trap.fail` below IS summed
     // unconditionally, and in jit mode the assert_trap arm evaluates `cur_jit`,
     // so a JIT-only trap regression already exits non-zero. That asymmetry
-    // predates this file's accounting rework; D-590 hands it to #12.
+    // predates this file's accounting rework; D-590 hands it to whoever
+    // gates the JIT lane.
     // In jit mode `ret.fail` mirrors the JIT verdict, which ADR-0128 keeps
     // report-only — gating it here would silently promote the opt-in JIT
     // lane into a merge gate. That promotion is a deliberate decision for

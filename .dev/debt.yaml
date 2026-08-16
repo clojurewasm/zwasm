@@ -214,7 +214,7 @@ entries:
       of those dimensions. `status: note` (record only, do not chase) is in
       the same tension and is itself provisional; `now` would pre-empt the
       question in the other direction, so neither is asserted here.
-      Both the disposition and the status are decided at #12, when the JIT
+      Both the disposition and the status are decided when the JIT
       lane's CI gating is designed, with maintainer confirmation. Whoever
       designs it must also resolve a PRE-EXISTING asymmetry in what the jit
       lane already gates (not introduced by ADR-0210, verified against
@@ -2102,7 +2102,7 @@ entries:
       was WRONG — that text is the `|| echo` in `ci.yml` echoed into the log, the D-590 shape.
       REJECTED: making the CI install mandatory. It trades a rare, partial, logged loss for every PR
       going red on one download flake, and `wasm-tools` (genuinely required) has the same exposure.
-      THIRD OPTION, unexplored and out of #13's scope: `ci.yml` caches `zig-pkg` and
+      THIRD OPTION, unexplored and out of scope for the realworld-JIT work: `ci.yml` caches `zig-pkg` and
       `~/.local/zig-0.16.0` (lines 148-160) but caches NEITHER wasmtime nor wasm-tools. Caching them
       would cut the download-failure probability and change the mandatory-install trade-off.
       ALSO UNVERIFIED: CI pins the oracle at wasmtime 45.0.0 (`.github/versions.lock`); the 56/56 JIT
