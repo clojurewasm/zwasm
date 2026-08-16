@@ -988,9 +988,9 @@ pub fn build(b: *std.Build) void {
     // baseline. Walks the same corpus and drives each fixture
     // through `engine.runner.compileWasm` (the JIT pipeline).
     // Reports compile-side coverage: COMPILE-PASS / COMPILE-IMPORTS
-    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Chunks 7.9-b/c/d
-    // turn COMPILE-PASS into RUN-PASS by adding host-import
-    // dispatch + JitRuntime memory init + WASI stub handlers.
+    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Compilation ONLY —
+    // whether the emitted code computes the right answer is
+    // `test-realworld-diff-jit`'s question, not this step's.
     const realworld_run_jit_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/run_runner_jit.zig"),
         .target = target,
@@ -1493,9 +1493,12 @@ pub fn build(b: *std.Build) void {
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.
     //
-    // test-realworld-run-jit reports RUN-PASS / FAIL
-    // classifications; its 40+ RUN-PASS floor is §9.7 / 7.9-a's
-    // exit criterion.
+    // test-realworld-run-jit compiles every fixture through the JIT
+    // pipeline. Its RUN-PASS stage — and the 40+ RUN-PASS floor that
+    // was §9.7 / 7.9-a's exit criterion — is GONE: it invoked `_start`
+    // with a null WASI host, so its traps measured the harness, not
+    // the JIT. `test-realworld-diff-jit` carries the execution side
+    // now (D-283).
     //
     // test-wasmtime-misc-runtime (today 266/0/0 with panics
     // resolved) is the only runtime-asserting runner for non-SIMD

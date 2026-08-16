@@ -61,6 +61,23 @@ fn fixtureNeedsPreopen(name: []const u8) bool {
 /// resolve the same host path. Recreated empty per run.
 const preopen_scratch = "zig-out/diff-preopen-scratch";
 
+/// Recreate the preopen scratch dir empty. Called before EVERY engine's run,
+/// not once per fixture. The lanes execute in sequence against the same host
+/// directory, so anything one leaves behind is visible to the next and the
+/// order they run in becomes load-bearing — which it should not be, and which
+/// changed when the AOT and JIT lanes moved above the shared run. Resetting per
+/// run gives every engine the same initial state, so a lane's bytes cannot
+/// depend on which lanes preceded it. (The one needs-preopen fixture,
+/// `rust_file_io`, is self-cleaning today — measured 0 residue on both engines
+/// — so this is hardening against a future fixture, or a run that dies between
+/// create and unlink.)
+fn resetPreopenScratch(io: std.Io, cwd: std.Io.Dir) !void {
+    // EXEMPT-FALLBACK (no_workaround.md): an absent dir is exactly the desired
+    // post-state of deleteTree; createDirPath is the call whose failure matters.
+    cwd.deleteTree(io, preopen_scratch) catch {};
+    try cwd.createDirPath(io, preopen_scratch);
+}
+
 /// AOT lane fixture-size cap (bytes). The opt-in `--aot` lane JIT-compiles
 /// each fixture in-process; libc/Go/Rust guests above this size take minutes
 /// to compile and trap under `--engine jit` anyway, so they are SKIP-AOT-LARGE
@@ -210,9 +227,7 @@ pub fn main(init: std.process.Init) !void {
 
         const needs_preopen = fixtureNeedsPreopen(entry.name);
         if (needs_preopen) {
-            // Fresh empty scratch dir for both runtimes (guest sees it as ".").
-            cwd.deleteTree(io, preopen_scratch) catch {};
-            cwd.createDirPath(io, preopen_scratch) catch |err| {
+            resetPreopenScratch(io, cwd) catch |err| {
                 try stdout.print("SKIP-V2-PREOPEN  {s}: createDirPath {s}\n", .{ entry.name, @errorName(err) });
                 skipped_v2 += 1;
                 continue;
@@ -273,6 +288,7 @@ pub fn main(init: std.process.Init) !void {
         //
         // Flush per fixture so incremental output shows progress.
         if (aot_lane) {
+            if (needs_preopen) try resetPreopenScratch(io, cwd);
             if (bytes.len > aot_size_cap) {
                 // The AOT lane JIT-compiles each fixture in-process; large libc
                 // / Go / Rust guests (100KB–1MB) take minutes to compile AND
@@ -290,6 +306,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         if (jit_lane) {
+            if (needs_preopen) try resetPreopenScratch(io, cwd);
             switch (try jitCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, stdout)) {
                 .match => jit_matched += 1,
                 .mismatch => jit_mismatched += 1,
@@ -305,6 +322,7 @@ pub fn main(init: std.process.Init) !void {
         // `gpa` or glibc aborts with `free(): invalid pointer`.
         defer v2_stdout.deinit(gpa);
 
+        if (needs_preopen) try resetPreopenScratch(io, cwd);
         const v2_result = if (needs_preopen)
             cli_run.runWasmCapturedOpts(gpa, io, bytes, &v2_argv, &v2_stdout, null, &.{
                 .{ .host_path = preopen_scratch, .guest_path = "." },
@@ -320,6 +338,7 @@ pub fn main(init: std.process.Init) !void {
         // wasmer second-oracle lane (opt-in) — placed before the v2-trap/empty
         // continues so the references are compared even where v2 can't complete.
         if (wasmer_lane and wasmer_path_opt != null) {
+            if (needs_preopen) try resetPreopenScratch(io, cwd);
             switch (try wasmerCompare(gpa, io, wasmer_path_opt.?, corpus_dir, entry.name, needs_preopen, wt_stdout, wt_exit, v2_stdout.items, stdout)) {
                 .agree => wasmer_agree += 1,
                 .disagree => wasmer_disagree += 1,
