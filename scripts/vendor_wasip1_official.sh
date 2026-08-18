@@ -114,12 +114,21 @@ for lang in rust c assemblyscript; do
     # Tests MUTATE this tree (they create and unlink files in it), so the
     # runner must copy it to a temp dir per test and never point a preopen at
     # the committed copy.
-    if git -C "$CLONE" ls-tree -r --name-only "$PIN_SHA" "$src/fs-tests.dir/" | grep -q .; then
-        for f in $(git -C "$CLONE" ls-tree -r --name-only "$PIN_SHA" "$src/fs-tests.dir/"); do
-            rel="${f#"$src/"}"
-            mkdir -p "$out/$(dirname "$rel")"
-            git -C "$CLONE" show "$PIN_SHA:$f" > "$out/$rel"
-        done
+    for f in $(git -C "$CLONE" ls-tree -r --name-only "$PIN_SHA" "$src/fs-tests.dir/"); do
+        rel="${f#"$src/"}"
+        mkdir -p "$out/$(dirname "$rel")"
+        git -C "$CLONE" show "$PIN_SHA:$f" > "$out/$rel"
+    done
+
+    # A suite whose manifests name a preopen root must have vendored that tree.
+    # Upstream keeps rust's otherwise-empty tree alive with a `.keep` placeholder
+    # and git cannot commit an empty directory, so a pin bump that drops the
+    # placeholder would vendor a suite where every root-using test cannot run,
+    # with nothing recording why. Fail the regen rather than commit that.
+    if grep -l '"root"' "$out"/*.json >/dev/null 2>&1 && [ ! -d "$out/fs-tests.dir" ]; then
+        echo "ERROR: $lang manifests name a preopen root but no fs-tests.dir was" >&2
+        echo "       vendored at $PIN_SHA — upstream moved or dropped the tree." >&2
+        exit 1
     fi
 
     # Belt-and-braces against the pre-flight and the copy loop disagreeing —

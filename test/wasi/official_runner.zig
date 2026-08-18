@@ -54,7 +54,10 @@ const cli_run = zwasm.cli.run;
 ///
 /// Every string field BORROWS from `parsed`, so `Expect` owns it: keeping the
 /// two in one struct means one `deinit` frees both in the right order and no
-/// future edit can outlive the arena by moving one and not the other.
+/// future edit can outlive the arena by moving one and not the other. The
+/// borrow is from the arena, not from the manifest bytes — `Value.jsonParse`
+/// hands the scanner `.alloc_always` whatever `ParseOptions.allocate` says, so
+/// the bytes can be freed as soon as the parse returns.
 const Expect = struct {
     parsed: ?std.json.Parsed(std.json.Value) = null,
     args: std.ArrayList([]const u8) = .empty,
@@ -150,9 +153,11 @@ pub fn main(init: std.process.Init) !void {
     discardAbsent(cwd.deleteTree(io, scratch_root));
     try cwd.createDirPath(io, scratch_root);
     // NOTE: no `defer` for the cleanup — this function leaves via
-    // `std.process.exit`, which does not run defers. Every exit path below
+    // `std.process.exit`, which does not run defers. Each `exit` path below
     // therefore deletes the scratch tree explicitly; adding a new one means
-    // adding the delete with it.
+    // adding the delete with it. An error returned from `main` skips the
+    // cleanup as well, by design: the `deleteTree` above reclaims the whole
+    // engine-keyed root before the next run uses it.
 
     var total: Counts = .{};
     var suites: u32 = 0;
