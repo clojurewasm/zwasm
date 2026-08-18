@@ -19,10 +19,12 @@
 # The cheap `doc-truth` job runs for EVERY PR, doc-only included — checks whose
 # subject is prose must not be skipped by the doc-only short-circuit.
 #
-# The Windows leg is advisory (continue-on-error): the authoritative Windows
-# verification is a native Windows x86_64 host, and the hosted
-# `windows-2022` runner has shown seed-dependent Debug flakiness (D-245).
-# Mac/Linux are blocking.
+# All three legs are blocking (ADR-0211 D3). The Windows leg was advisory
+# 2026-07-01..2026-08-19, citing D-245 flakiness that had already been fixed
+# and delisted before the flag landed; measured 26/26 green before the flip.
+# If hosted-runner flakiness recurs, file a debt row with the measured
+# signature and revert that ADR's one-line change — do not re-add a silent
+# advisory flag.
 
 name: ci
 
@@ -111,7 +113,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.runs-on }}
-    continue-on-error: ${{ matrix.advisory || false }}
     # 120: the extended (main-push) gate runs the full DCE matrix (~50-70min
     # alone); a cold zig cache pushed the total past the previous 75min cap.
     timeout-minutes: 120
@@ -130,7 +131,6 @@ jobs:
           - name: x86_64-windows
             runs-on: windows-2022
             zig-dir: zig-x86_64-windows-0.16.0
-            advisory: true
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -258,8 +258,8 @@ jobs:
   # The SINGLE required status check (point the branch ruleset here, not at the
   # individual `gate (...)` legs). Passes when the change was doc-only (gate
   # skipped by design) OR when the 3-host gate succeeded. `always()` so it also
-  # runs when `gate` was skipped. The advisory Windows leg is continue-on-error,
-  # so `needs.gate.result` is 'success' whenever Mac + Linux pass.
+  # runs when `gate` was skipped. All three legs are blocking (ADR-0211 D3), so
+  # `needs.gate.result` is 'success' only when Mac + Linux + Windows all pass.
   ci-required:
     name: ci-required
     needs: [changes, doc-truth, gate]
