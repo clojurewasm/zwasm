@@ -2,10 +2,10 @@
 //!
 //! Walks the vendored corpus under `test/wasi/wasip1_official/<lang>/`, drives
 //! every `.wasm` through the CLI run path, and asserts the upstream manifest's
-//! expectations. Replaces the 3-hand-written-fixture walk that `test-wasi-p1`
-//! used to be: the step name promised preview1 coverage while the corpus it
-//! walked was `hello` / `env_echo` / `proc_exit_42`, so nothing in the tree
-//! could catch a preview1 behaviour regression.
+//! expectations. Supersedes `test-wasi-p1` as the conformance claim — that
+//! step stays (ADR-0208 D2) and still covers the `.expected_exit` / `.env`
+//! sidecar path, but the corpus it walks is `hello` / `env_echo` /
+//! `proc_exit_42`, so nothing in it could catch a preview1 regression.
 //!
 //! Usage:
 //!   official_runner <corpus-root> [interp|jit]     # default: interp
@@ -15,14 +15,17 @@
 //! - a test failed (`failed`) or could not be run (`errored`);
 //! - the corpus ROOT is unopenable;
 //! - a suite carries upstream's descriptor but enumerates no tests;
-//! - the root holds no suites at all.
+//! - the root holds no suites at all;
+//! - the run executed a number of tests other than `vendored_total`.
 //!
-//! The last three are the same rule: the corpus is committed, so its absence
+//! The last four are the same rule: the corpus is committed, so its absence
 //! is a path or vendoring failure, and "0 tests, all green" must never be a
 //! reachable verdict (ADR-0174 no-silent-skip, the posture the spec-assert
-//! runners take). The exact per-language counts are NOT re-asserted here —
-//! `scripts/vendor_wasip1_official.sh` owns them, and duplicating the numbers
-//! would mean two places to update on a corpus bump.
+//! runners take). The per-suite checks do not close it on their own — a suite
+//! that kept 2 of its 46 tests still enumerates non-empty — which is why
+//! ADR-0208 D2 requires the total too. The exact PER-LANGUAGE counts stay in
+//! `scripts/vendor_wasip1_official.sh`, which asserts them at regen; only the
+//! single total is repeated here.
 //!
 //! ## Upstream manifest subset
 //!
@@ -48,6 +51,13 @@ const std = @import("std");
 
 const zwasm = @import("zwasm");
 const cli_run = zwasm.cli.run;
+
+/// Tests in the committed corpus: 46 rust + 14 c + 12 assemblyscript, the
+/// `EXPECT` line of `scripts/vendor_wasip1_official.sh`. Held in the binary
+/// rather than read from the corpus, so a partial checkout cannot drop the
+/// expectation along with the tests it exists to detect. A corpus bump edits
+/// both places; missing this one fails loudly at test time.
+const vendored_total: u32 = 72;
 
 /// Upstream per-test manifest, flattened. Defaults are upstream's "no
 /// manifest" behaviour: no argv beyond argv[0], no env, no preopen, exit 0.
@@ -185,10 +195,10 @@ pub fn main(init: std.process.Init) !void {
         // Each vendored suite holds tests. A suite that enumerates to nothing
         // means the corpus did not vendor, and "0 passed, 0 failed" must not
         // read as green — the ADR-0174 failure mode (a leg reporting OK while
-        // every category was `pass=0`) one layer up. The exact per-language
-        // counts live in scripts/vendor_wasip1_official.sh and are asserted
-        // there; duplicating them here would mean two places to update on a
-        // corpus bump, and one of them would eventually be missed.
+        // every category was `pass=0`) one layer up. This catches an EMPTY
+        // suite only; a partially-vendored one is caught by the
+        // `vendored_total` check after the loop. The per-language counts live
+        // in scripts/vendor_wasip1_official.sh and are asserted there.
         if (suite.ran() == 0) {
             try out.print(
                 "FAIL  suite '{s}' has a descriptor but no tests — the corpus did\n" ++
@@ -226,9 +236,21 @@ pub fn main(init: std.process.Init) !void {
             .{total.errored},
         );
     }
+    // A suite that kept some of its tests passes every check above: the
+    // per-suite guard only rejects an EMPTY one. Without this the lane reports
+    // "all green" over a fraction of the corpus (ADR-0208 D2).
+    const partial = total.ran() != vendored_total;
+    if (partial) {
+        try out.print(
+            "      ran {d} of the vendored {d} — the corpus is PARTIAL, so these\n" ++
+                "      counts are not a conformance result. Regen with\n" ++
+                "      scripts/vendor_wasip1_official.sh.\n",
+            .{ total.ran(), vendored_total },
+        );
+    }
     try out.flush();
     discardAbsent(cwd.deleteTree(io, scratch_root));
-    if (total.failed != 0 or total.errored != 0) std.process.exit(1);
+    if (total.failed != 0 or total.errored != 0 or partial) std.process.exit(1);
 }
 
 /// Swallow a cleanup error on a path that may legitimately not exist.
@@ -311,6 +333,7 @@ const TestError = error{
     ExitCodeMismatch,
     StdoutMismatch,
     UnknownManifestKey,
+    ManifestShape,
 };
 
 fn runOne(
@@ -438,24 +461,62 @@ fn parseManifest(
         const key = kv.key_ptr.*;
         const v = kv.value_ptr.*;
         if (std.mem.eql(u8, key, "args")) {
-            for (v.array.items) |a| try expect.args.append(gpa, a.string);
+            if (v != .array) return shapeError(out, stem, key, "array", v);
+            for (v.array.items) |a| {
+                if (a != .string) return shapeError(out, stem, key, "array of string", a);
+                try expect.args.append(gpa, a.string);
+            }
         } else if (std.mem.eql(u8, key, "env")) {
+            if (v != .object) return shapeError(out, stem, key, "object", v);
             var eit = v.object.iterator();
             while (eit.next()) |ekv| {
+                const ev = ekv.value_ptr.*;
+                if (ev != .string) return shapeError(out, stem, key, "object of string", ev);
                 try expect.env_keys.append(gpa, ekv.key_ptr.*);
-                try expect.env_vals.append(gpa, ekv.value_ptr.*.string);
+                try expect.env_vals.append(gpa, ev.string);
             }
         } else if (std.mem.eql(u8, key, "root")) {
+            if (v != .string) return shapeError(out, stem, key, "string", v);
             expect.root = v.string;
         } else if (std.mem.eql(u8, key, "stdout")) {
+            if (v != .string) return shapeError(out, stem, key, "string", v);
             expect.stdout = v.string;
         } else if (std.mem.eql(u8, key, "exit_code")) {
+            if (v != .integer) return shapeError(out, stem, key, "integer", v);
+            // `@intCast` panics out of range, and the value is upstream's.
+            if (v.integer < 0 or v.integer > 255) {
+                try out.print(
+                    "      manifest key 'exit_code' in {s}.json is {d}, outside 0..255\n",
+                    .{ stem, v.integer },
+                );
+                return TestError.ManifestShape;
+            }
             expect.exit_code = @intCast(v.integer);
         } else {
             try out.print("      unknown manifest key '{s}' in {s}.json\n", .{ key, stem });
             return TestError.UnknownManifestKey;
         }
     }
+}
+
+/// Report a manifest field whose JSON type is not the one the schema uses.
+///
+/// Returned rather than left to panic: reading `v.string` off a non-string
+/// `std.json.Value` is illegal-union-access, which aborts the process — no
+/// per-test `errored`, no report, no scratch cleanup. Upstream growing the
+/// schema must surface the same way an unknown KEY does, as one loud test.
+fn shapeError(
+    out: *std.Io.Writer,
+    stem: []const u8,
+    key: []const u8,
+    want: []const u8,
+    got: std.json.Value,
+) anyerror!void {
+    try out.print(
+        "      manifest key '{s}' in {s}.json is {s}, expected {s}\n",
+        .{ key, stem, @tagName(got), want },
+    );
+    return TestError.ManifestShape;
 }
 
 /// Recursively copy `src` into the already-created `dest`.

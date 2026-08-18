@@ -36,12 +36,15 @@ DEST="$(cd "$(dirname "$0")/.." && pwd)/test/wasi/wasip1_official"
 # PATH.
 EXPECT="rust:46 c:14 assemblyscript:12"
 
-expected_for() { # $1 = lang -> prints the count, or exits if the lang is unknown
+expected_for() { # $1 = lang -> prints the count, or fails if the lang is unknown
     for pair in $EXPECT; do
         [ "${pair%%:*}" = "$1" ] && { echo "${pair##*:}"; return 0; }
     done
     echo "no EXPECT entry for '$1'" >&2
-    exit 1
+    # `return`, not `exit`: every call site is a `$(...)`, so an `exit` here
+    # would only leave the subshell and the caller would compare against an
+    # empty string. A non-zero return trips `set -e` on the assignment.
+    return 1
 }
 
 command -v wasm-tools >/dev/null || { echo "wasm-tools required" >&2; exit 1; }
@@ -134,8 +137,9 @@ for lang in rust c assemblyscript; do
     # Belt-and-braces against the pre-flight and the copy loop disagreeing —
     # they enumerate the same tree the same way, so a mismatch here would mean
     # the tree changed underfoot mid-run.
-    [ "$n" -eq "$(expected_for "$lang")" ] || {
-        echo "FAIL: $lang copied $n tests, pre-flight counted $(expected_for "$lang")." >&2
+    want="$(expected_for "$lang")"
+    [ "$n" -eq "$want" ] || {
+        echo "FAIL: $lang copied $n tests, pre-flight counted $want." >&2
         echo "      The clone changed during the run. Re-run." >&2
         exit 1
     }
