@@ -600,3 +600,128 @@ Key facts the harness encodes (so you don't re-pay the ~9-attempt cost):
 - **Buffering gotcha**: piped/redirected stdout = musl FULL buffering →
   the stream flushes ONCE at exit, so the first `fdWrite` is AFTER all
   `putc`. To trace `putc`-path guest code, stop EARLIER than `fdWrite`.
+
+### Recipe 19 — attribute a spec-lane fail BEFORE reading any codegen
+
+The `spec_assert_runner_*` detail lines print the **func name only** —
+`JITfail [gc/type-subtyping] run err=Trap`. Corpora where every module
+exports `run` (all the `gc/*` sub-corpora) therefore do not tell you which
+module failed, and eyeballing the manifest for the "interesting-looking"
+directive is how D-590 spent a cycle inside `invokeMulti` for a
+`table.get` bug. Cost of doing it properly: ~2 minutes.
+
+```bash
+S=private/spikes/<slug>                       # gitignored scratch
+mkdir -p $S/corpus/{gc,memory64,tail-call,exception-handling,function-references,multi-memory}
+cp -r test/spec/wasm-3.0-assert/gc/<sub-corpus> $S/corpus/gc/   # COPY, not symlink — the
+                                                                # walk is `if (entry.kind
+                                                                # != .directory) continue`
+                                                                # (runner :513), and a
+                                                                # symlink is .sym_link, so
+                                                                # you get `manifests=0`
+cp $S/corpus/gc/<sub-corpus>/manifest.txt $S/manifest.full.txt  # keep a pristine copy
+zig build --prefix $S/out                                       # runner binary
+```
+
+Then drive the runner on the one-manifest corpus and shrink the manifest.
+The empty sibling proposal dirs only exist to silence `PROPOSAL-DIR-FAIL`;
+`manifest_errors` there does not affect the JIT tallies.
+
+```bash
+ZWASM_SPEC_ENGINE=jit ZWASM_SPEC_DETAIL=1 $S/out/bin/zwasm-spec-wasm-3-0-assert $S/corpus
+```
+
+**If the runner dies instead of tallying** (`exit 70`, one
+`caught a fatal signal` line, no per-proposal rows): stdout is flushed at
+exit, so a crash destroys the entire run's output, including every proposal
+that already finished. You get no attribution at all — not even "which
+proposal". Split first, then bisect:
+
+```bash
+# one real proposal per corpus root, the other five empty
+for p in memory64 tail-call exception-handling gc function-references multi-memory; do
+  d=$S/percorpus/$p; rm -rf $d
+  for q in memory64 tail-call exception-handling gc function-references multi-memory; do mkdir -p $d/$q; done
+  cp -al test/spec/wasm-3.0-assert/$p/. $d/$p/      # hard links — the runner only reads
+  ZWASM_SPEC_ENGINE=jit $S/out/bin/zwasm-spec-wasm-3-0-assert $d >/dev/null 2>&1
+  printf '%-22s rc=%s\n' "$p" "$?"
+done
+```
+
+then binary-search the manifest **prefix** inside the guilty sub-corpus
+(`sed -n "1,${mid}p"`), and take the backtrace with the fault handler still
+installed — gdb stops before it:
+
+```bash
+gdb -q -batch -ex 'handle SIGSEGV stop nopass' -ex run -ex 'bt 25' \
+    -ex 'info registers rip rsp rax rdx r10 r11' --args <runner> $S/corpus
+```
+
+`RIP = 0x0` with a `jitTrampoline (f=0x0, …)` frame = the JIT jumped through
+a **null function pointer**, not a miscompiled body — go look at what
+populates the funcptr table, not at the emit pass.
+
+Bisect by manifest **window**, not by deletion — a bare `assert_*` with no
+preceding `module` line lands in the skip column instead of running, so a
+window that starts on an assert is not the experiment you think it is (it
+looks like a clean pass):
+
+```bash
+sed -n "${START},${END}p" $S/manifest.full.txt > $S/corpus/gc/<sub>/manifest.txt
+```
+
+Then the decisive step: run the suspect `module` + **its own** assert with
+nothing else in the manifest. If that alone reproduces `fail=1`, the
+directive you originally blamed is innocent — check it in isolation too and
+confirm it passes. Restore with `cp $S/manifest.full.txt …` when done.
+
+Once you have the module, drop the runner entirely — most lane fails
+reproduce on the plain CLI, which gives a precise trap kind for free:
+
+```bash
+$S/out/bin/zwasm run --engine jit    --invoke <name> <module.wasm>   # trap kind=…
+$S/out/bin/zwasm run --engine interp --invoke <name> <module.wasm>   # oracle
+```
+
+### Recipe 20 — operand-stack-pressure sweep (spill-dependent miscompiles)
+
+For a JIT-only wrong-result/wrong-trap where the individual ops all pass in
+isolation. The engine's x86_64 GPR pool is small (R10/R11 are reserved as
+`abi.spill_stage_gprs`, R15 as the runtime ptr), so vregs start spilling at a
+**low** operand-stack depth — D-590's `table.get` bug needed only **4** live
+values. Sweep the depth; the threshold IS the diagnosis.
+
+```bash
+for n in $(seq 0 9); do
+  body=""; for i in $(seq 1 $n); do body="$body    ref.null func
+"; done
+  cat > n$n.wat <<EOF
+(module
+  (type \$v (func))
+  (table 3 3 funcref)
+  (func \$run (type \$v)
+$body    i32.const 0
+    table.get 0
+    br 0)
+  (export "run" (func \$run)))
+EOF
+  wasm-tools parse n$n.wat -o n$n.wasm
+  printf 'live=%s jit: %s\n' "$n" "$(zwasm run --engine jit --invoke run n$n.wasm 2>&1)"
+done
+```
+
+`br 0` at the end discards the whole stack, so the padding values need no
+matching consumers and the function stays `()->()`. Use `ref.null func`
+(or `i32.const`) for padding — an op with a host callout (`ref.cast` →
+`jitGcRefCast`) spills across the call and *relieves* the pressure, which
+will hide the bug.
+
+A clean "passes at N-1, fails at N" boundary means a **spilled operand**, so
+go straight to the emit site's `gpr.gprLoadSpilled` / `gprDefSpilled` calls
+and check the `stage_idx` argument against every register the surrounding
+code has already loaded — `spill_stage_gprs[stage_idx]` is a *physical*
+register, and reloading a spilled vreg into it silently clobbers whatever
+was there. Compare against the same op's arm64 twin and against the sibling
+op in the same file: in D-590, `emitTableSet` and arm64 `emitTableGet` both
+snapshot operands *before* the descriptor loads and say so in a comment,
+and only x86_64 `emitTableGet` had the order inverted.
