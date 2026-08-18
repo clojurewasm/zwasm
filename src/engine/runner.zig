@@ -1284,11 +1284,14 @@ pub const JitInstance = struct {
     }
 
     /// D-496 — write the raw ref payload at `table[idx][slot]`. For a funcref
-    /// table (funcptr-mirror present) the parallel funcptr slot is CLEARED to the
-    /// uninitialized sentinel: a host-poked raw ref has no resolvable native entry,
-    /// so a later `call_indirect` on the slot traps cleanly rather than jumping to
-    /// a stale funcptr (fail-safe). Returns false if OOB. funcref-table GROW on JIT
-    /// is a separate gap (growTable rejects it; D-497).
+    /// table (funcptr-mirror present) the parallel funcptr slot is ZEROED — not
+    /// set to the D-294 `maxInt(u32)` uninitialized sentinel, which lives in the
+    /// TYPEIDX mirror and is left untouched here. A host-poked raw ref has no
+    /// resolvable native entry, so a later `call_indirect` finds a valid typeidx
+    /// and a zero funcptr; the D-586 null-funcptr test is what turns that into a
+    /// clean trap (code 3). Before D-586 the emit sites executed the zero, so
+    /// this fail-safe only became true with it. Returns false if OOB. funcref-
+    /// table GROW on JIT is a separate gap (growTable rejects it; D-497).
     pub fn tableSetRef(self: *JitInstance, idx: u32, slot: u32, payload: u64) bool {
         if (idx >= self.owned.rt.tables_count) return false;
         const d = &@as([*]entry.TableSlice, @constCast(self.owned.rt.tables_ptr))[idx];
