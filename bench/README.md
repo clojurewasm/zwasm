@@ -51,13 +51,20 @@ preserved long-term.
   --reason="<tag>: <gist>"` also appends one row to
   `bench/results/history.yaml`. `scripts/record_merge_bench.sh`
   is the wrapper.
-- **Per-merge under PR-only `main`**: record the bench **on the
-  feature branch before opening the PR** and commit
-  `history.yaml` **into the same PR** as the code — NOT as a
-  post-merge follow-up (ruleset-protected `main` would require a
-  separate PR per merge). Put the PR intent in `--reason`; the
-  entry's SHA is the branch tip (cosmetic). Skip for trivial /
-  doc-only changes.
+- **Per-merge recording is retired (ADR-0211 D2, 2026-08-19)**: the
+  convention assumed merges were local events and went unused once
+  the merge gate moved to CI. `history.yaml` rows now come from
+  deliberate recordings only — a local `--phase-record` run or a
+  `bench.yml` dispatch.
+- **Nightly gross-regression watch**:
+  [`.github/workflows/bench-watch.yml`](../.github/workflows/bench-watch.yml)
+  runs [`scripts/bench_watch.sh`](../scripts/bench_watch.sh) daily on
+  macos-15 + ubuntu-22.04: same-run A/B of HEAD vs the latest `v*`
+  release tag over a 5-fixture canary set, alerting (via the
+  scheduled run failing, which emails the cron author) when HEAD is
+  ≥2x slower on ≥2 fixtures. It commits nothing and gates nothing —
+  `history.yaml` stays curated, and a breach is an investigation
+  trigger per ROADMAP §12.1, not a block.
 - **On-demand CI**: [`.github/workflows/bench.yml`](../.github/workflows/bench.yml)
   runs `--quick --phase-record` across `macos-latest`
   (aarch64-darwin) + `ubuntu-latest` (x86_64-linux). **Trigger is

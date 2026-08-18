@@ -1,0 +1,107 @@
+# bench-watch — nightly gross-regression detector (ADR-0211 D2).
+#
+# Runs scripts/bench_watch.sh on the two timing arches (ADR-0137 scope):
+# same-run A/B of HEAD vs the latest v* release tag, 5-fixture canary set,
+# alert at >= 2.0x slower on >= 2 fixtures. NOT a gate: no PR association,
+# `ci-required` untouched; the exit-1 on breach exists because a failed
+# scheduled run is GitHub's notification channel (it emails the user who
+# last modified the cron line below). Details land in the run's step
+# summary; nothing is committed — bench/results/history.yaml stays curated
+# and local-host-only (its arch-only labels cannot distinguish hosted
+# runners from maintainer hosts).
+
+name: bench-watch
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-watch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  watch:
+    name: watch (${{ matrix.name }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: aarch64-macos
+            runs-on: macos-15
+            zig-arch: aarch64-macos
+          - name: x86_64-linux
+            runs-on: ubuntu-22.04
+            zig-arch: x86_64-linux
+    steps:
+      - name: Checkout (full history — the base tag and worktree need it)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Read tool versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          echo "ZIG_VERSION=${ZIG_VERSION}" >> "$GITHUB_ENV"
+
+      # Same dep-store cache as ci.yml — zlinter is an eager dep, so both
+      # builds resolve it; the cache removes the per-run network fetch.
+      - name: Cache Zig package deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: zig-pkg
+          key: zig-pkg-${{ matrix.name }}-${{ hashFiles('build.zig.zon') }}
+          restore-keys: |
+            zig-pkg-${{ matrix.name }}-
+
+      - name: Cache Zig
+        id: cache-zig
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/zig-${{ env.ZIG_VERSION }}
+          key: zig-${{ env.ZIG_VERSION }}-${{ matrix.name }}
+
+      - name: Install Zig
+        if: steps.cache-zig.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="zig-${{ matrix.zig-arch }}-${ZIG_VERSION}"
+          mkdir -p ~/.local
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${dir}.tar.xz" -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C ~/.local
+          mv "$HOME/.local/${dir}" "$HOME/.local/zig-${ZIG_VERSION}"
+
+      - name: Add Zig to PATH
+        shell: bash
+        run: echo "$HOME/.local/zig-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Install hyperfine (macOS)
+        if: runner.os == 'macOS'
+        run: brew install hyperfine
+
+      - name: Install hyperfine (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y hyperfine
+
+      - name: Verify toolchain
+        shell: bash
+        run: |
+          zig version
+          hyperfine --version
+          jq --version
+
+      - name: bench_watch.sh
+        shell: bash
+        run: bash scripts/bench_watch.sh
