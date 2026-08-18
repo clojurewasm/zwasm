@@ -120,7 +120,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const out = &stdout_writer.interface;
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
@@ -290,10 +290,17 @@ fn runSuite(
         defer gpa.free(mb);
         if (std.json.parseFromSlice(std.json.Value, gpa, mb, .{})) |parsed| {
             defer parsed.deinit();
-            if (parsed.value.object.get("name")) |n| {
-                if (n == .string) {
-                    display_owned = try gpa.dupe(u8, n.string);
-                    display = display_owned.?;
+            // Parsing succeeding does not make it an object: `[]` and `"x"`
+            // are valid JSON, and reading `.object` off either is
+            // illegal-union-access — an abort before any suite result is
+            // printed. A non-object descriptor takes the same fallback as a
+            // malformed one: the label is lost, the suite still runs.
+            if (parsed.value == .object) {
+                if (parsed.value.object.get("name")) |n| {
+                    if (n == .string) {
+                        display_owned = try gpa.dupe(u8, n.string);
+                        display = display_owned.?;
+                    }
                 }
             }
         } else |_| {
