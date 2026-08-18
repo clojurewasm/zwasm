@@ -117,6 +117,14 @@ for lang in rust c assemblyscript; do
     # Tests MUTATE this tree (they create and unlink files in it), so the
     # runner must copy it to a temp dir per test and never point a preopen at
     # the committed copy.
+    if git -C "$CLONE" ls-tree -r "$PIN_SHA" "$src/fs-tests.dir/" | awk '$1 == "120000"' | grep -q .; then
+        echo "FAIL: $lang preopen tree holds a symlink at $PIN_SHA. \`git show\`" >&2
+        echo "      writes the target as file content, so it would vendor as a" >&2
+        echo "      regular file and copyEntry's .sym_link guard would never" >&2
+        echo "      fire. Teach this script to recreate links before bumping." >&2
+        exit 1
+    fi
+
     for f in $(git -C "$CLONE" ls-tree -r --name-only "$PIN_SHA" "$src/fs-tests.dir/"); do
         rel="${f#"$src/"}"
         mkdir -p "$out/$(dirname "$rel")"
@@ -146,6 +154,18 @@ for lang in rust c assemblyscript; do
     echo "[vendor_wasip1] $lang: $n tests"
     total=$((total + n))
 done
+
+# Everything vendored must be visible to `git add`. Upstream's
+# `writeable/.gitignore` is `*`, so a fixture added under it would be written
+# here, skipped at commit time, and the corpus would differ from the pin with
+# nothing reporting it. The `.gitignore` files are vendored content themselves.
+ignored="$(find "$DEST" -type f ! -name .gitignore -exec git -C "$DEST" check-ignore {} + 2>/dev/null || true)"
+[ -z "$ignored" ] || {
+    echo "FAIL: these vendored files are git-ignored and would never commit:" >&2
+    echo "$ignored" | sed 's/^/      /' >&2
+    echo "      Negate them in the offending .gitignore before committing." >&2
+    exit 1
+}
 
 echo "[vendor_wasip1] vendored $total tests at pin $PIN_SHA into $DEST"
 echo "[vendor_wasip1] size: $(du -sh "$DEST" | cut -f1)"

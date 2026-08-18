@@ -179,11 +179,24 @@ pub fn main(init: std.process.Init) !void {
         // any stray directory under the corpus root would be reported as a
         // suite with zero tests, and the diagnostic below would then blame
         // the corpus for being empty rather than naming the real oddity.
-        var probe = root_dir.openDir(io, entry.name, .{}) catch continue;
-        defer probe.close(io);
-        probe.access(io, "manifest.json", .{}) catch {
-            try out.print("--- {s}: not a suite (no manifest.json), skipped\n", .{entry.name});
+        var probe = root_dir.openDir(io, entry.name, .{}) catch |err| {
+            try out.print("--- {s}: cannot open ({t}), skipped\n", .{ entry.name, err });
             continue;
+        };
+        defer probe.close(io);
+        probe.access(io, "manifest.json", .{}) catch |err| switch (err) {
+            // A directory without the descriptor is genuinely not a suite.
+            error.FileNotFound => {
+                try out.print("--- {s}: not a suite (no manifest.json), skipped\n", .{entry.name});
+                continue;
+            },
+            // Anything else — a permission error, most likely — is a broken
+            // corpus wearing the same costume. Naming it saves the operator
+            // from chasing a missing file that is actually there.
+            else => {
+                try out.print("--- {s}: manifest.json unreadable ({t}), skipped\n", .{ entry.name, err });
+                continue;
+            },
         };
 
         const suite = try runSuite(gpa, io, out, corpus_root, entry.name, engine, scratch_root);
@@ -341,6 +354,7 @@ const TestError = error{
     StdoutMismatch,
     UnknownManifestKey,
     ManifestShape,
+    ManifestUnreadable,
 };
 
 fn runOne(
@@ -367,8 +381,18 @@ fn runOne(
         defer gpa.free(mb);
         expect.parsed = try std.json.parseFromSlice(std.json.Value, gpa, mb, .{});
         try parseManifest(gpa, out, stem, &expect.parsed.?.value, &expect);
-    } else |_| {
+    } else |err| switch (err) {
         // Absent manifest is upstream's documented default, not an error.
+        error.FileNotFound => {},
+        // Anything else means the expectations are there and unreadable.
+        // Running the test regardless would drop its checks silently — a
+        // stdout-only manifest would leave `cap` null, skip the comparison,
+        // and report a PASS on no evidence. This is the one place in the file
+        // that used to degrade quietly; it is loud now, like the rest.
+        else => {
+            try out.print("      cannot read {s}: {t}\n", .{ manifest_name, err });
+            return TestError.ManifestUnreadable;
+        },
     }
 
     // A fresh copy of the preopen tree per test — see the header note on
