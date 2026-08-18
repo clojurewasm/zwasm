@@ -54,9 +54,9 @@ entries:
       Exactly ONE path reaches them: `JitInstance.tableSetRef`, which clears the
       funcptr mirror while leaving the parallel typeidx intact so the D-294
       sentinel does NOT fire — an ordinary embedder operation, and the reason
-      that function's "traps cleanly" comment only became true with (2). Its
-      "uninitialized sentinel" wording still does not match what the code
-      writes. (An earlier revision of this row also claimed `fidx >=
+      that function's "traps cleanly" comment only became true with (2); its
+      doc comment now spells out the zero-vs-sentinel split and cites this
+      row. (An earlier revision of this row also claimed `fidx >=
       dispatch.len`; that is unreachable — `dispatch` is allocated with
       `num_imports` slots and every slot is pre-seeded with `&hostDispatchTrap`,
       so an import's `fe.funcptr` is never 0.) The site is load-bearing; what is
