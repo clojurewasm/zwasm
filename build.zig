@@ -873,8 +873,9 @@ pub fn build(b: *std.Build) void {
     // the public `Engine.compile` (parse + validate). A decode-error
     // return is an EXPECTED reject; a CRASH (panic / SEGV / OOM-loop)
     // is a finding — it kills the loader process → red gate. Full
-    // overnight campaigns ride the §14.3 nightly over a larger
-    // gitignored `wasm-tools smith` corpus (`gen_fuzz_corpus.sh campaign`).
+    // campaigns run on demand over a larger gitignored `wasm-tools smith`
+    // corpus (`gen_fuzz_corpus.sh campaign`; automation retired with
+    // nightly.yml — ADR-0211 D1, revival hints in D-593).
     const fuzz_loader_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/fuzz/fuzz_loader.zig"),
         .target = target,
@@ -893,14 +894,15 @@ pub fn build(b: *std.Build) void {
     const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
     test_fuzz_step.dependOn(&run_fuzz.step);
 
-    // `zig build fuzz-campaign` — §14.3 nightly. Runs the loader over the
-    // larger gitignored campaign corpus (`gen_fuzz_corpus.sh campaign`,
-    // generated at nightly time on a host with `wasm-tools`). NOT in
-    // test-all (the campaign dir is absent on a normal checkout).
+    // `zig build fuzz-campaign` — on-demand campaign (ADR-0211 D1 / D-593).
+    // Runs the loader over the larger gitignored campaign corpus
+    // (`gen_fuzz_corpus.sh campaign`, generated on a host with
+    // `wasm-tools`). NOT in test-all (the campaign dir is absent on a
+    // normal checkout).
     const run_fuzz_campaign = b.addRunArtifact(fuzz_loader_exe);
     run_fuzz_campaign.addArg(b.pathFromRoot("test/fuzz/corpus/campaign"));
     run_fuzz_campaign.has_side_effects = true;
-    const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (§14.3 nightly)");
+    const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (on-demand, D-593)");
     fuzz_campaign_step.dependOn(&run_fuzz_campaign.step);
 
     // `zig build test-fuzz-exec` (alias `fuzz-diff`) — D-469/D-510 interp-vs-JIT

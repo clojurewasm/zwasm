@@ -3,6 +3,42 @@
 # Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
+  - id: "D-593"
+    layer: "test"
+    status: "note"
+    description: |-
+      **Fuzz / proposal-watch / spec-bump automation retired with nightly.yml
+      (ADR-0211 D1) — revival hints for when fuzzing becomes a focus.** The
+      workflow was authored dispatch-only (2026-06-04) citing the
+      CI-second-line convention that `ci.yml` abandoned 2026-07-01, and it
+      rotted around its never-scheduled legs. A fresh build should:
+      (1) run the DIFFERENTIAL campaigns, not just the loader fuzz —
+      `zwasm-fuzz-exec` over `test/fuzz/corpus/campaign` (interp-vs-JIT,
+      landed 2026-06-20 after nightly's last functional edit) and
+      `test-aot-diff`, alongside `zig build fuzz-campaign`;
+      (2) converge on ci.yml's setup — `source .github/versions.lock` for
+      every tool version (nightly hardcoded wasm-tools and drifted once,
+      `4bdf0dd2b`) and the `zig-pkg` dep cache (zlinter is an eager dep;
+      one fetch flake killed the whole job);
+      (3) decide spec-bump semantics BEFORE wiring it — `check_spec_bump.sh
+      --gate` compares `.dev/spec_pin.yaml` against upstream HEAD, a moving
+      target that re-reds after every bump (it is red today: pin 2026-06-14,
+      both upstream HEADs moved); gate-vs-warn is a design choice, not a flag;
+      (4) give a scheduled red a notification route — the bench-watch pattern
+      (exit 1 → scheduled-run failure emails the cron author; ADR-0211 D2)
+      costs nothing and works;
+      (5) validate the fuzz budget — `FUZZ_N=2000` spawns plus a cold build
+      under a 60-min cap was never measured (ROADMAP §12.2 "duration TBD").
+      Until then `check_proposal_watch.sh` / `check_spec_bump.sh` are
+      on-demand tools, and the `spec_pin.yaml` staleness is standing
+      maintenance work (runbook: `.dev/spec_revendor_runbook.md`).
+    first_raised: "2026-08-19"
+    last_reviewed: "2026-08-19"
+    refs: |-
+      ADR-0211 D1 (the retirement decision + discussion #201);
+      scripts/gen_fuzz_corpus.sh + build.zig (fuzz-campaign, fuzz-exec);
+      scripts/check_proposal_watch.sh; scripts/check_spec_bump.sh;
+      .dev/spec_pin.yaml + .dev/spec_revendor_runbook.md
   - id: "D-587"
     layer: "test"
     status: "note"
