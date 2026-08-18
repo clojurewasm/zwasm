@@ -23,13 +23,13 @@ clean `brew` state) and **phase 5** (cljw pin + wind-down).
 - **#200** (`develop/wasi-p1-official-impl`) — ADR-0208's D1/D2/D3: the
   vendored `wasm32-wasip1` corpus (144 files) + `test/wasi/official_runner.zig`
   + an **advisory** CI step. Draft, 3-OS green.
-- **Landed 2026-08-18**: #183 (ADR-0208 itself — Accepted), #186 (D-586 — the
-  JIT traps on a null table funcptr instead of executing it), #194 / #195 /
-  #196 (records).
-- **Landed 2026-08-16**: #190 (D-592 retracted — the build-cache mechanism it
-  claimed does not hold; the real defect was `run_oob_trap` never re-running),
-  #192 (the JIT realworld differential had no caller — now in `test-all` with
-  denominator accounting), #191 / #193 (records).
+- **Recently landed**: #183 + #197 (ADR-0208 — filed, then flipped to
+  Accepted), #186 + #198 (D-586 — the JIT traps on a null table funcptr
+  instead of executing it), #190 (D-592 retracted — the build-cache mechanism
+  it claimed does not hold; the real defect was `run_oob_trap` never
+  re-running), #192 (the JIT realworld differential had no caller — now in
+  `test-all` with denominator accounting), #191 / #193 / #194 / #195 / #196
+  (records). Dates and order: `git log` — they are not restated here.
 - **Next dispatchable — the wasmtime differential is double fail-open.**
   `test/realworld/diff_runner.zig` has a `matched < 30` denominator gate that is
   bypassed on any host without a working wasmtime: two early returns precede it
