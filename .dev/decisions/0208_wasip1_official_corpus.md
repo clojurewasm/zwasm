@@ -2,7 +2,8 @@
 
 > **Doc-state**: ACTIVE
 
-- **Status**: Proposed
+- **Status**: Accepted (2026-08-18 — maintainer sign-off on PR #183; the
+  official suite is the bar, D1–D3 as written)
 - **Date**: 2026-08-14
 - **Front**: B-hardening (D-582 infrastructure, D-583 the behaviour gaps it exposes)
 - **Findings base**: measured conformance run 2026-08-14 at `2e40d4314` on
@@ -92,7 +93,8 @@ separately.
 
 The step is **not** added to §11.1's table. That table has not been touched
 since the Phase-0 bootstrap (`9bd21b2fc`): it lists 8 steps where `build.zig`
-now declares 42 (31 of them `test*`), and `test-wasi-p1`, `test-wasi-p3`, `test-component-spec`,
+declared 42 at the findings base (31 of them `test*`; the count only grows —
+ADR-0209/0210 pushed it to 47), and `test-wasi-p1`, `test-wasi-p3`, `test-component-spec`,
 `test-spec-simd` and `test-spec-assert` are all absent — including steps added
 as recently as the ADR-0205 campaign. It is a frozen Phase-era overview, not a
 live registry, and adding one step to it would misrepresent it as maintained.
