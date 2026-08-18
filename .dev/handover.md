@@ -91,8 +91,9 @@ clean `brew` state) and **phase 5** (cljw pin + wind-down).
 - **WASI 0.1**: syscall SURFACE complete (46/46, ADR-0161). Behaviour against
   the official wasi-testsuite was measured 2026-08-14 at **58/72 interp,
   54/72 jit** (x86_64-linux; wasmtime 47.0.3 scores 72/72 through the same
-  harness) — nothing gated that until now. **0.2/CM** default-ON; **0.3 FULL
-  on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
+  harness) — nothing gated that until now. ADR-0208 (#183) proposes the gate
+  (D-582 infra, D-583 the 14 behaviour gaps). **0.2/CM** default-ON; **0.3
+  FULL on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
   into cljw. Realworld 56/0 vs wasmtime under `--engine jit`, gating in
   `test-all` since 2026-08-16 (`test-realworld-diff-jit`) **on hosts where

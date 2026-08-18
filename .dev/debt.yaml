@@ -134,6 +134,124 @@ entries:
       call-succeeds tests); src/engine/compile_init.zig
       (applyTableInitForTable + patchTableImportFuncptrs — the (d) pair);
       D-294 (null-ELEMENT sentinel, a different case); zwasm#186
+  - id: "D-582"
+    layer: "test"
+    status: "now"
+    front: B-hardening
+    description: |-
+      now: **`test-wasi-p1` gated 3 hand-written fixtures while the official
+      corpus has 72 — vendor the corpus and put a real runner behind the
+      step.** The step name reads like preview1 coverage and `test-all` ran it
+      on all three OSes, so it looked gated; what it actually walked was
+      `test/wasi/{hello,env_echo,proc_exit_42}`. Nothing in the tree could
+      have caught a preview1 behaviour regression.
+      ---
+      Scope of THIS row (infrastructure only — the behaviour gaps it exposes
+      are D-583): vendor the `prod/testsuite-base` prebuilt `wasm32-wasip1`
+      binaries via `scripts/vendor_wasip1_official.sh`, write a runner that
+      reads the official manifests, expose it as `zig build
+      test-wasi-p1-official`, and run it as an **advisory step**
+      (step-level `continue-on-error`) at the end of the existing `gate` job.
+      The step stays OUT of `test-all` until D-583 closes: `test-all` is the
+      blocking gate, so folding a known-14-red corpus into it would red every
+      PR. A failing `continue-on-error` step keeps `outcome: failure` (visible)
+      while its `conclusion` is `success`, so `needs.gate.result` — what
+      `ci-required` reads — is unaffected. A job of its own was rejected: it
+      would rebuild zwasm from a cold `.zig-cache` on all three runners
+      (nothing caches `.zig-cache`), paying a second full build per PR.
+      ---
+      Two design constraints, both learned the hard way on 2026-08-14:
+      (1) **Copy the preopen tree per test.** The tests mutate it, and a
+      reused tree turns a real failure into a pass (see D-583's
+      `dangling_symlink` note).
+      (2) **Pin the engine and run `interp` and `jit` as separate lanes.** The
+      default `auto` prefers the JIT; a single unpinned lane hides the
+      engine-specific failures D-583 records.
+      Also: a missing corpus root must `exit 1`, never report 0-tests-green
+      (ADR-0174 no-silent-skip; the same guard `test-corpus-presence` gives
+      the spec runners).
+      ---
+        DISCHARGE: corpus vendored, `zig build test-wasi-p1-official` runs it,
+        and the advisory CI step prints real per-suite counts on all three OSes.
+        NOT `test-all` wiring — this row says the step stays out of `test-all`
+        until D-583 closes, and that wiring is item (1) of D-583's own
+        discharge. One cycle.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      test/wasi/wasip1_official/** (vendored corpus, 72 tests);
+      scripts/vendor_wasip1_official.sh (pin + regen); legal/THIRD_PARTY.md;
+      build.zig (test-wasi-p1 / test-all wiring); ADR-0174 (no-silent-skip);
+      ROADMAP §11.1 (test layers) + §11.2 (test data policy); D-583
+  - id: "D-583"
+    layer: "code"
+    status: "now"
+    front: B-hardening
+    description: |-
+      now: **preview1 behavioural conformance measured for the first time —
+      14 engine-independent failures.** This does NOT contradict §11.1 /
+      ADR-0161. That row records the preview1 **syscall surface** at 46/46 (up
+      from the 21/46-subset overclaim) and the surface is complete. What no
+      gate ever checked is whether those syscalls **behave to spec**.
+      ---
+      Measured 2026-08-14 at `2e40d4314` (x86_64-linux) with the official
+      `WebAssembly/wasi-testsuite` python runner and a zwasm adapter:
+      `--engine interp` **58/72**, `--engine jit` **54/72**. A wasmtime 47.0.3
+      control run through the identical harness in the same session scored
+      **72/72**, so these are zwasm gaps, not adapter artifacts.
+        Both figures include the `dangling_symlink` correction: the raw runner
+        output reads 59 and 55 because that test leaves
+        `dangling_symlink_symlink.cleanup` behind, and every later run against
+        the same preopen tree passes on the leftover. With a fresh preopen per
+        test it fails 20 of 20, on both engines. 72 - 14 = 58, 72 - 14 - 4 = 54.
+      ---
+      **14 engine-independent** (this row's work): `dangling_symlink`,
+      `dir_fd_op_failures`, `directory_seek`, `fd_fdstat_set_rights`,
+      `fd_flags_set`, `fd_readdir`, `interesting_paths`, `nofollow_errors`,
+      `path_open_preopen`, `path_open_read_write`, `poll_oneoff_stdio`,
+      `renumber`, `truncation_rights` (rust) + `pwrite-with-append` (c).
+      Deliberately NOT pre-split by symptom: the grouping that suggests itself
+      (path_open / fd-state / readdir) is by test NAME, not by measured root
+      cause, and a single path-resolution defect could close several at once.
+      Split into sub-rows once the first root cause is known, not before.
+      ---
+      **4 further failures are JIT-only**, tracked here as a distinct class:
+      `args_get-multiple-arguments`, `environ_get-multiple-variables`,
+      `random_get-zero-length`, `fd_write-to-stdout` — all four in the
+        AssemblyScript suite — pass on
+      the interpreter and fail under `--engine jit`. That is a JIT-path
+      defect, not a WASI one.
+      ---
+      **`dangling_symlink` looks flaky and is not.** It fails on a clean
+      preopen tree (20/20), leaves `dangling_symlink_symlink.cleanup` behind,
+      and that leftover makes every later run against the same tree pass. The
+      first pass of the 2026-08-14 measurement recorded it as flaky for
+      exactly this reason.
+      ---
+        DISCHARGE: all 14 green AND the 4 JIT-only failures green, on all
+        three OSes. Both classes, because item (1) wires BOTH lanes into
+        `test-all` and `test-all` is the blocking gate: fixing only the 14
+        would leave the JIT lane red and stop every PR.
+        Four edits land together — anything left behind is a doc that outlives
+        its subject, which is how §11.2 came to describe neither reality nor
+        intent:
+      (1) `build.zig` — `test_all_step.dependOn` both lanes (`ci_gate.sh` needs
+          no edit; it already runs `zig build test-all`);
+      (2) `.github/workflows/ci.yml` — delete the advisory step in `gate`;
+      (3) `docs/development.md` — drop the "Not in `test-all`" marker from the
+          table row, restore `test-all`'s "all of the above", and delete the
+          paragraph about the advisory placement;
+      (4) this row and D-582 — deleted, per the ledger's delete-on-discharge
+          rule.
+      Until then the step reports real counts and stays non-blocking — a
+      deliberate, time-boxed advisory in the sense of ADR-0174 ("NOT a silent
+      skip"), not an indefinite workaround.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/wasi/** (preview1 syscall implementations); test/wasi/wasip1_official/**;
+      ROADMAP §11.1 (syscall surface 46/46); ADR-0161 (preview1 completion
+      program); ADR-0174 (no-silent-skip); D-582 (the gate that measures this)
   - id: "D-592"
     layer: "test"
     status: "note"
