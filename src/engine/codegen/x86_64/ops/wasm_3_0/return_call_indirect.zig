@@ -1,7 +1,7 @@
 //! x86_64 emit handler for `return_call_indirect` — Zone 2 per
 //! ADR-0074 + ADR-0112 D2.
 //!
-//! Wasm spec 3.0 §3.3.8.19. Pop index, bounds + sig check, then
+//! Wasm spec 3.0 §3.3.8.19. Pop index, bounds + sig + null-funcptr (D-586) checks, then
 //! frame teardown and `JMP R11` to the resolved funcptr.
 //!
 //! Stub: emit returns `UnsupportedOp`.

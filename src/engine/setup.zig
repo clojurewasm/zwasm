@@ -995,7 +995,6 @@ pub fn setupRuntimeLinked(
                 }
                 if (fidx >= compiled.func_sigs.len) return Error.UnsupportedEntrySignature;
                 tbl.refs[base + i] = @intFromPtr(&func_entities[fidx]);
-                const f_off = compiled.module.func_offsets[fidx];
                 const raw_typeidx = compiled.func_typeidxs[fidx];
                 tbl_typeidxs[base + i] = if (store_raw_typeidx)
                     raw_typeidx
@@ -1003,16 +1002,20 @@ pub fn setupRuntimeLinked(
                     canonical_type.canonicalTypeidx(t.items, raw_typeidx)
                 else
                     raw_typeidx;
-                if (f_off == linker.IMPORT_SENTINEL_OFFSET) {
-                    // Imported function in a table — host-call dispatch
-                    // through `host_dispatch_base` is required to invoke
-                    // it. v0.1.0's JIT call_indirect path doesn't emit
-                    // that trampoline; leave funcptr null so an attempt
-                    // to call it traps via NULL deref instead of running
-                    // arbitrary host code.
-                    continue;
-                }
-                tbl_funcptrs[base + i] = @intFromPtr(compiled.module.block.bytes.ptr + f_off);
+                // D-586 — `func_entities` resolved this above: a body address
+                // for a local function, `dispatch[fidx]` for an import, so one
+                // assignment serves both and an imported table element is
+                // callable. This is the same value `jitTableGrowCore` already
+                // copied on the `table.set` path, so reachability stops
+                // depending on how the element got here; this branch used to
+                // leave the mirror null and the emit sites executed it
+                // (SIGSEGV). One signature the bridge thunk cannot carry — a
+                // MEMORY-class return — is still mis-called on every route,
+                // including the three that already reached the thunk before
+                // this line changed. D-586 (g) owns that; it is not guarded
+                // here, because a guard on this write alone would leave those
+                // three open.
+                tbl_funcptrs[base + i] = func_entities[fidx].funcptr;
             }
         }
     }

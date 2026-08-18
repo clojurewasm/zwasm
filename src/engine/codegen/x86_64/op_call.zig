@@ -430,7 +430,7 @@ pub fn emitMemoryGrow(
 
 /// Wasm spec §3.4.7 (call_indirect type_idx) — pops the index,
 /// marshals args, runs bounds + sig checks (both branch to the
-/// shared trap stub via bounds_fixups), loads the funcptr from
+/// shared trap stub via bounds_fixups), loads the funcptr from (then null-tests it, D-586)
 /// `funcptr_base[idx]`, restores RDI = runtime_ptr, and CALLs
 /// through RAX.
 ///
@@ -583,6 +583,17 @@ pub fn emitCallIndirect(
         // Funcptr: MOV RAX, [R15 + funcptr_base_off] ; MOV RAX, [RAX + idx_r*8].
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.funcptr_base_off).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+        // D-586 — a zero funcptr with a VALID typeidx: a host cleared this
+        // slot through `tableSetRef`, which leaves the typeidx mirror intact so
+        // the D-294 sentinel does not fire. Imports themselves hold the bridge
+        // thunk. Without this test the CALL executed the zero and the process
+        // died; test for it as the subtyping path above already does.
+        try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+            try cind_sig_fixups.append(allocator, fixup_at);
+        }
     } else {
         // Multi-table slow path (D-112):
         // load per-table size + bases from
@@ -643,6 +654,17 @@ pub fn emitCallIndirect(
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_jit_ci_ptr_off).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, .rax, ci_funcptr_disp).slice());
         try buf.appendSlice(allocator, inst.encMovR64FromBaseIdxLsl3(.rax, .rax, idx_r).slice());
+        // D-586 — a zero funcptr with a VALID typeidx: a host cleared this
+        // slot through `tableSetRef`, which leaves the typeidx mirror intact so
+        // the D-294 sentinel does not fire. Imports themselves hold the bridge
+        // thunk. Without this test the CALL executed the zero and the process
+        // died; test for it as the subtyping path above already does.
+        try buf.appendSlice(allocator, inst.encTestRR(.q, .rax, .rax).slice());
+        {
+            const fixup_at: u32 = @intCast(buf.items.len);
+            try buf.appendSlice(allocator, inst.encJccRel32(.e, 0).slice());
+            try cind_sig_fixups.append(allocator, fixup_at);
+        }
     }
 
     // ADR-0026 2026-05-18 Convention Swap / ADR-0069 §Phase 2 +
