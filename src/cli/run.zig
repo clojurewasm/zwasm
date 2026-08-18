@@ -105,8 +105,11 @@ pub fn runWasmJit(
 /// Like `runWasmJit` but routes guest stdout (`fd_write` on fd 1) into
 /// `stdout_capture` when non-null. `null` → real process stdout (the CLI
 /// path). The realworld `--jit` differential lane (D-283) passes a buffer to
-/// byte-diff `--engine jit` output vs wasmtime — the real JIT-correctness net,
-/// since the bare `run_runner_jit` run-stage executes with no WASI host.
+/// byte-diff `--engine jit` output vs wasmtime — the realworld JIT-correctness
+/// net. What distinguishes it from the other two realworld result-checks in
+/// `test-all` is its oracle, an independent runtime: `run_edge_realworld_p10`
+/// checks 8 fixtures against static `.expect` values, and `run_aot_diff`
+/// compares zwasm against itself across the `.cwasm` boundary.
 pub fn runWasmJitCaptured(
     alloc: std.mem.Allocator,
     io: std.Io,

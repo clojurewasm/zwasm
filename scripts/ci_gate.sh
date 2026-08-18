@@ -5,7 +5,8 @@
 # never verify LESS than the per-host gate. It checks the CURRENT host only;
 # multi-host fan-out is the caller's job (the CI matrix / gate_merge's SSH legs).
 #
-#   Core (every OS):  zig fmt --check + zig build test-all
+#   Core (every OS):  zig fmt --check (src/ + bench/latency/) + zig build test-all
+#                     + bench-latency-build
 #   Extended (ZWASM_CI_EXTENDED=1; Unix legs): lint + build-option DCE +
 #     ReleaseSafe JIT smoke (D-245) + AOT cross-compile portability +
 #     external system-linker consumer (test_extlink.sh) + zone_check +
@@ -20,11 +21,20 @@ cd "$(dirname "$0")/.."
 
 echo "[ci_gate] host: $(uname -s) — zig $(zig version)"
 
-echo "[ci_gate] (1/2) zig fmt --check src/"
+echo "[ci_gate] (1/3) zig fmt --check src/ bench/latency/"
 zig fmt --check src/
+# bench/latency/ is compiled by step 3 but lives outside src/, so without this
+# it would be the one Zig file in the tree whose formatting can drift silently.
+zig fmt --check bench/latency/
 
-echo "[ci_gate] (2/2) zig build test-all"
+echo "[ci_gate] (2/3) zig build test-all"
 zig build test-all
+
+# ADR-0209 — compile-only. `bench-latency` is a measurement and stays out of
+# test-all, but without SOMETHING building it, public-API drift would break the
+# bench with no signal until a human ran it by hand.
+echo "[ci_gate] (3/3) zig build bench-latency-build (compile-only, ADR-0209)"
+zig build bench-latency-build
 
 # rust-host embedding consumer (D-254): the third independent embedding-ABI
 # consumer (docs/examples/rust_host/hello.rs links the same libzwasm.a the C
@@ -51,6 +61,20 @@ fi
 # `main` instead of a red PR (which is exactly how it first fired).
 echo "[ci_gate] test-discovery guard (check_test_discovery --gate)"
 bash scripts/check_test_discovery.sh --gate
+
+# Spec-manifest shape guard (ADR-0210). The spec runners print an
+# enumeration denominator whose whole value is that a third party can
+# re-derive it with `wc -l`. That only holds while the corpora stay one
+# directive per line — a regen introducing blank or comment lines would
+# break the re-derivation while both the runner and the corpus stayed
+# green. Cheap (a read of 86 manifests), so it runs on every PR.
+echo "[ci_gate] spec-manifest shape guard (check_spec_manifest_shape --gate)"
+# Output kept (not `> /dev/null`, unlike the gate_commit invocations): the
+# whole value of this guard is naming WHICH manifest broke the
+# re-derivation, and a red CI leg showing only a bare non-zero exit would
+# make the next person reproduce it by hand. Matches check_test_discovery
+# above.
+bash scripts/check_spec_manifest_shape.sh --gate
 
 if [ "${ZWASM_CI_EXTENDED:-0}" = "1" ]; then
     echo "[ci_gate] extended: zig build lint"

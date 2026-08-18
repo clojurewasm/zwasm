@@ -108,7 +108,16 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     options.addOption(WasmLevel, "wasm_level", wasm_level);
     options.addOption(WasiLevel, "wasi_level", wasi_level);
+    const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
     options.addOption(EngineMode, "engine_mode", engine_mode);
+    // ADR-0209 — the mode `core_rs` is built with, which is not the mode the
+    // caller asked for: `runner_optimize` floors Debug at ReleaseSafe for
+    // iteration speed. `bench/latency` imports the engine through `core_rs`, so
+    // reporting its own `builtin.mode` would label ReleaseSafe numbers `Debug`.
+    // Named for the twin it describes, not "engine_optimize": this same
+    // `build_options` module is shared by `core` and `exe_mod`, which are built
+    // with the raw `-Doptimize`, and a bare name would be wrong for them.
+    options.addOption(std.builtin.OptimizeMode, "runner_engine_optimize", runner_optimize);
     options.addOption(bool, "trace_ringbuffer", trace_ringbuffer);
     options.addOption(bool, "trace_stackprobe", trace_stackprobe);
     options.addOption(bool, "enable_component", enable_component);
@@ -176,7 +185,6 @@ pub fn build(b: *std.Build) void {
     // routes through the cohort trampoline). Production (`exe`/lib) keeps `core`
     // honouring `-Doptimize`. Floor at ReleaseSafe so a plain Debug build still
     // runs runners fast; a higher `-Doptimize` (ReleaseFast) wins.
-    const runner_optimize: std.builtin.OptimizeMode = if (optimize == .Debug) .ReleaseSafe else optimize;
     const core_rs = b.createModule(.{
         .root_source_file = b.path("src/zwasm.zig"),
         .target = target,
@@ -328,6 +336,18 @@ pub fn build(b: *std.Build) void {
     run_spec_smoke.addArg(b.pathFromRoot("test/spec/smoke"));
     const run_spec_mvp = b.addRunArtifact(spec_runner_exe);
     run_spec_mvp.addArg(b.pathFromRoot("test/spec/wasm-1.0"));
+    // ADR-0210 — `zig build test-spec` did not print what it ran: three
+    // consecutive runs each showed 8 `PASS` lines while the two summaries
+    // claimed 3 + 9 = 12, one line spliced mid-token. The cause was NOT
+    // this build wiring — it was `std.Io.File.stdout().writer()`, whose
+    // default `.positional` mode restarts at offset 0 in every process, so
+    // the second runner overwrote the first's output whenever stdout was a
+    // regular file. Every runner under `test/` now uses `writerStreaming`
+    // (as all of `src/` already did). Ordering the two runs is the residual
+    // half: with both appending, concurrent runs could still interleave
+    // mid-line, and a denominator is worthless if the lines backing it can
+    // be shredded between the runner and the log a reviewer reads.
+    run_spec_mvp.step.dependOn(&run_spec_smoke.step);
     const test_spec_step = b.step("test-spec", "Run the Wasm spec test runner");
     test_spec_step.dependOn(&run_spec_smoke.step);
     test_spec_step.dependOn(&run_spec_mvp.step);
@@ -345,15 +365,16 @@ pub fn build(b: *std.Build) void {
         .name = "zwasm-edge-runner",
         .root_module = edge_runner_mod,
     });
-    // `has_side_effects = true` forces each fixture-runner to re-run
-    // every invocation. The runner walks its corpus dir at RUNTIME, but
-    // the dir path is a plain `addArg` string — NOT a tracked build
-    // input — so without this flag zig caches the run-artifact on the
-    // exe hash and SKIPS re-running when only fixture files change
-    // (no src/exe delta). That silently gave fixture-only additions
-    // FALSE coverage (they passed when run directly but the gate served
-    // a stale cached result). Tests must always execute; the runner is
-    // fast (~seconds for the whole corpus).
+    // `has_side_effects = true` on these fixture-runners is REDUNDANT, kept
+    // only as an explicit statement of intent (tests must always execute).
+    // The corpus dir does reach the runner as an untracked `addArg` string,
+    // but that alone never made them cacheable: `Run.hasSideEffects()` is
+    // already true for the default `stdio = .infer_from_args` unless the step
+    // has an output arg, and these have none. Caching needs a SECOND
+    // condition — an output arg, or an `addCheck` caller (`expectExitCode`,
+    // `expectStdOutEqual`) flipping stdio to `.check`. See D-592: the cyc216
+    // diagnosis that put these lines here was wrong, and `run_oob_trap` is
+    // the one step in this file where both conditions actually hold.
     const run_edge_p7 = b.addRunArtifact(edge_runner_exe);
     run_edge_p7.addArg(b.pathFromRoot("test/edge_cases/p7"));
     run_edge_p7.has_side_effects = true;
@@ -803,15 +824,49 @@ pub fn build(b: *std.Build) void {
     });
     const run_realworld = b.addRunArtifact(realworld_runner_exe);
     run_realworld.addArg(b.pathFromRoot("test/realworld/wasm"));
-    // has_side_effects: the corpus dir is a plain `addArg` string (NOT a
-    // tracked input), so without this the run-artifact is cached on the exe
-    // hash and SKIPPED when only `.wasm` fixtures change → false coverage
-    // (same gap as the run_edge_* steps, fixed cyc216; these realworld/wasm
-    // runners were missed then). See lesson
-    // `2026-05-30-edge-runner-fixture-cache-false-coverage`.
+    // has_side_effects: redundant here, same as the run_edge_* steps above —
+    // an untracked `addArg` corpus dir alone does not make a step cacheable.
+    // Kept as a statement of intent. See D-592.
     run_realworld.has_side_effects = true;
     const test_realworld_step = b.step("test-realworld", "Run the realworld parse smoke");
     test_realworld_step.dependOn(&run_realworld.step);
+
+    // `zig build bench-latency` — ADR-0209. Steady-state per-call latency on an
+    // already-instantiated module. Every other bench goes through `hyperfine`
+    // on a whole process, which is one guest call per process, so a per-call
+    // cost is paid once there and vanishes into process startup. D-584 / D-585
+    // were both invisible to that harness by construction. NOT in `test-all`:
+    // it is a measurement, not an assertion, and its numbers move with machine
+    // state (7% between rounds on one host).
+    const latency_runner_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("bench/latency/percall_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    latency_runner_mod.addImport("zwasm", zwasm_lib_mod);
+    latency_runner_mod.addImport("build_options", build_options_mod);
+    const latency_runner_exe = b.addExecutable(.{
+        .name = "zwasm-latency-runner",
+        .root_module = latency_runner_mod,
+    });
+    const run_latency = b.addRunArtifact(latency_runner_exe);
+    // has_side_effects: redundant (see the run_edge_* comment and D-592 —
+    // a step with no output arg is already side-effecting). Kept because the
+    // intent is load-bearing here: a benchmark must re-measure, and if this
+    // step ever gains an output arg, caching it would silently report the
+    // previous machine state's numbers.
+    run_latency.has_side_effects = true;
+    const bench_latency_step = b.step("bench-latency", "Measure steady-state per-call latency (ADR-0209; not an assertion, not in test-all)");
+    bench_latency_step.dependOn(&run_latency.step);
+
+    // ADR-0209 — compile-only, so the gate catches public-API drift
+    // (`Instance.typedFunc`, `Module.InstantiateOpts.engine`, `std.Io.Clock`)
+    // without spending gate wall-clock on a measurement. Running it in CI would
+    // record a shared runner's numbers as if they meant something; not
+    // compiling it at all lets it bit-rot silently, which is the failure this
+    // whole PR is about.
+    const bench_latency_build_step = b.step("bench-latency-build", "Compile the per-call latency runner without running it (ADR-0209)");
+    bench_latency_build_step.dependOn(&latency_runner_exe.step);
 
     // `zig build test-fuzz` — §14.3 / D-256 fuzz smoke. Feeds each
     // committed seed-corpus file's raw bytes through `parser.parse` +
@@ -832,9 +887,8 @@ pub fn build(b: *std.Build) void {
     });
     const run_fuzz = b.addRunArtifact(fuzz_loader_exe);
     run_fuzz.addArg(b.pathFromRoot("test/fuzz/corpus/seed"));
-    // has_side_effects: the corpus dir is an untracked `addArg` string, so
-    // without this the run is cached on the exe hash + skipped when only the
-    // corpus changes (same gap as run_realworld; see that comment).
+    // has_side_effects: redundant, same as run_realworld above (see that
+    // comment and D-592). Kept as a statement of intent.
     run_fuzz.has_side_effects = true;
     const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
     test_fuzz_step.dependOn(&run_fuzz.step);
@@ -934,9 +988,9 @@ pub fn build(b: *std.Build) void {
     // baseline. Walks the same corpus and drives each fixture
     // through `engine.runner.compileWasm` (the JIT pipeline).
     // Reports compile-side coverage: COMPILE-PASS / COMPILE-IMPORTS
-    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Chunks 7.9-b/c/d
-    // turn COMPILE-PASS into RUN-PASS by adding host-import
-    // dispatch + JitRuntime memory init + WASI stub handlers.
+    // / COMPILE-OP / COMPILE-VAL / FAIL-OTHER. Compilation ONLY —
+    // whether the emitted code computes the right answer is
+    // `test-realworld-diff-jit`'s question, not this step's.
     const realworld_run_jit_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/realworld/run_runner_jit.zig"),
         .target = target,
@@ -1007,7 +1061,13 @@ pub fn build(b: *std.Build) void {
     const run_realworld_diff = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff.has_side_effects = true; // fixture-only changes must re-run (cyc216 gap)
-    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime");
+    // Nothing in the build graph depends on this step any more — `test-all`
+    // takes `test-realworld-diff-jit`, which is the same runner plus `--jit`.
+    // It survives as the manual entry point for the shared lane alone (a
+    // faster loop when triaging a non-JIT divergence). Being CI-unreached, its
+    // wiring can rot silently; the `--jit` step below shares this exe and
+    // corpus arg, so a break here shows up there.
+    const test_realworld_diff_step = b.step("test-realworld-diff", "Diff realworld fixtures' stdout against wasmtime (shared lane only; not in test-all)");
     test_realworld_diff_step.dependOn(&run_realworld_diff.step);
 
     // `zig build test-realworld-diff-aot` — D-283 widen / D-251 validate.
@@ -1053,16 +1113,21 @@ pub fn build(b: *std.Build) void {
     const test_realworld_diff_wasmer_step = b.step("test-realworld-diff-wasmer", "Realworld differential incl. the opt-in wasmer second-oracle lane (§9.6 A3)");
     test_realworld_diff_wasmer_step.dependOn(&run_realworld_diff_wasmer.step);
 
-    // `zig build test-realworld-diff-jit` — D-283 the real JIT-correctness net.
-    // Same wasmtime differential PLUS a `--jit` lane that runs each fixture via
-    // the WASI-aware `--engine jit` path (runWasmJitCaptured) + byte-diffs stdout
-    // vs wasmtime. Replaces the misleading run_runner_jit run-stage (null WASI
-    // host → false traps). Report-only first; gates once clean.
+    // `zig build test-realworld-diff-jit` — D-283 the real JIT-correctness net,
+    // and the lane `test-all` depends on (NOT `test-realworld-diff`, which is the
+    // same runner minus `--jit`; depending on both would run the interp lane
+    // twice). Same wasmtime differential PLUS a `--jit` lane that runs each
+    // fixture via the WASI-aware `--engine jit` path (runWasmJitCaptured) +
+    // byte-diffs stdout vs wasmtime. Superseded the run_runner_jit run-stage,
+    // which ran with a null WASI host and so reported false traps.
+    // Measured cost over the shared-lane-only step: +29s (19.3 → 48.3) on
+    // x86_64-linux — a rounding error against the ~10 min core gate, which is
+    // why this sits in the core gate rather than behind ZWASM_CI_EXTENDED.
     const run_realworld_diff_jit = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff_jit.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff_jit.addArg("--jit");
     run_realworld_diff_jit.has_side_effects = true;
-    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the opt-in WASI-aware JIT lane (D-283)");
+    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the gating WASI-aware JIT lane (D-283)");
     test_realworld_diff_jit_step.dependOn(&run_realworld_diff_jit.step);
 
     // `zig build test-api-zig-facade` — Phase 10 / §10.J / J.6.
@@ -1355,6 +1420,22 @@ pub fn build(b: *std.Build) void {
         "--invoke", "test",
     });
     run_oob_trap.expectExitCode(1); // a genuine trap → exit 1 (interp-parity)
+    // has_side_effects: `expectExitCode` routes through `addCheck`, which flips
+    // `stdio` from `.infer_from_args` to `.check` — and `Run.hasSideEffects()`
+    // returns FALSE for `.check`. That makes this step cacheable, while the
+    // fixture above reaches it as a plain `addArg` STRING (not a tracked input),
+    // so a fixture-only change is served from cache and never re-verified.
+    // Measured 2026-08-15: swapping the 47-byte trapping module for an 8-byte
+    // empty one left the step `cached` and green. Without this line the only
+    // behavioural test of the production elision path is false coverage on any
+    // warm cache (local `test-all`, gate_commit, gate_merge; CI checks out
+    // fresh, so it is cold there). See D-592.
+    // Alternative not taken: `addFileArg(b.path(…))` would track the fixture
+    // and keep caching correct rather than defeating it, and would make the
+    // implicit repo-root cwd explicit. Rejected for now only because the
+    // always-run form matches every other runner here and the step costs
+    // ~24ms; revisit if unconditional CLI re-runs become noticeable.
+    run_oob_trap.has_side_effects = true;
     const test_oob_trap_step = b.step("test-oob-elision", "Verify guard-page bounds elision traps oob (ADR-0202 D4/D5 / D-507)");
     test_oob_trap_step.dependOn(&run_oob_trap.step);
 
@@ -1378,7 +1459,14 @@ pub fn build(b: *std.Build) void {
     // fixtures") — they are SKIP, not FAIL, so the runner
     // exits zero. Hosts without `wasmtime` on PATH degrade to
     // SKIP-WASMTIME-FAIL gracefully and do not break the gate.
-    test_all_step.dependOn(&run_realworld_diff.step);
+    // The `--jit` variant, NOT `run_realworld_diff`: same runner, same default-
+    // engine lane, plus the gating JIT lane — so one dependency, no double run
+    // of the shared lane. Note what that shared lane is NOT: it calls
+    // `runWasmCaptured` with default `Limits`, i.e. `.auto`, which tries the JIT
+    // first and reaches the interp only where the JIT cannot instantiate. It is
+    // not an interp result-check, and `test-all` currently has none over the
+    // realworld corpus.
+    test_all_step.dependOn(&run_realworld_diff_jit.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     // §10 / 10.T-2b: wasm-3.0 assertion runner skeleton — enumerates
     // baked manifests, exits clean. Adopts JIT-execute as impl rows
@@ -1437,9 +1525,12 @@ pub fn build(b: *std.Build) void {
     // runners that were "documented exit criterion measurement
     // points" but never CI-gated.
     //
-    // test-realworld-run-jit reports RUN-PASS / FAIL
-    // classifications; its 40+ RUN-PASS floor is §9.7 / 7.9-a's
-    // exit criterion.
+    // test-realworld-run-jit compiles every fixture through the JIT
+    // pipeline. Its RUN-PASS stage — and the 40+ RUN-PASS floor that
+    // was §9.7 / 7.9-a's exit criterion — is GONE: it invoked `_start`
+    // with a null WASI host, so its traps measured the harness, not
+    // the JIT. `test-realworld-diff-jit` carries the execution side
+    // now (D-283).
     //
     // test-wasmtime-misc-runtime (today 266/0/0 with panics
     // resolved) is the only runtime-asserting runner for non-SIMD

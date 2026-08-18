@@ -35,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writerStreaming(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var arg_it = try std.process.Args.Iterator.initAllocator(init.minimal.args, gpa);
@@ -49,6 +49,8 @@ pub fn main(init: std.process.Init) !void {
     const corpus_root = try gpa.dupe(u8, corpus_root_arg);
     defer gpa.free(corpus_root);
 
+    // ADR-0210 — enumeration denominator: non-blank manifest lines read.
+    var lines: u32 = 0;
     var passed: u32 = 0;
     var failed: u32 = 0;
     var skipped: u32 = 0;
@@ -69,10 +71,17 @@ pub fn main(init: std.process.Init) !void {
     var it = root.iterate();
     while (try it.next(io)) |dir_entry| {
         if (dir_entry.kind != .directory) continue;
-        try runCorpus(io, gpa, &root, dir_entry.name, stdout, &passed, &failed, &skipped, &skipped_adr);
+        try runCorpus(io, gpa, &root, dir_entry.name, stdout, &lines, &passed, &failed, &skipped, &skipped_adr);
     }
 
     try stdout.print("\nspec_assert_runner: {d} passed, {d} failed, {d} skipped (= {d} skip-impl + {d} skip-adr)\n", .{ passed, failed, skipped + skipped_adr, skipped, skipped_adr });
+    // ADR-0210 — the denominator next to the verdict columns, so "N passed"
+    // can be checked against the work enumerated rather than taken on trust.
+    const accounted = passed + failed + skipped + skipped_adr;
+    // `overcounted > 0` means a line was tallied twice; a bare residual
+    // saturates at zero and would report that as a perfectly accounted
+    // corpus (ADR-0210).
+    try stdout.print("spec_assert_runner: lines={d} accounted={d} residual={d} overcounted={d} (residual = non-assertion directives + any line that reached no column; overcounted = a verdict exists for lines that were never read (unreadable manifest) or a line was tallied twice)\n", .{ lines, accounted, if (lines > accounted) lines - accounted else 0, if (accounted > lines) accounted - lines else 0 });
     try stdout.flush();
     if (failed != 0) std.process.exit(1);
 }
@@ -83,6 +92,7 @@ fn runCorpus(
     root: *std.Io.Dir,
     name: []const u8,
     stdout: *std.Io.Writer,
+    lines: *u32,
     passed: *u32,
     failed: *u32,
     skipped: *u32,
@@ -105,6 +115,7 @@ fn runCorpus(
     while (line_it.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \r\t");
         if (line.len == 0) continue;
+        lines.* += 1;
 
         // Per ADR-0029 (Path B vocabulary, prep-mode chunk 9.9-h-21):
         // manifest skip directives carry one of three forms:

@@ -75,10 +75,15 @@ text or code identifiers.
   proceed without stopping (no user-flip). Default posture =
   autonomous-with-ADR; surface only for bucket-2/3 genuine blocks.
 - **CI gate is authoritative (post-v2.0.0 maintenance; ADR-0076 D9)**: `main`
-  is PR-only, and CI's `ci-required` runs `scripts/ci_gate.sh` (zig fmt +
-  `test-all` + extended: lint / build-option DCE / ReleaseSafe JIT smoke / AOT
-  cross-compile / **`zone_check`**) on **all 3 OSes** (aarch64-macos +
-  x86_64-linux + x86_64-windows) for **every** PR. That IS the merge gate.
+  is PR-only, and CI's `ci-required` runs `scripts/ci_gate.sh` on **all 3 OSes**
+  (aarch64-macos + x86_64-linux + x86_64-windows) for **every** PR. That IS the
+  merge gate. A PR run gets the **core** gate — zig fmt + `test-all` +
+  `bench-latency-build` (compile-only, ADR-0209) + `run-rust-host` + the
+  test-discovery guard. The **extended** checks (lint /
+  build-option DCE / ReleaseSafe JIT smoke / AOT cross-compile / `zone_check` /
+  `spill_aware`) are gated on `ZWASM_CI_EXTENDED`, which `ci.yml` sets only on
+  the **push to `main`** — they are up to ~20 cold-cache ReleaseSafe builds and
+  would dominate every PR's wall-clock (rationale in `ci.yml`).
   Doc-only PRs auto-skip the heavy legs (still green via `ci-required`). The
   local `scripts/gate_merge.sh` (3-host SSH fan-out) + `scripts/gate_commit.sh`
   (pre-commit) are now **optional pre-PR pre-flight** mirroring CI — no longer

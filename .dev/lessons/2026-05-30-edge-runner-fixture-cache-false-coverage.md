@@ -1,31 +1,32 @@
-# Edge-runner fixtures were cached → false coverage (cyc216)
+# Run-step fixture caching → false coverage (cyc216; diagnosis corrected 2026-08-15)
 
 **Date**: 2026-05-30 · **Citing**: `0b8d2a0b` · Phase 10 (10.P I3 cross fixtures)
 
-The `test/edge_cases` + `test/realworld` fixture runners are wired in
-`build.zig` as `addRunArtifact(edge_runner_exe)` with the corpus dir passed
-via `addArg(b.pathFromRoot("…"))` — a plain STRING, NOT a tracked build
-input. So zig caches the run-artifact step keyed on the exe hash + args:
-**a fixture-only change (new `.wasm`/`.expect`, no src/exe delta) does not
-invalidate the run step → it is skipped → the new fixtures never execute.**
-The gate serves a stale "N passed" and the fixture is *false coverage* —
-it passes when run directly but is silently never re-checked. This bit
-cyc215's two cross fixtures (added test-only; the exe was unchanged from
-cyc214's D-209 build, so the run step was cached on Mac AND ubuntu).
+The false coverage cyc215 hit was real, but **the mechanism recorded here was
+wrong and the fix it prescribed a no-op**. Original claim kept struck:
 
-**Fix**: `run_edge_*.has_side_effects = true` on each fixture-runner step
-(forces re-run every invocation; the runner is fast, ~seconds for the whole
-corpus). Alternative: `addDirectoryArg(b.path(dir))` to track the dir as an
-input (re-runs only on change) — not chosen here (recursive-hash semantics
-less certain than "always run"; tests should always run anyway).
+~~Passing the corpus dir as `addArg(b.pathFromRoot("…"))` — a plain STRING,
+not a tracked input — is enough to make zig cache the run step, so a
+fixture-only change is skipped. Fix: `has_side_effects = true`.~~
 
-**Incompleteness caught cyc223**: the cyc216 fix only patched the `run_edge_*`
-steps. The `test/realworld/wasm/` runners — `run_realworld`, `run_realworld_run`,
-`run_realworld_run_jit`, `run_realworld_diff` (all in `test-all`) — have the
-SAME `addArg(dir-string)` shape and were missed, leaving the 55-fixture realworld
-corpus exposed to fixture-only false coverage. Fixed cyc223 (same
-`has_side_effects = true`). Lesson: when fixing a class bug, grep ALL
-`addRunArtifact` + `addArg(b.pathFromRoot(` sites, not just the one in front of you.
+An untracked arg is **necessary but not sufficient**. False coverage needs
+BOTH (1) an untracked input and (2) something making `Run.hasSideEffects()`
+false — an output arg, or an `addCheck` caller (`expectExitCode`,
+`expectStdOutEqual`) flipping `stdio` to `.check`. Without (2) the default
+`.infer_from_args` is already side-effecting. D-592 has the line references.
+
+`run_edge_*` and `run_realworld*` met (1) but not (2), so cyc216's and cyc223's
+`has_side_effects = true` changed nothing — as do the other 19 such sites.
+`main@057a3f7ea` ran **the same zig 0.16.0** with one `expectExitCode` in the
+whole file, none on those steps: zig did not change, the diagnosis was wrong
+when written. cyc215's real cause is unidentified — the stale-exe gotcha below
+is the likeliest candidate and was seen the same session.
+
+**Where both conditions did hold**: `run_oob_trap`, ADR-0202 D4/D5's only
+behavioural test, in `test-all`. Swapping its 47-byte trapping module for an
+8-byte empty one left it `cached` and green. Fixed there (D-592).
+**Check, don't guess**: `zig build <step> --summary all` prints `cached` per
+step; confirm a fix by breaking the fixture and watching the step fail.
 
 ## Debugging gotchas (each cost real time this session)
 
@@ -34,17 +35,15 @@ corpus exposed to fixture-only false coverage. Fixed cyc223 (same
   feature → spurious `UnsupportedOp` on call_ref/return_call. Pick the
   CURRENT exe: the one that passes a known-good recent fixture.
 - **Parallel run steps interleave stdout** → the per-runner `N passed`
-  summaries are easy to MISATTRIBUTE. Counts: p7≈68, p9≈40, p10=8 (4 cross +
-  4), realworld=2. Count `.wasm`-with-`.expect` on disk to know the expected
-  number before trusting a summary line.
+  summaries are easy to MISATTRIBUTE. Count `.wasm`-with-`.expect` on disk
+  instead. (The per-corpus counts once recorded here had all rotted by
+  2026-08-15; don't re-add them.)
 - **NEVER `rm -rf .zig-cache/o`** — it deletes zig's own build-runner exe →
   `failed to spawn build runner … FileNotFound`, and zig won't regenerate it
-  from the stale manifest. Recovery: `rm -rf .zig-cache` (the WHOLE dir) +
-  clean `zig build`.
-- **Verify a new fixture via a direct current-exe run**, not just the
-  zig-build summary count.
+  from the stale manifest. Recovery: whole-dir `rm -rf .zig-cache` + rebuild.
+- **Verify a new fixture via a direct current-exe run**, not the summary count.
 
 ## Related
 
-- `.claude/rules/test_discipline.md` (fixtures-as-coverage). `build.zig`
-  run_edge_* steps. cyc215 cross fixtures (`test/edge_cases/p10/cross/`).
+- `.claude/rules/test_discipline.md`; `build.zig` `run_oob_trap`; cyc215 cross
+  fixtures (`test/edge_cases/p10/cross/`); D-592 (retraction + the 19 no-ops).

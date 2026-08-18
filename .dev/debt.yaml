@@ -40,8 +40,11 @@ entries:
       (ADR-0174 no-silent-skip; the same guard `test-corpus-presence` gives
       the spec runners).
       ---
-      DISCHARGE: corpus vendored, runner wired into `test-all`, the job
-      printing real per-suite counts on all three OSes. One cycle.
+        DISCHARGE: corpus vendored, `zig build test-wasi-p1-official` runs it,
+        and the advisory CI step prints real per-suite counts on all three OSes.
+        NOT `test-all` wiring — this row says the step stays out of `test-all`
+        until D-583 closes, and that wiring is item (1) of D-583's own
+        discharge. One cycle.
     first_raised: "2026-08-14"
     last_reviewed: "2026-08-14"
     refs: |-
@@ -62,9 +65,14 @@ entries:
       ---
       Measured 2026-08-14 at `2e40d4314` (x86_64-linux) with the official
       `WebAssembly/wasi-testsuite` python runner and a zwasm adapter:
-      `--engine interp` **58/72**, `--engine jit` **55/72**. A wasmtime 47.0.3
+      `--engine interp` **58/72**, `--engine jit` **54/72**. A wasmtime 47.0.3
       control run through the identical harness in the same session scored
       **72/72**, so these are zwasm gaps, not adapter artifacts.
+        Both figures include the `dangling_symlink` correction: the raw runner
+        output reads 59 and 55 because that test leaves
+        `dangling_symlink_symlink.cleanup` behind, and every later run against
+        the same preopen tree passes on the leftover. With a fresh preopen per
+        test it fails 20 of 20, on both engines. 72 - 14 = 58, 72 - 14 - 4 = 54.
       ---
       **14 engine-independent** (this row's work): `dangling_symlink`,
       `dir_fd_op_failures`, `directory_seek`, `fd_fdstat_set_rights`,
@@ -78,7 +86,8 @@ entries:
       ---
       **4 further failures are JIT-only**, tracked here as a distinct class:
       `args_get-multiple-arguments`, `environ_get-multiple-variables`,
-      `random_get-zero-length`, `fd_write-to-stdout` (assemblyscript) pass on
+      `random_get-zero-length`, `fd_write-to-stdout` — all four in the
+        AssemblyScript suite — pass on
       the interpreter and fail under `--engine jit`. That is a JIT-path
       defect, not a WASI one.
       ---
@@ -88,9 +97,13 @@ entries:
       first pass of the 2026-08-14 measurement recorded it as flaky for
       exactly this reason.
       ---
-      DISCHARGE: all 14 green on the vendored corpus on all three OSes. Four
-      edits land together — anything left behind is a doc that outlives its
-      subject, which is how §11.2 came to describe neither reality nor intent:
+        DISCHARGE: all 14 green AND the 4 JIT-only failures green, on all
+        three OSes. Both classes, because item (1) wires BOTH lanes into
+        `test-all` and `test-all` is the blocking gate: fixing only the 14
+        would leave the JIT lane red and stop every PR.
+        Four edits land together — anything left behind is a doc that outlives
+        its subject, which is how §11.2 came to describe neither reality nor
+        intent:
       (1) `build.zig` — `test_all_step.dependOn` both lanes (`ci_gate.sh` needs
           no edit; it already runs `zig build test-all`);
       (2) `.github/workflows/ci.yml` — delete the advisory step in `gate`;
@@ -108,6 +121,238 @@ entries:
       src/wasi/** (preview1 syscall implementations); test/wasi/wasip1_official/**;
       ROADMAP §11.1 (syscall surface 46/46); ADR-0161 (preview1 completion
       program); ADR-0174 (no-silent-skip); D-582 (the gate that measures this)
+  - id: "D-592"
+    layer: "test"
+    status: "note"
+    description: |-
+      **The spec-lane claim this row was opened with is RETRACTED. One real
+      instance was found while retracting it, and is fixed here.**
+      Retracted claim: "no spec lane sets `has_side_effects`, so a corpus-only
+      change gets a cached run and no fresh verdict." The premise about
+      `has_side_effects` does not hold. Caching is gated on
+      `Run.hasSideEffects()`, which for the default `stdio = .infer_from_args`
+      returns `!hasAnyOutputArgs()` - true, i.e. ALWAYS RE-RUN - unless the
+      step captures stdout/stderr or produces an output file
+      (`std/Build/Step/Run.zig` 221 / 707-715 / 926). Every one of the 53
+      `addRunArtifact` steps in build.zig is in that shape: 0 `captureStdOut`,
+      0 `captureStdErr`, 0 `addOutputDirectoryArg` (the 2 `addOutputFileArg`
+      are on `addSystemCommand` generators). So the spec lanes always re-ran,
+      and the 19 pre-existing `has_side_effects = true` lines are no-ops.
+      Confirmed by behaviour, not only by reading: `zig build test-spec` twice
+      unchanged ran both times, and adding one corpus file (no exe delta)
+      printed `PASS zz_probe.wasm` and moved the count 3 -> 4.
+      The supporting observation was a misattribution, as the implementing
+      session suspected: "the smoke run step repeatedly did not re-execute"
+      was ADR-0210's own stdout bug (`.positional` mode resetting to offset 0
+      per process, so the second runner overwrote the first's output). Same
+      symptom, different cause.
+      What DOES make a step cacheable is a second condition nobody checked:
+      any `addCheck` caller - `expectExitCode`, `expectStdOutEqual` - flips
+      `stdio` to `.check`, for which `hasSideEffects()` returns FALSE. 10
+      steps call `expectExitCode`. Nine are safe because their inputs are
+      tracked or literal. **`run_oob_trap` is not**: it passes
+      `test/edge_cases/p7/memory_bounds/past_limit_load_i32.wasm` as a plain
+      `addArg` string AND calls `expectExitCode(1)`, and it is in `test-all`.
+      Its own comment calls it "the only behavioural test of the FULL
+      production elision path" (ADR-0202 D4/D5 / D-507). Proven false
+      coverage: swapping the 47-byte trapping module for an 8-byte empty one
+      left the step `cached` and green. Fixed here with
+      `has_side_effects = true` (verified: the same swap now fails the build
+      with `exited with code 0 (expected exited with code 1)`).
+      NOT a CI hole either way - CI checks out fresh, so the cache is cold.
+      The exposure was local gates (`test-all`, gate_commit, gate_merge).
+      The 19 no-op `has_side_effects = true` lines are KEPT, now labelled
+      redundant-but-intentional in their comments (run_edge_*, run_realworld,
+      run_fuzz, run_latency). Deleting them is safe today but would remove the
+      stated intent, and `run_latency` shows why that intent matters: add one
+      output arg to a step and it silently becomes cacheable. The four comment
+      blocks that asserted the wrong mechanism - written when cyc216 landed -
+      are corrected in the same commit; leaving them would have contradicted
+      the lesson this row also corrects.
+      Status stays `note` and this row is deliberately NOT discharged: those
+      four comments and the corrected lesson all cite D-592 for the mechanism,
+      so delete-on-discharge would leave the citations dangling while the ID
+      stays unreusable. Nothing here is actionable, which is what `note` says.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      build.zig (run_oob_trap - the fix; the 19 no-op has_side_effects sites);
+      std/Build/Step/Run.zig:221,707-715,926,1555 (zig 0.16.0, the mechanism -
+      1555 is the `.infer_from_args` stdio arm that decides inherit vs ignore);
+      scripts/record_latency_bench.sh (its comment named the same wrong
+      mechanism; the stdout-inheritance coupling it relies on is real, but it
+      follows from having no output arg, not from the flag);
+      .dev/lessons/2026-05-30-edge-runner-fixture-cache-false-coverage.md
+      (corrected in the same commit - its diagnosis was wrong when written);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
+  - id: "D-590"
+    layer: "code"
+    status: "note"
+    description: |-
+      **The wasm-3.0 JIT lane's single `assert_return` fail is a real defect in
+      the multi-value entry path, not an accounting artifact.** ADR-0210 closed
+      the runner's accounting; the remaining `fail=1` survives that. What to do
+      about it is open (see PROVISIONAL below). Located 2026-08-15: `gc/type-subtyping`, module
+      `type-subtyping.24.wasm`, `assert_return run () -> i32:1 i32:1`, reported
+      as `err=Trap`. Driving the same module and export through the CLI:
+        --engine interp  -> 1 1        (correct)
+        --engine jit     -> 1 1        (correct)
+        spec runner JIT lane -> error.Trap
+      So the JIT compiles and executes it correctly; only the persistent-
+      instance multi-value route (`invokeMulti`, the ADR-0106 `entry_buf` path,
+      `src/engine/runner.zig:1498`) traps. Root cause NOT isolated - it is
+      either that entry path or the runner's use of it. Sibling shapes behave
+      as expected: `type-subtyping.25/.26` (4 and 8 results) reject with
+      `UnsupportedEntrySignature` and are classified as skips, and interp
+      returns all 4 / all 8 correctly.
+      PROVISIONAL - the disposition is NOT settled, and this row does not
+      settle it. The candidate is "leave it unfixed and gate the wasm-3.0 JIT
+      lane WITH one accepted fail", but that is one option, not a decision.
+      It conflicts with ADR-0153, which holds that a measured violation of a
+      完成形 dimension "schedules a rework" (:22) and "defaults to 'schedule a
+      rework campaign,' not 'defer past ...'" (:38-39) - and 100% spec is one
+      of those dimensions. `status: note` (record only, do not chase) is in
+      the same tension and is itself provisional; `now` would pre-empt the
+      question in the other direction, so neither is asserted here.
+      Both the disposition and the status are decided when the JIT
+      lane's CI gating is designed, with maintainer confirmation. Whoever
+      designs it must also resolve a PRE-EXISTING asymmetry in what the jit
+      lane already gates (not introduced by ADR-0210, verified against
+      8f24e0aee): `gated_ret_fail` zeroes `ret.fail` in jit mode so the lane
+      stays report-only, but `grand.trap.fail` is summed unconditionally and
+      the `assert_trap` arm evaluates `cur_jit` in jit mode. So a JIT-only
+      TRAP regression already exits non-zero today while a JIT-only RETURN
+      regression does not. "The JIT lane is report-only" is true of the
+      return category only. Whoever
+      designs it: the choice reaches README line 48, which claims "100% |
+      spec testsuite green on the 3-OS CI matrix" WITHOUT naming an engine.
+      CI sets ZWASM_SPEC_ENGINE nowhere (0 sites in ci_gate.sh / ci.yml), so
+      today only the default engine is gated and it is fail=0 - the sentence
+      holds. Gating the JIT lane with an accepted fail puts a knowingly-red
+      lane inside that same CI matrix, so it requires a paired README change;
+      leaving the lane ungated does not.
+      Discharge condition: the multi-value entry path is reworked for another
+      reason, or a second fixture reaches the same trap.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      src/engine/runner.zig (invokeMulti, ~line 1498);
+      src/engine/codegen/shared/entry_buffer_write.zig (invokeMultiResultNoArgs);
+      test/spec/wasm-3.0-assert/gc/type-subtyping/manifest.txt (the `run () -> i32:1 i32:1` line);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md; ADR-0106; ADR-0128;
+      ADR-0153 (the measured-deficiency-schedules-a-rework rule this is provisional against)
+  - id: "D-591"
+    layer: "test"
+    status: "note"
+    description: |-
+      **The five non-wasm-3.0 spec lanes print an enumeration denominator but
+      do not gate on an identity.** ADR-0210 closed the wasm-3.0 runner:
+      `lines == module + register + invoke + skip + unknown + unparsed +
+      per-category totals`, each category `total == pass + fail + skip`,
+      checked in-process and non-zero on mismatch. The lanes on
+      `spec_assert_runner_base.zig` (wasm-2.0-assert, threads-assert, simd)
+      plus `spec_assert_runner.zig` and `wast_runner.zig` only print
+      `lines / accounted / residual / overcounted`; a human still has to
+      reconcile `residual` against the corpus by hand. Measured 2026-08-15,
+      every residual reconciles today:
+        test-spec-assert            243 /   232 /   11 = 11 module
+        test-spec-simd            26067 / 25587 /  480 = 482 module - 2 runtime-skips
+        test-spec-wasm-2.0-assert 27210 / 26074 / 1136 = 1115 module + 21 register
+        test-spec-threads-assert    297 /   294 /    3 = 3 module
+        test-spec-wasm-2.0         1158 /  1158 /    0
+      so nothing is hidden right now - but the check is a human's, not the
+      runner's, which is the property ADR-0210 exists to remove.
+      SEVERITY, stated plainly because the deferral could be misread as one:
+      this was deferred on COST and RISK, not because the severity is low.
+      Re-modelling the categories inside a 4196-line shared base that three
+      currently-green lanes sit on is a change comparable in size to the one
+      ADR-0210's PR already makes, and it would put those three at risk. The
+      severity itself is NOT low - these lanes are FAIL-OPEN by construction:
+      with no identity, a silent-drop path of the same shape as the 73
+      unattributed `assert_return` directives ADR-0210 found in the wasm-3.0
+      runner could exist here and nothing would detect it.
+      And the reconciliation above is EVIDENCE OF CONSISTENCY, not proof of
+      absence. It shows the printed residuals match a hand count of the
+      non-assertion directives; it does not show that no directive is being
+      dropped. The one mitigation that IS proven (all five turn red on an
+      unreadable manifest, below) catches a WHOLESALE loss - a sub-corpus that
+      never opens. It does nothing for a partial silent drop inside a manifest
+      that reads fine, which is exactly what the wasm-3.0 defect was.
+      NOT a gap in these lanes: the unreadable-sub-corpus hazard that ADR-0210
+      had to gate outside the identity for wasm-3.0. Checked 2026-08-15 rather
+      than assumed - all five already turn RED on it, via `failed` rather than
+      a dedicated counter: `spec_assert_runner_base.runCorpus` propagates the
+      sub-dir open (`try root.openDir`) and does `tally.failed += 1` on a
+      manifest-read failure; `spec_assert_runner` propagates both;
+      `wast_runner` does `failed.* += 1` on each. Every lane gates on
+      `failed > 0`. The wasm-3.0 runner needed a separate `manifest_errors`
+      counter only because its equivalents were `catch continue`.
+    first_raised: "2026-08-15"
+    last_reviewed: "2026-08-15"
+    refs: |-
+      test/spec/spec_assert_runner_base.zig (AssertTally.accounted/residual/overcounted);
+      test/spec/spec_assert_runner.zig; test/spec/wast_runner.zig;
+      test/spec/spec_assert_runner_wasm_3_0.zig (the closed reference implementation);
+      .dev/decisions/0210_spec_runner_enumeration_accounting.md
+  - id: "D-584"
+    layer: "perf"
+    status: "now"
+    description: |-
+      The JIT entry helpers recompute `computeStackLimit` on EVERY invocation
+      (entry.zig 232/255, entry_buffer_write.zig 86). On Linux/glibc initial
+      threads glibc's `pthread_getattr_np` answers by opening and parsing
+        /proc/self/maps: 24.6-26.9 us per call across rounds on one host, the
+        committed baseline reading 26.8 (strace: openat + read x3 + close +
+        fstat + prlimit64 + sched_getaffinity, per invoke).
+      Worker threads answer from the thread descriptor (561-578 ns);
+      aarch64-macos is a user-space struct read (3.1-7.2 ns). The interpreter
+      CACHES the same value (runtime.zig:593), so the cost lands on one side of
+      any engine comparison only. AOT pays it identically: the .cwasm load path
+      reaches the same entry helpers. Consequence on x86_64-linux, the JIT needs
+      ~6,500 wasm instructions per call before it beats the interpreter, and
+      `.auto` (which prefers JIT unconditionally) picks the slower engine for
+      small frequent calls. Deliberate decision (a31e00558) whose commit message
+      estimated the cost at "~us", off by more than an order of magnitude.
+      per-call is CORRECT for thread validity (the value must describe the
+      calling thread, and an embedder may call from different threads over an
+      instance's life), so an instance-scoped cache would be WRONG; a
+      thread-local cache satisfies both.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/engine/codegen/shared/entry.zig (232, 255);
+      src/engine/codegen/shared/entry_buffer_write.zig (86);
+      src/runtime/runtime.zig (593, the cached interp side);
+      src/platform/stack_limit.zig; ADR-0105 D1 (specifies instantiation time,
+      not call time); commit a31e00558; ADR-0209
+  - id: "D-585"
+    layer: "perf"
+    status: "now"
+    description: |-
+      The public embedding API resolves the export by NAME on every call:
+      `JitInstance.invoke` calls `findExportFunc`, which runs `parser.parse()`
+      over the WHOLE module. Measured on aarch64-macos (where D-584's constant
+      is absent, so this is visible): the public API costs 161 ns against
+      10.5 ns for `invokeIdx` underneath it, about 15x, and LOSES to `.interp`
+      at 0 and 1 loop trips on a 107-byte guest. The cost is LINEAR in module
+      size: 687-859 ns per KiB above a few KiB. Measured, not extrapolated:
+      a 101 KiB module costs 76.0-78.0 us per call and a 1.1 MiB module
+      779-781 us. This is the
+      more serious of the two per-call costs for embedding use, because module
+      size is what an embedding host varies, whereas D-584 is a fixed ~25 us.
+      The fix shape already exists: `invokeIdx(func_idx, args)` is public and
+      takes the index directly, so resolving once into the typed-func handle
+      would do it. Note `Instance.jitHandle` is private, so an embedder cannot
+      reach `invokeIdx` today. NOT YET TRACED: `Instance.invokeJit` also calls
+      `exportFuncSig`, which parses a second time, yet the measured overhead
+      matches roughly ONE findExportFunc, so either the second parse is much
+      cheaper or the facade path does not reach it.
+    first_raised: "2026-08-14"
+    last_reviewed: "2026-08-14"
+    refs: |-
+      src/engine/runner.zig (invoke / findExportFunc / invokeIdx);
+      src/zwasm/instance.zig (jitHandle, private);
+      bench/latency/percall_runner.zig; ADR-0209
   - id: "D-580"
     layer: "code"
     status: "note"
@@ -1801,59 +2046,73 @@ entries:
     front: B-hardening
   - id: "D-283"
     layer: "test"
-    status: "note"
+    status: "now"
     description: |-
-      note (D-244 JIT-WASI retrospective follow-up): **PHASE-B ANCHOR of the 2026-06-14 real-world reproduction
-      agenda — see `.dev/realworld_reproduction_plan.md`.** Live signal (cljw-excluded, `ZWASM_JIT_RUN=1` on the
-      50-fixture corpus 2026-06-14): interp 55/55 but JIT 35 pass / **6 RUN-TRAP** (tinygo_{fib,hello,json,sort},
-      rust_file_io, c_sha256_hash — interp-passes ⇒ JIT miscompile/WASI-gap) / **9 COMPILE-OP** (all go_* —
-      UnsupportedOp ⇒ unimplemented JIT op). Triage+fix per the plan.
+      note: the realworld AOT differential lane (`test-realworld-diff-aot`, `diff_runner.zig --aot`) runs
+      IN-PROCESS with a <64KB fixture cap, so it cannot per-fixture-timeout a slow JIT-compile and the large
+      libc / Go / Rust guests are SKIP-AOT-LARGE. A **subprocess-based** lane (`zwasm run <.cwasm>` per
+      fixture, the way the wasmtime oracle is spawned) would cover them and isolate native execution.
+      REPORT-ONLY by design; nothing gates on it. Result on what it does cover: AOT byte-matches wasmtime on
+      7/7 runnable fixtures, 0 MISMATCH-AOT (2026-06-05, `a81a388e`+`d7e3f131`).
       ---
-      **TRIAGE FINDING 2026-06-14 — the "RUN-TRAP" premise was WRONG.** The 12 RUN-TRAP (current 56-fixture corpus)
-      are NOT JIT miscompiles: `run_runner_jit.zig`'s run stage invokes `_start` via `engine.runner.runVoidExport`
-      → `runVoidExportWasi(.., wasi_host=NULL, ..)` — i.e. it runs the JIT-compiled program with **NO WASI host**, so
-      any fixture that reaches a WASI call (`fd_write`/`proc_exit`) mid-run traps. Proven: the WASI-aware CLI path
-      `zwasm run --engine jit <fixture>` runs BOTH `emcc_primes` and `tinygo_sort` (sampled from the trap set)
-      CORRECTLY (right stdout, exit 0), consistently. So the JIT compiles AND executes these fine; the harness just
-      lacks a WASI host. DISCHARGE (per this row's own text): add a **`--jit` lane to `diff_runner.zig`** (mirror the
-      landed `--aot`/`--wasmer` lanes) that runs each fixture via the WASI-aware JIT path + byte-diffs stdout vs
-      wasmtime — the real JIT-correctness net. The 9 COMPILE-OP (go_* UnsupportedOp) remain genuine unimplemented-op
-      gaps (separate, real).
+      **JIT-lane reason DISCHARGED 2026-08-16.** History, since the row carried it for two months: the
+      original signal ("6 RUN-TRAP / 9 COMPILE-OP" under `ZWASM_JIT_RUN=1`) was a harness artifact —
+      `run_runner_jit`'s run stage invoked `_start` via `runVoidExport` with **no WASI host**, so every
+      fixture reaching `fd_write`/`proc_exit` trapped (lesson
+      `2026-06-14-jit-realworld-runtraps-are-null-wasi-harness-artifacts.md`). The `--jit` lane landed
+      `219dbd17` as the replacement and flipped REPORT-ONLY → GATING at `3b6f8d5b5` (56/56 matched, after the
+      2 real miscompiles D-330 and the 9 go_* proc_exit hangs D-468/ADR-0199 cleared). **But that flip only
+      changed the runner's exit code — the step was wired into nothing**, so the gate never ran: not
+      `test-all`, not `ci_gate.sh`, not any workflow. Measured on `origin/main` 2026-08-15: CI's realworld
+      JIT coverage was `test-realworld-run-jit` (56/56 **compile**-pass, execution disabled) plus 7
+      `.expect`-checked fixtures in `test/realworld/p10/` (8, not 7 — the earlier count was read off `ls`
+      rather than the runner's own `.wasm`-with-sibling-`.expect` condition). Closed by wiring
+      `test-realworld-diff-jit` into `test-all` + making the lane account for its own denominator (a skip
+      and an unreached fixture now fail it, not just a mismatch — ADR-0210's rule); the misleading run
+      stage was removed in the same change.
       ---
-      **LANE LANDED 2026-06-15 `219dbd17`** (`zig build test-realworld-diff-jit`; `runWasmJitCaptured`). REAL signal
-      replacing the false 12-trap framing: **`diff_runner [jit]: 45/56 matched vs wasmtime, 2 mismatched, 9 skipped`**.
-      So the true remaining JIT work is precise: (A) **2 genuine JIT miscompiles** — `c_sha256_hash` (wasmtime 107B /
-      jit 91B) + `emcc_fasta` (154B / 87B); interp byte-matches wasmtime, JIT emits SHORT/wrong output ⇒ a real
-      codegen bug (next: root-cause via debug_jit_auto — bundle B2). (B) **9 `go_*` UnsupportedOp** compile-gaps
-      (unimplemented JIT op at a specific func) — discharge predicate clear, file/fix per-op. Lane stays REPORT-ONLY
-      until (A)+(B) clear, then gates. **CLEARED 2026-06-20 → 56/56 matched, lane now GATING @3b6f8d5b5.** (A): both
-      c_sha256 (D-330 liveness) + emcc_fasta now byte-match. (B): the 9 go_* were NOT compile-gaps (they compile)
-      but exit-HANGS — JIT proc_exit didn't terminate (D-468/ADR-0199 post-call trap_flag check); all 9 now exit
-      rc=0 + match wasmtime. `diff_runner [jit]` fails on any byte mismatch. JIT-lane reason for `note` discharged;
-      only the AOT-subprocess-lane note (below) remains. — the realworld WASI corpus is NOT exercised
-      end-to-end under
-      `--engine jit`. `test/realworld/run_runner_jit.zig` compiles the fixtures via JIT (46/55 compile-pass) but its
-      RUN stage is OPT-IN (`ZWASM_JIT_RUN=1`, default-off) — so the new full-46 JIT WASI surface (D-244,
-      `wasi/jit_dispatch.zig` + `cli/run.zig runWasmJit`) is verified by per-syscall unit tests + a handful of
-      runWasmJit smoke tests, NOT by running real programs (c_hello_wasi / tinygo / rust) under the JIT and
-      byte-diffing stdout against wasmtime like the interp `diff_runner` does. DISCHARGE: run the corpus with
-      `ZWASM_JIT_RUN=1`, triage failures (some fixtures use ops the JIT can't yet compile — separate from WASI), and
-      either enable the JIT run stage by default for the runnable subset OR a JIT variant of `diff_runner` that
-      stdout-diffs `--engine jit` vs wasmtime. Confidence is currently good (3-host green + interp handlers reused)
-      but this is the missing differential net. Not blocking — D-244 is functionally complete + 3-host green.
+      **OPEN, found while closing the above (2026-08-16): the paired lane is NOT the interpreter, so
+      `test-all` has no forced-interp result-check over the realworld corpus.** `diff_runner.zig`'s
+      non-`--jit` lane calls `cli_run.runWasmCaptured` with default `Limits`, i.e. `engine = .auto`
+      (`src/cli/run.zig:52`), and `.auto` calls `instantiateJit` FIRST and reaches the interp only where
+      the JIT cannot instantiate (`src/api/instance.zig:945`). `run_realworld_run` (`cli_run.runWasm`) is
+      the same. Measured x86_64-linux 2026-08-16: `emcc_fannkuch` runs in 9.76s under `--engine interp`,
+      0.13s under `--engine jit`, 0.12s under the default; sweeping the corpus with a 3s cap, 7 of 56
+      fixtures complete under the default while the interp times out, so those 7 provably do not take the
+      interp (the other 49 finish under 3s either way and this method cannot separate them). CONSEQUENCE:
+      any claim of the form "realworld interp N/N" is unsupported by a gate — the engine is host- and
+      fixture-dependent because it is whatever `.auto` picked. DISCHARGE: either pin the lane's engine
+      (`Limits{ .engine = .interp }`, which costs the interp's wall-clock on every fixture — 9.76s for
+      `emcc_fannkuch` alone) or state the lane as `.auto` everywhere and stop calling it interp. Not
+      closed here: this PR only corrected the prose (README / handover / build.zig comment) so nothing
+      claims an interp result-check that does not exist.
       ---
-      AOT update (2026-06-05, `a81a388e`+`d7e3f131`): an opt-in **AOT** differential lane landed
-      (`test-realworld-diff-aot`; `diff_runner.zig --aot`, <64KB fixture cap). Result: **AOT byte-matches wasmtime
-      on 7/7 runnable fixtures, 0 MISMATCH-AOT** — the AOT-WASI differential net now EXISTS for the small corpus.
-      REMAINING (why this stays a note): (1) the in-process lane can't per-fixture-timeout slow JIT-compiles, so
-      large libc/Go/Rust guests are SKIP-AOT-LARGE — a **subprocess-based** lane (`zwasm run <.cwasm>` per fixture,
-      like wasmtime) would cover them + isolate native exec; (2) the symmetric JIT lane (above) is still opt-in.
+      **OPEN, scoped not closed (2026-08-16): a wasmtime-less host makes this lane contribute nothing,
+      silently.** `diff_runner` returns before the per-fixture loop when `resolveWasmtime` finds nothing,
+      so `test-all` stays green with the lane never run. The three gate arms cannot close that branch —
+      they are reachable only once wasmtime resolved; the branch they DO close is "resolved but every
+      spawn failed" (SKIP-WASMTIME-UNUSABLE).
+      SCOPE OF THE LOSS: the independent oracle alone. Measured with wasmtime off PATH, `run_aot_diff`
+      (63 fixtures; lane A is a fresh JIT compile + run) and `run_edge_realworld_p10` (8 vs `.expect`)
+      both still gate, so realworld JIT output stays result-checked — against zwasm itself and against
+      checked-in expectations. What only an independent oracle catches is a miscompile present on BOTH
+      sides of a self-differential: the D-330 class (c_sha256_hash / emcc_fasta).
+      DENOMINATOR for calling it rare: 6 CI host-legs over 2 gated runs, 0 actual occurrences. Measured
+      with the runner-only string "no nix-store wrapper found"; a first pass grepping "wasmtime absent"
+      was WRONG — that text is the `|| echo` in `ci.yml` echoed into the log, the D-590 shape.
+      REJECTED: making the CI install mandatory. It trades a rare, partial, logged loss for every PR
+      going red on one download flake, and `wasm-tools` (genuinely required) has the same exposure.
+      THIRD OPTION, unexplored and out of scope for the realworld-JIT work: `ci.yml` caches `zig-pkg` and
+      `~/.local/zig-0.16.0` (lines 148-160) but caches NEITHER wasmtime nor wasm-tools. Caching them
+      would cut the download-failure probability and change the mandatory-install trade-off.
+      ALSO UNVERIFIED: CI pins the oracle at wasmtime 45.0.0 (`.github/versions.lock`); the 56/56 JIT
+      figure was measured against 47.0.3, so the JIT lane's CI result is not predicted by it.
     first_raised: "2026-06-05"
-    last_reviewed: "2026-06-05"
+    last_reviewed: "2026-08-16"
     refs: |-
-      test/realworld/run_runner_jit.zig (run-stage disabled); test/realworld/diff_runner.zig (interp + opt-in
-      --aot lane); build.zig (test-realworld-diff-aot); src/wasi/jit_dispatch.zig; src/cli/run.zig (runWasmJit /
-      runCwasmWasi); D-244 (JIT-WASI) / D-251 (AOT-WASI), both done
+      test/realworld/diff_runner.zig (--aot lane + the gating --jit lane); build.zig
+      (test-realworld-diff-aot, test-realworld-diff-jit, test_all_step); src/cli/run.zig (runCwasmWasi);
+      D-251 (AOT-WASI, done); ADR-0210 (runners account for their own denominator)
     front: B-hardening
   - id: "D-295"
     layer: "cli"

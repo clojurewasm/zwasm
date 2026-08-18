@@ -5,22 +5,40 @@
 
 ## Current state — MAINTENANCE MODE (post-v2.0.0)
 
-**v2.5.0 READY TO TAG (sweep COMPLETE 2026-08-12)**: the user-directed
-pre-tag cleanliness sweep (S1-S6) is DONE — S1-S5 merged as #175, S6
-(docs final-form) is the PR in flight / just merged. main carries
-`build.zig.zon = 2.5.0` + the CHANGELOG section; remote tags end at
-v2.4.1. **The only remaining step is the USER pushing the tag**
-(`git tag v2.5.0 <sha> && git push origin v2.5.0` → release.yml
-publishes; ADR-0156 — never autonomous). Prior line v2.4.1; v1 frozen
-at `v1.11.1`. Dev model: `develop/<slug>` from `main` → PR → CI
-`ci-required` green → merge.
+**v2.5.0 TAGGED and published**; prior line v2.4.1; v1 frozen at
+`v1.11.1`. Dev model: `develop/<slug>` from `main` → PR → CI
+`ci-required` green → merge. Release stays user-only (ADR-0156) — an
+agent-autonomy guardrail, not a bar to release automation.
 
 **The repo moved to its own org 2026-08-12**: `clojurewasm/zwasm` →
 **`zwasm/zwasm`** (`.dev/org_transfer_plan.md` phases 1-3 done; stars /
-issues / releases / ruleset intact). Still open there: **phase 4** — the
-Homebrew tap split (`zwasm/homebrew-tap` does not exist yet, so README's
-install command deliberately still reads `clojurewasm/tap/zwasm`) and
-**phase 5** (cljw pin + wind-down). Both are user actions.
+issues / releases / ruleset intact). **Phase 4's repo side is done too** —
+`zwasm/homebrew-tap` carries `Formula/zwasm.rb`, the old tap keeps only
+`cljw.rb` plus `tap_migrations.json`, and README installs from
+`zwasm/tap/zwasm` (#181). Left to the user: phase 4 item 10 (verify from a
+clean `brew` state) and **phase 5** (cljw pin + wind-down).
+
+## In flight (2026-08-16)
+
+- **#186** (jit: trap on a null table funcptr instead of executing it) and
+  **#183** (ADR-0208 — gate WASI preview1 on the official testsuite): both
+  CI-green and mergeable, **awaiting maintainer review since 2026-08-14**.
+  Do not refresh them against `main` until the review lands.
+- **Landed 2026-08-16**: #190 (D-592 retracted — the build-cache mechanism it
+  claimed does not hold; the real defect was `run_oob_trap` never re-running),
+  #192 (the JIT realworld differential had no caller — now in `test-all` with
+  denominator accounting), #191 / #193 (records).
+- `develop/wasi-p1-official-impl` carries #183's implementation — 147 files
+  (vendored corpus + runner + advisory gate), pushed, **no PR**; it lands with
+  the ADR once the review answers.
+- **Next dispatchable — the wasmtime differential is double fail-open.**
+  `test/realworld/diff_runner.zig` has a `matched < 30` denominator gate that is
+  bypassed on any host without a working wasmtime: two early returns precede it
+  — the oracle missing (`SKIP-WASMTIME-MISSING`) and the oracle resolving but
+  every spawn failing (`SKIP-WASMTIME-UNUSABLE`). `.github/workflows/ci.yml`
+  installs wasmtime with `continue-on-error: true`, so absent OR broken, the
+  lane goes GREEN without running. Fixing it touches `ci.yml`, so it is not a
+  maintainer-free change.
 
 ## Closed campaigns (details in the cited ADR/CHANGELOG)
 
@@ -35,27 +53,14 @@ install command deliberately still reads `clojurewasm/tap/zwasm`) and
 - **reproducible-dev-env** (#166, ADR-0206): `docs/development.md` SSOT +
   `dev_hosts.env` config + dead-script sweep. Post-merge main CI green
   (incl. extended) for #165; #166's run superseded-cancelled by #167's.
+- **Pre-v2.5.0 cleanliness sweep S1-S6 — COMPLETE 2026-08-12** (#175 + #176;
+  ADR-0207): `file_size_check` 0 WARN repo-wide, -Dgc/run-repro retired
+  (D-525), CLI + build-option surfaces audited, four mechanized guards live
+  (growth ratchet · test-discovery · doc-fossil · blocked-by ladder),
+  README/docs final-form with zero personal-infra mentions.
 - Doc-truth gaps #153/#154 + #163 CLOSED (prose gates live in the always-on
   CI **`doc-truth` job**). Binary-size CLOSED (ADR-0204). AOT full-fidelity
   CLOSED (ADR-0203; residual D-515(2)+D-514).
-
-## Cleanliness sweep S1-S6 — COMPLETE (2026-08-12)
-
-All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
-- **S1** D-444 three-way split (ADR-0207) + full over-cap triage —
-  `file_size_check` 0 WARN repo-wide (was 30); canon/types P1 seams
-  scheduled post-tag (D-580/D-581).
-- **S2** -Dgc + run-repro retired (D-525; ADR-0115/0015 revision notes);
-  Windows sanitize rejects loudly; build-option table in development.md.
-- **S3** --engine auto spellable; usage errors exit 2 uniformly; env
-  surface audited (no hidden flags).
-- **S4** audit fixes: ROADMAP links, blocked-by re-walk (6 dissolved
-  barriers flipped w/ evidence), doc-states.
-- **S5** four guards live: growth ratchet, compiler-truth test-discovery
-  (28 dead tests revived), doc-fossil guard (doc-truth job), blocked-by
-  age ladder. 
-- **S6** README+docs final-form: 6 history docs archived w/ Doc-state,
-  public docs carry ZERO personal-infra/private/ mentions, links verified.
 
 ## Operational invariants (keep using)
 
@@ -80,14 +85,23 @@ All six axes closed (plan was #168; S1-S5 consolidated+merged as #175):
 
 ## State (release = USER-ONLY, ADR-0156)
 
-- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip. **WASI 0.1** syscall surface 46/46
-  (ADR-0161) but **behaviour 58/72 on the official suite** — first measured
-  2026-08-14, gated advisory since ADR-0208 (D-582/D-583; wasmtime scores
-  72/72 on the same harness). **0.2/CM** default-ON; **0.3 FULL on all 3 OSes**
-  (official 45/45, 0 skip). Sandbox triad cross-engine.
+- **Wasm 1.0/2.0/3.0**: 100% spec, 0 skip **on the engine CI runs**. The JIT
+  spec lane is opt-in (`ZWASM_SPEC_ENGINE=jit`) and is NOT in CI, so that row
+  is not currently re-derivable for both engines.
+- **WASI 0.1**: syscall SURFACE complete (46/46, ADR-0161). Behaviour against
+  the official wasi-testsuite was measured 2026-08-14 at **58/72 interp,
+  54/72 jit** (x86_64-linux; wasmtime 47.0.3 scores 72/72 through the same
+  harness) — nothing gated that until now. ADR-0208 (#183) proposes the gate
+  (D-582 infra, D-583 the 14 behaviour gaps). **0.2/CM** default-ON; **0.3
+  FULL on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
-  into cljw. Realworld 56 interp 56/0; JIT diff-gated. Debt: **2 `now`-class**
-  (D-582 infra, D-583 the 14 preview1 behaviour gaps).
+  into cljw. Realworld 56/0 vs wasmtime under `--engine jit`, gating in
+  `test-all` since 2026-08-16 (`test-realworld-diff-jit`) **on hosts where
+  wasmtime resolves** — elsewhere the lane skips and only the self-differential
+  gates (D-283); before that it was fatal in the runner but wired into nothing.
+  **The paired lane is NOT interp**: default `Limits` = `.auto` prefers the JIT
+  — measured, 7 of 56 fixtures provably do not take the interp, so `test-all`
+  has no forced-interp result-check over the realworld corpus.
 
 ## Key refs
 

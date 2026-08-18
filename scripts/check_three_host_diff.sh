@@ -11,12 +11,16 @@
 # This implements the cross-host engine-differential check
 # called for by ROADMAP §9.7 / 7.11 ("interp == jit_arm64 ==
 # jit_x86: 0 mismatch over the spec testsuite + 40+ realworld
-# samples on each host"). Per-host interp-vs-JIT execution
-# differential is the natural Phase 8 follow-up — once WASI
-# host wiring lifts the JIT realworld run-stage from 0/55
-# RUN-PASS, a fixture-level comparator becomes meaningful.
-# Until then, cross-host total equivalence on the runners that
-# DO complete is the strongest available evidence.
+# samples on each host").
+#
+# STALE (2026-08-16): the per-host interp-vs-JIT execution
+# differential this script called a "Phase 8 follow-up" now
+# exists and gates in `test-all` — `test-realworld-diff-jit`
+# byte-compares every fixture under `--engine jit` against
+# wasmtime. The anchors below still name the pre-2026-06 run-jit
+# run stage, which was removed, and hardcode pass counts that
+# drifted (the corpus is 56, not 55). This script has no caller;
+# its staleness is tracked in `.dev/debt.yaml` (D-526 item 5).
 #
 # Usage:
 #   scripts/check_three_host_diff.sh
