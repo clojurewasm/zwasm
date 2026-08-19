@@ -215,9 +215,10 @@ These do not change between phases. Changing one requires an ADR.
 - E2E test harness for realworld wasm samples.
 - Fuzz infrastructure: corpus + edge-case generator + differential
   fuzz + overnight campaign.
-- Bench harness with append-only `bench/history.yaml`, multi-arch
-  per-merge recording (Mac directly, Linux via `ubuntunote` SSH,
-  Windows via `windowsmini` SSH per ADR-0049 + ADR-0067).
+- Bench harness with append-only `bench/history.yaml` — deliberate
+  multi-arch recordings (Mac + Linux; Windows timing deferred per
+  ADR-0137/D-249) plus the nightly `bench-watch.yml` gross-regression
+  watch (ADR-0211 D2; the per-merge convention is retired).
 
 ### 3.2 Out of scope permanently
 
@@ -2019,8 +2020,9 @@ single host that runs both JITs.
 - Overnight campaign: automation retired with nightly.yml (ADR-0211
   D1); run on demand, revival hints in D-593. Duration still
   unmeasured.
-- Crash files saved to `test/fuzz/corpus/crash_*` and uploaded to
-  GitHub Release on failure (Phase 14+).
+- Crash files saved to `test/fuzz/corpus/crash_*`. (The "uploaded to
+  GitHub Release on failure" leg was aspirational — no workflow ever
+  carried it; a rebuilt campaign runner owns that decision, D-593.)
 
 ### 11.5 Three-OS gate
 
@@ -2048,7 +2050,9 @@ behaviour toward the number, not the underlying goal.
 
 Instead:
 
-- `bench/history.yaml` records every merge's numbers across 3 OS.
+- `bench/history.yaml` records deliberate measurements (§12.4 cadence;
+  the per-merge convention is retired, ADR-0211 D2), and
+  `bench-watch.yml` watches for gross regressions nightly.
 - A regression in any bench triggers investigation, not an automatic
   block.
 - Comparison against reference runtimes (wasm3, wasmtime baseline,

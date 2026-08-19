@@ -29,7 +29,8 @@ none of the three was deliberate in its current form:
    `.github/versions.lock` (bit once already, `4bdf0dd2b`).
 2. The per-merge bench-record convention (`bench/README.md`, ROADMAP §14.2)
    assumed merges were local events. It has been dead in practice since
-   2026-07-09: 35 merges since 2026-08-01, 14 of them `src/`-touching, zero
+   2026-07-09 (the last `history.yaml` row): every merge since 2026-08-01,
+   the `src/`-touching ones included, produced zero
    `bench/results/history.yaml` entries.
 3. `ci.yml`'s `x86_64-windows` leg is `advisory: true` (2026-07-01,
    `1e21caa0c`), citing D-245 hosted-runner flakiness. D-245 was a zwasm bug
@@ -37,7 +38,8 @@ none of the three was deliberate in its current form:
    records the NATIVE host flaking from it — it was never a hosted-runner
    property), fixed 2026-06-04 (`510ffce9`), re-audited RESOLVED 2026-06-13
    (`c39e914f4`), and deleted from the ledger 2026-06-14. The flag postdates
-   the fix by 17 days and cites a row that no longer existed. Empirically the
+   the fix by 27 days — and the ledger deletion by 17 — citing a row that no
+   longer existed. Empirically the
    leg is stable: the 26 most recent gate-matrix runs (2026-08-15..18) were
    26/26 green on windows.
 
@@ -95,9 +97,9 @@ the two timing hosts per ADR-0137) runs `scripts/bench_watch.sh`:
   local-host-only — under its arch-only labels, hosted-runner rows would be
   indistinguishable from the maintainer-host rows.
 - **It gates nothing.** Not wired to PRs; `ci-required` untouched; ROADMAP
-  §12.1 ("a regression triggers investigation, not an automatic block") holds
-  verbatim. The exit-1 is a notification channel, not a merge gate — no PR is
-  associated with a scheduled run.
+  §12.1 ("A regression in any bench triggers investigation, not an automatic
+  block") holds verbatim. The exit-1 is a notification channel, not a merge
+  gate — no PR is associated with a scheduled run.
 
 Alternatives rejected:
 
@@ -117,7 +119,7 @@ Alternatives rejected:
 
 `advisory: true` is dropped; `x86_64-windows` joins mac/linux as a blocking
 leg of `ci-required`. It is already the slowest leg (~13 min median vs ~7 for
-Linux), so the critical path barely moves. The `ci.yml` header rewrite removes
+Linux over the same 2026-08-15..18 sample), so the critical path barely moves. The `ci.yml` header rewrite removes
 the D-245 sentence, and the authority contradiction the flag sat on is
 resolved the way ADR-0076 D9 already decided: `docs/development.md`'s "CI is
 the authoritative gate" is the true statement; the native win64 host remains

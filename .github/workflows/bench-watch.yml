@@ -9,6 +9,11 @@
 # summary; nothing is committed — bench/results/history.yaml stays curated
 # and local-host-only (its arch-only labels cannot distinguish hosted
 # runners from maintainer hosts).
+#
+# Known limit: GitHub auto-disables scheduled workflows after 60 days
+# without repo activity — the watch stops silently. Acceptable for a
+# maintained repo (any push resets the clock); re-enable from the Actions
+# tab if it happens.
 
 name: bench-watch
 
@@ -84,16 +89,26 @@ jobs:
         shell: bash
         run: echo "$HOME/.local/zig-${ZIG_VERSION}" >> "$GITHUB_PATH"
 
-      - name: Install hyperfine (macOS)
-        if: runner.os == 'macOS'
-        run: brew install hyperfine
-
-      - name: Install hyperfine (Linux)
-        if: runner.os == 'Linux'
+      # Pinned release binary, NOT the distro package: Ubuntu 22.04's apt
+      # ships hyperfine 1.12.0, and bench_watch.sh's load-bearing `-N` flag
+      # needs 1.13+. The pin mirrors the flake's dev-shell version via
+      # versions.lock, same pattern as ci.yml's wasmtime/wasm-tools installs.
+      - name: Install hyperfine
+        shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y hyperfine
+          source .github/versions.lock
+          v="${HYPERFINE_VERSION}"
+          case "${{ runner.os }}" in
+            Linux)  asset="hyperfine-v${v}-x86_64-unknown-linux-gnu" ;;
+            macOS)  asset="hyperfine-v${v}-aarch64-apple-darwin" ;;
+          esac
+          url="https://github.com/sharkdp/hyperfine/releases/download/v${v}/${asset}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "$url" -o /tmp/hf.tar.gz
+          tar -xzf /tmp/hf.tar.gz -C /tmp
+          mv "/tmp/${asset}/hyperfine" "$HOME/.local/bin/hyperfine"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify toolchain
         shell: bash

@@ -125,9 +125,10 @@ cranelift, wasmer singlepass) is recorded but not gated.
 
 ## Current status (post-Phase-7, Phase-8 onward)
 
-`scripts/run_bench.sh` is hyperfine-driven; the CI job records two
-arch rows when it is dispatched (per the cadence above) — nothing
-runs it automatically. Local phase-boundary rows continue to
+`scripts/run_bench.sh` is hyperfine-driven; the `bench.yml` CI job
+records two arch rows when it is dispatched (per the cadence above) —
+nothing appends to `history.yaml` automatically (the scheduled
+`bench-watch.yml` measures but never records). Local phase-boundary rows continue to
 land via `--phase-record`, and are the path that actually gets
 used. The pre-Phase-6
 trap-time baseline rows are preserved per ADR-0011 §3.

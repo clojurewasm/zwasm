@@ -28,7 +28,8 @@ entries:
       (exit 1 → scheduled-run failure emails the cron author; ADR-0211 D2)
       costs nothing and works;
       (5) validate the fuzz budget — `FUZZ_N=2000` spawns plus a cold build
-      under a 60-min cap was never measured (ROADMAP §12.2 "duration TBD").
+      under a 60-min cap was never measured (ROADMAP §11.4's campaign
+      duration is still unmeasured).
       Until then `check_proposal_watch.sh` / `check_spec_bump.sh` are
       on-demand tools, and the `spec_pin.yaml` staleness is standing
       maintenance work (runbook: `.dev/spec_revendor_runbook.md`).
@@ -36,7 +37,8 @@ entries:
     last_reviewed: "2026-08-19"
     refs: |-
       ADR-0211 D1 (the retirement decision + discussion #201);
-      scripts/gen_fuzz_corpus.sh + build.zig (fuzz-campaign, fuzz-exec);
+      scripts/gen_fuzz_corpus.sh + build.zig (fuzz-campaign,
+      test-fuzz-exec / fuzz-diff);
       scripts/check_proposal_watch.sh; scripts/check_spec_bump.sh;
       .dev/spec_pin.yaml + .dev/spec_revendor_runbook.md
   - id: "D-587"
