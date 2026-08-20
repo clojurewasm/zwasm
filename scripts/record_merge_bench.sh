@@ -13,7 +13,7 @@
 # DELIBERATE recordings only — run this at phase boundaries or when a change
 # is performance-relevant, with the intent in `--reason`. The retired
 # per-merge convention lives in git history; the automated gross-regression
-# watch is bench-watch.yml (commit-free, see scripts/bench_watch.sh).
+# watch is bench_watch.yml (commit-free, see scripts/bench_watch.sh).
 #
 # Usage:
 #   bash scripts/record_merge_bench.sh                  # recent.yaml only

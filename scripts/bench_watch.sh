@@ -9,7 +9,7 @@
 # cancel out of the ratio.
 #
 # This is a sky-is-falling detector, not a gate: it is wired to a scheduled
-# workflow (bench-watch.yml), never to a PR. The exit-1 exists because a
+# workflow (bench_watch.yml), never to a PR. The exit-1 exists because a
 # failed scheduled run is GitHub's notification channel (it emails the user
 # who last modified the cron line). Threshold rationale — same-host noise is
 # ~7% with 2x first-run outliers (ADR-0209; bench/results/latency_history.yaml
@@ -72,7 +72,7 @@ cp "$WORK/base/zig-out/bin/zwasm" "$WORK/zwasm-base"
 
 summary="$WORK/summary.md"
 {
-    echo "## bench-watch: HEAD ($HEAD_SHA) vs $BASE_REF"
+    echo "## bench_watch: HEAD ($HEAD_SHA) vs $BASE_REF"
     echo ""
     echo "runs=$RUNS warmup=$WARMUP; breach = HEAD/base >= ${THRESHOLD_X}x; alert at >= $MIN_BREACHES breaches."
     echo ""
@@ -102,7 +102,7 @@ for fx in "${FIXTURES[@]}"; do
     if [ "$breach" = "true" ]; then
         verdict="**>= ${THRESHOLD_X}x slower**"
         breaches=$((breaches + 1))
-        echo "::warning::bench-watch: $fx is ${ratio}x slower than $BASE_REF"
+        echo "::warning::bench_watch: $fx is ${ratio}x slower than $BASE_REF"
     fi
     printf '| %s | %.2f | %.2f | %.2fx | %s |\n' \
         "$fx" "$base_ms" "$head_ms" "$ratio" "$verdict" >> "$summary"

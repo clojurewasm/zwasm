@@ -57,7 +57,7 @@ preserved long-term.
   deliberate recordings only — a local `--phase-record` run or a
   `bench.yml` dispatch.
 - **Nightly gross-regression watch**:
-  [`.github/workflows/bench-watch.yml`](../.github/workflows/bench-watch.yml)
+  [`.github/workflows/bench_watch.yml`](../.github/workflows/bench_watch.yml)
   runs [`scripts/bench_watch.sh`](../scripts/bench_watch.sh) daily on
   macos-15 + ubuntu-22.04: same-run A/B of HEAD vs the latest `v*`
   release tag over a 5-fixture canary set, alerting (via the
@@ -128,7 +128,7 @@ cranelift, wasmer singlepass) is recorded but not gated.
 `scripts/run_bench.sh` is hyperfine-driven; the `bench.yml` CI job
 records two arch rows when it is dispatched (per the cadence above) —
 nothing appends to `history.yaml` automatically (the scheduled
-`bench-watch.yml` measures but never records). Local phase-boundary rows continue to
+`bench_watch.yml` measures but never records). Local phase-boundary rows continue to
 land via `--phase-record`, and are the path that actually gets
 used. The pre-Phase-6
 trap-time baseline rows are preserved per ADR-0011 §3.

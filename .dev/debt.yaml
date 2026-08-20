@@ -24,7 +24,7 @@ entries:
       --gate` compares `.dev/spec_pin.yaml` against upstream HEAD, a moving
       target that re-reds after every bump (it is red today: pin 2026-06-14,
       both upstream HEADs moved); gate-vs-warn is a design choice, not a flag;
-      (4) give a scheduled red a notification route — the bench-watch pattern
+      (4) give a scheduled red a notification route — the bench_watch pattern
       (exit 1 → scheduled-run failure emails the cron author; ADR-0211 D2)
       costs nothing and works;
       (5) validate the fuzz budget — `FUZZ_N=2000` spawns plus a cold build

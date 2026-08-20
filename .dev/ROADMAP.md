@@ -217,7 +217,7 @@ These do not change between phases. Changing one requires an ADR.
   fuzz + overnight campaign.
 - Bench harness with append-only `bench/history.yaml` — deliberate
   multi-arch recordings (Mac + Linux; Windows timing deferred per
-  ADR-0137/D-249) plus the nightly `bench-watch.yml` gross-regression
+  ADR-0137/D-249) plus the nightly `bench_watch.yml` gross-regression
   watch (ADR-0211 D2; the per-merge convention is retired).
 
 ### 3.2 Out of scope permanently
@@ -1667,7 +1667,7 @@ hard-gate — Phase 13 opens autonomously per the §12.P close, ADR-0141).
 > **Revision 2026-08-19 (ADR-0211)**: this exit criterion is a Phase-14-era
 > record. The premise it names (CI second-line) was reversed by ADR-0076 D9;
 > `nightly.yml` is retired (revival hints in D-593), the per-merge recorder
-> convention is retired in favor of the `bench-watch.yml` nightly
+> convention is retired in favor of the `bench_watch.yml` nightly
 > gross-regression watch, and all three `ci.yml` legs are blocking.
 
 **🔒 gate**: no.
@@ -1678,7 +1678,7 @@ hard-gate — Phase 13 opens autonomously per the §12.P close, ADR-0141).
 |------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | 14.0 | Open §14 inline + flip Phase Status widget (Phase 13 → DONE; Phase 14 → IN-PROGRESS).                                                                                                                                                                                                                                                                                                                                                                                                                | [x]    |
 | 14.1 | `.github/workflows/pr.yml` — `zig build test-all` matrix on `macos-15` + `ubuntu-22.04` + `windows-2022` (mirrors the local 3-host gate; manual `workflow_dispatch` per §14.5 CI-second-line; reuses bench.yml's zig-0.16.0 install; actionlint-clean; win leg flaky on D-245).                                                                                                                                                                                                                       | [x]    |
-| 14.2 | Per-merge bench recorder → `bench/results/history.yaml`. **Satisfied by existing `.github/workflows/bench.yml`** (workflow_dispatch; bench-mac + bench-linux → fragment artifacts → aggregate bot-commit). Scope is **2-host (Mac+Linux) per ADR-0137**; windows-timing leg deferred (**D-249**, hyperfine absent on windowsmini — perf-completeness, not a gate). No separate `main.yml` (would duplicate bench.yml; auto-on-merge trigger conflicts with the 2026-05-25 manual-CI decision). **Revision 2026-08-19 (ADR-0211 D2): the per-merge convention is retired; `bench-watch.yml` (nightly, commit-free, ≥2x/≥2-fixture alert) is the regression watch.** | [x]    |
+| 14.2 | Per-merge bench recorder → `bench/results/history.yaml`. **Satisfied by existing `.github/workflows/bench.yml`** (workflow_dispatch; bench-mac + bench-linux → fragment artifacts → aggregate bot-commit). Scope is **2-host (Mac+Linux) per ADR-0137**; windows-timing leg deferred (**D-249**, hyperfine absent on windowsmini — perf-completeness, not a gate). No separate `main.yml` (would duplicate bench.yml; auto-on-merge trigger conflicts with the 2026-05-25 manual-CI decision). **Revision 2026-08-19 (ADR-0211 D2): the per-merge convention is retired; `bench_watch.yml` (nightly, commit-free, ≥2x/≥2-fixture alert) is the regression watch.** | [x]    |
 | 14.3 | `.github/workflows/nightly.yml` — fuzz + spec-bump + proposal-watch. **DONE** (`17e3b6f1`+`1fc63016`): 3/3 legs — (1) fuzz campaign (`gen_fuzz_corpus.sh campaign` → `zig build fuzz-campaign`, ~2000 smith modules; harness `6c80c229`+`16584c1c` = parse/validate/instantiate crash-fuzz); (2) proposal-watch freshness (`check_proposal_watch.sh`, 90d); (3) spec-bump drift (`check_spec_bump.sh` vs `.dev/spec_pin.yaml` Wasm-3.0 baseline). workflow_dispatch; actionlint-clean. **Revision 2026-08-19 (ADR-0211 D1): nightly.yml retired — never scheduled in this tree and rotted around its legs; revival hints in D-593.** | [x]    |
 | 14.4 | `.github/workflows/bench_baseline.yml` (`workflow_dispatch`) — record per-arch bench baselines on demand. **DONE**: runs `record_baseline_v1_regression.sh` on macos-15 + ubuntu-22.04 (2-host per ADR-0137; win deferred D-249), uploads `baseline_v1_regression.yaml` as a per-arch artifact (per-host floor, not committed). actionlint-clean.                                                                                                                                                      | [x]    |
 | 14.5 | Confirm the local `pre_push` hook still works + document CI-as-second-line (not first); CI green ≠ skip local gate. **DONE**: `.githooks/pre-push` wired (`core.hooksPath=.githooks`), runs 4 audit gates every push (verified live this session); CI-second-line documented in the hook header + ADR-0076 D4 (merge gate is manual `gate_merge.sh`; CI workflows are `workflow_dispatch`).                                                                                                            | [x]    |
@@ -2052,7 +2052,7 @@ Instead:
 
 - `bench/history.yaml` records deliberate measurements (§12.4 cadence;
   the per-merge convention is retired, ADR-0211 D2), and
-  `bench-watch.yml` watches for gross regressions nightly.
+  `bench_watch.yml` watches for gross regressions nightly.
 - A regression in any bench triggers investigation, not an automatic
   block.
 - Comparison against reference runtimes (wasm3, wasmtime baseline,
@@ -2091,7 +2091,7 @@ Instead:
   `bash scripts/record_merge_bench.sh --phase-record --reason=...`
   run or a `bench.yml` dispatch, at phase boundaries or when a
   change is performance-relevant.
-- **Gross-regression watch**: `bench-watch.yml` (nightly) runs
+- **Gross-regression watch**: `bench_watch.yml` (nightly) runs
   `scripts/bench_watch.sh` — same-run A/B of HEAD vs the latest
   release tag, alert at ≥2x slower on ≥2 canary fixtures via the
   scheduled run failing. Commits nothing, gates nothing (§12.1

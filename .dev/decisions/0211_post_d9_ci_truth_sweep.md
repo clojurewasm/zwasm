@@ -1,4 +1,4 @@
-# ADR-0211: post-D9 CI truth sweep — retire nightly.yml, add bench-watch, make the Windows leg blocking (discussion #201)
+# ADR-0211: post-D9 CI truth sweep — retire nightly.yml, add bench_watch, make the Windows leg blocking (discussion #201)
 
 > **Doc-state**: ACTIVE
 
@@ -63,14 +63,14 @@ checks; `.dev/proposal_watch.md` was last reviewed by hand 2026-08-10). The
 `spec_pin.yaml` staleness itself is standing maintenance work independent of
 this ADR (runbook: `.dev/spec_revendor_runbook.md`).
 
-### D2 — Per-merge bench convention retired; `bench-watch.yml` replaces it
+### D2 — Per-merge bench convention retired; `bench_watch.yml` replaces it
 
 ROADMAP §14.2's per-merge recorder convention is retired. `bench.yml`
 (workflow_dispatch, curated `history.yaml`) stays for deliberate recordings.
 
 What remains wanted is exactly one thing: **notice a gross regression with no
 human in the loop and no commits out of CI**. A new scheduled workflow
-(`.github/workflows/bench-watch.yml`, nightly, macos-15 + ubuntu-22.04 —
+(`.github/workflows/bench_watch.yml`, nightly, macos-15 + ubuntu-22.04 —
 the two timing hosts per ADR-0137) runs `scripts/bench_watch.sh`:
 
 - **Same-run A/B, not history comparison.** Build HEAD and the latest `v*`

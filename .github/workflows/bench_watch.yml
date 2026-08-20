@@ -1,4 +1,4 @@
-# bench-watch — nightly gross-regression detector (ADR-0211 D2).
+# bench_watch — nightly gross-regression detector (ADR-0211 D2).
 #
 # Runs scripts/bench_watch.sh on the two timing arches (ADR-0137 scope):
 # same-run A/B of HEAD vs the latest v* release tag, 5-fixture canary set,
@@ -15,7 +15,7 @@
 # maintained repo (any push resets the clock); re-enable from the Actions
 # tab if it happens.
 
-name: bench-watch
+name: bench_watch
 
 on:
   schedule:
@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: bench-watch-${{ github.ref }}
+  group: bench_watch-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -89,6 +89,29 @@ jobs:
         shell: bash
         run: echo "$HOME/.local/zig-${ZIG_VERSION}" >> "$GITHUB_PATH"
 
+      # Build-time dependency, not a bench tool: the DEFAULT `zig build` install
+      # set includes the spec-assert exes, which run `wasm-tools parse` to make
+      # spectest.wasm from test/spec/spectest.wat (build.zig). bench_watch.sh
+      # builds HEAD and the base tag with a plain `zig build`, so without this
+      # both builds die before a single fixture is timed. Same install as
+      # ci.yml / release.yml, version from versions.lock.
+      - name: Install wasm-tools (build-time, required by the default install set)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          v="${WASM_TOOLS_VERSION}"
+          case "${{ runner.os }}" in
+            Linux)  asset="wasm-tools-${v}-x86_64-linux" ;;
+            macOS)  asset="wasm-tools-${v}-aarch64-macos" ;;
+          esac
+          url="https://github.com/bytecodealliance/wasm-tools/releases/download/v${v}/${asset}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          curl -fsSL "$url" -o wt.tar.gz
+          tar -xzf wt.tar.gz --strip-components=1 "${asset}/wasm-tools"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       # Pinned release binary, NOT the distro package: Ubuntu 22.04's apt
       # ships hyperfine 1.12.0, and bench_watch.sh's load-bearing `-N` flag
       # needs 1.13+. The pin mirrors the flake's dev-shell version via
@@ -114,6 +137,7 @@ jobs:
         shell: bash
         run: |
           zig version
+          wasm-tools --version
           hyperfine --version
           jq --version
 
