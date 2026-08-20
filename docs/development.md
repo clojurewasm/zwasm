@@ -7,8 +7,8 @@ owned by [`.dev/ROADMAP.md`](../.dev/ROADMAP.md)).
 
 **The short version: you need Zig 0.16.0. Nothing else.** The authoritative
 test gate is GitHub CI, which runs the 3-OS matrix on every pull request
-(macOS + Linux blocking, Windows advisory) — you do not need multiple
-machines, SSH hosts, Nix, or any maintainer-specific setup to contribute.
+(all three legs blocking) — you do not need multiple machines, SSH hosts,
+Nix, or any maintainer-specific setup to contribute.
 
 ## Quick start
 
@@ -91,11 +91,8 @@ macOS aarch64, Linux x86_64, Windows x86_64. Your PR gets the *core* gate: fmt
 + `test-all` + the rust-host consumer + the test-discovery guard. The extended
 static/build checks (lint, the build-option DCE matrix, AOT cross-compile,
 `zone_check`) run on the merge to `main`, not per PR — they are up to ~20
-cold-cache builds and would dominate every PR's wall-clock. The macOS and Linux legs are
-blocking; the Windows leg currently runs **advisory** (reported on every PR,
-not merge-blocking — see the `advisory` flag in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). There is no
-additional hidden gate beyond CI.
+cold-cache builds and would dominate every PR's wall-clock. All three legs are
+blocking (ADR-0211 D3). There is no additional hidden gate beyond CI.
 
 Doc-only PRs (Markdown, `docs/`, `.dev/`, `.claude/`, `LICENSE`) skip the
 heavy 3-OS legs automatically and are gated by the fast `doc-truth` job

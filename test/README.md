@@ -11,7 +11,7 @@ invocation surface stays stable as phases land:
 | `zig build test-e2e`       | 4           | `test/e2e/`               | End-to-end CLI invocations                           |
 | `zig build test-realworld` | 4           | `test/realworld/`         | 50 known-good wasm samples (matches v1)              |
 | `zig build test-c-api`     | 3           | `test/c_api_conformance/` | wasm-c-api conformance against zwasm                 |
-| `zig build test-fuzz`      | 5           | `test/fuzz/`              | Fuzz smoke (full campaigns nightly via CI Phase 14+) |
+| `zig build test-fuzz`      | 5           | `test/fuzz/`              | Fuzz smoke (campaigns on demand — D-593)             |
 | `zig build test-diff`      | 6           | inline                    | `interp == jit_native` differential                  |
 | `zig build test-all`       | 0           | aggregator                | All of the above; skips not-yet-implemented steps    |
 
