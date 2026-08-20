@@ -35,7 +35,7 @@ bash scripts/audit_blocked_by_age.sh --gate   # exit 1 on any STALE row
 Narrow mode (§F debt-coherence checks only) is still the right shape when
 that script reports STALE rows and you want the barriers re-walked.
 
-Run it when:
+Invoke this skill when:
 
 - The scaffolding feels off — handover.md disagrees with ROADMAP, an
   ADR cites a section that has moved, etc.
@@ -45,12 +45,11 @@ Run it when:
 - The user explicitly says "audit scaffolding" / "check for drift" /
   similar.
 
-The gap the retired triggers were built for is real and outlived them: a
-`blocked-by` row whose barrier quietly disappeared goes unnoticed until
-someone looks. `audit_blocked_by_age.sh` is what looks now. In the other
-direction, local-optimisation drift (audit-fix-audit-fix at the expense of
-the actual work) is a failure mode this skill can flag — keep an eye on
-whether the audit is helping or hindering.
+A `blocked-by` row whose barrier quietly disappeared goes unnoticed until
+someone looks; `scripts/audit_blocked_by_age.sh` is what looks. In the other
+direction, local-optimisation drift (audit-fix-audit-fix at the expense of the
+actual work) is a failure mode this skill can flag — keep an eye on whether the
+audit is helping or hindering.
 
 ## Procedure
 

@@ -4,7 +4,7 @@
 > 完了; outbound refs from ROADMAP §9 / handover / debt / ADRs cite
 > this path so the file stays here (per `doc_state_marker.md` 4-state
 > vocabulary). 10.C9 step 4 で flip;
-> `scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) I7 amended to accept
+> `scripts/check_phase9_close_invariants.sh` I7 amended to accept
 > both `ACTIVE | ARCHIVED-IN-PLACE`;
 > `.claude/rules/phase9_close_invariants.md` annotated as
 > retirement-eligible per Phase Status widget = `9 | DONE`. Don't
@@ -20,7 +20,7 @@
 > current truth see `docs/zig_api_design.md`, ADR-0109, D-075
 > (re-scoped to impl tracker), and ROADMAP §10 / 10.J.
 >
-> **Phase 9 = DONE 2026-05-24** (§9.13 hard gate cleared; widget 9→DONE; commit `36c494a3`). I1-I7 invariants pass mechanically via `scripts/check_phase9_close_invariants.sh --gate` (script deleted 2026-08-20 — no executing caller; git log retains it) (regression check retained post-DONE). Phase 10 design plan: `phase10_design_plan_ja.md` (r3, amended 2026-05-25 with §3.6 ADR-0109 sub-section + §7 J.* chunk entries)。
+> **Phase 9 = DONE 2026-05-24** (§9.13 hard gate cleared; widget 9→DONE; commit `36c494a3`). I1-I7 invariants pass mechanically via `scripts/check_phase9_close_invariants.sh --gate` (regression check retained post-DONE). Phase 10 design plan: `phase10_design_plan_ja.md` (r3, amended 2026-05-25 with §3.6 ADR-0109 sub-section + §7 J.* chunk entries)。
 >
 > **Supersedes**: `phase9_close_plan.md` + `phase9_completion_master_plan.md` +
 > `phase9_13_0_close_plan.md` + `phase9_structural_debt_close_plan.md` +
@@ -152,7 +152,7 @@ Concretely:
   picks (a) buffer-write or (b) uniform implicit-SRet).
 - `.claude/rules/phase9_close_invariants.md` (auto-loaded; lists
   the audit invariants).
-- `scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) (FAILs if any
+- `scripts/check_phase9_close_invariants.sh` (FAILs if any
   Phase-9-illegitimate SKIP token still emits; runs at every
   `/continue` Resume Step 0.5b).
 - ROADMAP §9.13 row body cites this master plan + the check
@@ -351,7 +351,7 @@ Order chosen per autonomous-eligibility + ROI:
 
 Phase 9 = DONE when **ALL** below hold:
 
-1. `bash scripts/check_phase9_close_invariants.sh --gate` (script deleted 2026-08-20 — no executing caller; git log retains it) exits 0.
+1. `bash scripts/check_phase9_close_invariants.sh --gate` exits 0.
 2. windowsmini `test-all` green WITHOUT any `SKIP-WIN64-*` token
    emission (i.e., D-162 / D-163 / D-164 closed, runner arms
    removed).
@@ -419,7 +419,7 @@ A new session reads:
 3. **This file** — authoritative remaining-work source
 4. `.claude/rules/phase9_close_invariants.md` (auto-loaded;
    Wasm-2.0-core SKIP forbidden list)
-5. `scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) (runs at /continue
+5. `scripts/check_phase9_close_invariants.sh` (runs at /continue
    Resume Step 0.5b — FAILs surface immediately)
 
 A fresh session cannot mark §9.13-0 [x] without satisfying the

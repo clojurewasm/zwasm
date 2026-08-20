@@ -229,7 +229,8 @@ definition — there is no date to trust.
 Three or more rows hitting `soon` / `block` at once is the
 structural failure this rule exists for (several barriers
 evaporating together as a closed campaign or landed ADR renders
-them moot) — that is the cue to run the §F checks in narrow mode.
+them moot) — it promotes to `suggest meta_audit` (`watch`
+severity), which is also what §J.4 records.
 
 The runnable form of this check lives at:
 

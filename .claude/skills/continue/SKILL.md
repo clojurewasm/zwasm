@@ -20,9 +20,9 @@ Delegate heavy reads/surveys to subagents and keep the working set lean.
 ## Stop conditions — strict 3-bucket whitelist
 
 > **CAMPAIGN-ONLY.** This governed the autonomous loop's right to keep
-> going without asking. In maintenance mode `/continue` drives one task
-> and stops when it is done, so there is nothing for a stop whitelist to
-> permit. Read as reference.
+> going without asking. `/continue` now drives one task and stops when it
+> is done, so nothing here fires — do not act on it. For today's flow see
+> §Resume procedure.
 
 Stop ONLY for one of the 3 buckets. Anything else continues.
 
@@ -46,8 +46,8 @@ destructive-action policy + non-stop exhaustive list:
 
 ## Loop mechanics — see `LOOP.md`
 
-> **CAMPAIGN-ONLY.** Maintenance mode has no self-perpetuation: `/continue`
-> drives one task and the turn ends. Read as reference.
+> **CAMPAIGN-ONLY.** There is no self-perpetuation: `/continue` drives one
+> task and the turn ends. Do not act on LOOP.md's push or re-arm contract.
 
 Push policy + Self-perpetuation (the `ScheduleWakeup` re-arm contract):
 sibling file [`LOOP.md`](LOOP.md). Read once per session at the top of
@@ -111,8 +111,7 @@ redesign. Full mechanics: sibling [`REWORK.md`](REWORK.md).
 
 **Default posture (ADR-0153): schedule the rework, do NOT defer past
 v0.1.0.** v0.1.0 timing never gates the decision; correctness + design
-quality do (design priority: memory
-`feedback_design_priority_completeness_over_v010`). The rework stays
+quality do (design priority: ADR-0153). The rework stays
 WITHIN the inviolable principles — P3/P6 single-pass, no optimising
 tier (§1.3/§3.2); staying within them IS the autonomous,
 philosophy-aligned judgment (only a *proven* impossibility is the rare
@@ -276,11 +275,10 @@ Classify: `bash scripts/classify_chunk_scope.sh` → map to gate
 command per ADR-0076 D1. Full pipeline + Step 5b bench-delta sub-step
 (Phase 8b only):  [`GATE.md`](GATE.md).
 
-### Step 6+7 — Commit pair (per chunk) + push/kick/re-arm (per turn) (ADR-0076 D2+D5)
+### Step 6+7 — Commit pair (per chunk) + push (per turn) (ADR-0076 D2)
 
-A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–8 once at
-turn end (ADR-0076 D5-a/b). The legacy 2-push cycle is a single-push
-commit pair per chunk.
+A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–7 once at
+turn end. The legacy 2-push cycle is a single-push commit pair per chunk.
 
 **Per chunk** (every chunk in the turn):
 
@@ -309,8 +307,7 @@ granularity)** — Mac+ubuntu are the fast loop; pack several debt-items /
 slices into one turn before flushing. End the turn only at a natural
 pause: immediately-actionable work exhausted, approaching context-fill /
 auto-compact, hard-gate / bucket-3 / user touchpoint, or a deliberate
-flush. **Do NOT end a turn just to poll the windows gate** (D8) — it runs
-batched in the background; verify its verdict at the next Step 0.7.
+flush.
 
 **Per turn** (once, at the pause that ends the turn):
 
@@ -349,20 +346,23 @@ Two implications:
    is not losing bearings overnight.
 
 The loop is designed so auto-compact loses at most one task's worth
-of in-flight Steps 0-3. Steps 4-6 end with git artifacts; Step 7 ends
-with handover + wakeup. Anchor on those.
+of in-flight Steps 0-3. Steps 4-6 end with git artifacts. Anchor on those.
 
 ### Repeat
 
-Steps 0–5 (commit pair) for each `[ ]` task in §9.<N>, **chaining
-in-turn** (D5-a) — back-to-back without push/re-arm. At the turn's
-natural pause, Steps 6–8 (push/kick/re-arm) once. Then Phase
-boundary. Then §9.<N+1>'s Step 0. Loop never voluntarily exits.
+Steps 0–5 (commit pair) per task, chaining in-turn where the tasks
+belong to the same piece of work. At the turn's natural pause, Steps 6–7
+(push, then the one-sentence status) once.
+
+> **CAMPAIGN-ONLY.** The loop-era form of this section chained across
+> `§9.<N>` rows into the phase-boundary handler and never voluntarily
+> exited. Maintenance mode ends the turn when the task is done.
 
 ## Phase boundary — inline, no stop
 
 > **CAMPAIGN-ONLY.** The phase campaign closed 2026-07-01; no `§9.<N>` row
-> is open, so this handler cannot fire. Read as reference.
+> is open, so this handler cannot fire — do not act on it. To run an audit,
+> invoke `audit_scaffolding` directly.
 
 When the last `[ ]` in §9.<N> flips `[x]`:
 

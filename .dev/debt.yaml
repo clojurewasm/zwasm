@@ -799,8 +799,9 @@ entries:
       (1) FIXED 2026-08-20 — and the original wording understated it. Measured on
           a fresh clone with `wasm-tools` off PATH, **bare `zig build` fails**
           ("failed to spawn ... wasm-tools: FileNotFound"), not just `test-all`:
-          three spec-runner exes are `installArtifact`-ed, so the default install
-          step pulls in the `spectest.wat` -> `spectest.wasm` generation. README,
+          the default install step installs `zwasm-spec-wasm-2-0-assert`, whose
+          module embeds `spectest.wasm`, so `wasm-tools parse` runs before
+          anything is installed. README,
           CONTRIBUTING, `docs/development.md` (tool table + "no toolchain beyond
           Zig") and `docs/tutorial.md` now state wasm-tools as required, pinned
           via `.github/versions.lock`. Making the build itself toolchain-free is
@@ -838,7 +839,6 @@ entries:
       (8) OPEN — [cleanup] `scripts/win64_debug/attach_dump.sh` +
           `.claude/skills/debug_jit_auto/RECIPES.md` hardcode literal
           `Documents/MyProducts/zwasm` / `/c/Users/shota/…` with no override.
-      Still open: (4) partial, (7), (8).
       WORKS (fair): Zig 0.16.0 pinned coherently (flake.nix / versions.lock /
       README); the build needs exactly one tool beyond Zig (wasm-tools, pinned);
       committed spec corpus + realworld fixtures run with NO external clone; git

@@ -2,11 +2,12 @@
 
 > **Loop-era doc (2026-07-01).** Steps 0.4 and the orientation steps still
 > apply. Steps 0.5 / 0.5b / 0.6 / 0.7 are **on-demand capabilities, not a
-> per-resume duty** (ADR-0212 D2) — 0.5b and 0.6 need an open phase and a
-> registered hard gate, and 0.7 reads the retired SSH farm's logs. Branch
-> specifics are HISTORICAL: `main` is PR-only. Any `zwasm-from-scratch`
-> reference below describes the retired single-branch loop; today's flow is a
-> `develop/<slug>` branch → PR → CI → merge (see `SKILL.md`).
+> standing duty** (ADR-0212 D2): 0.5b and 0.6 need an open phase and a
+> registered hard gate, and 0.7 reads the retired SSH farm's logs.
+>
+> Branch specifics below are HISTORICAL. Today's flow is a `develop/<slug>`
+> branch → PR → CI → merge (see `SKILL.md`); any `zwasm-from-scratch`
+> reference describes the retired single-branch loop.
 
 Sibling of [`SKILL.md`](SKILL.md). SKILL.md gives the outline; this
 file has the detailed per-step procedure. Read on-demand when

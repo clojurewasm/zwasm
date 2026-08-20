@@ -50,7 +50,7 @@ introduces.
 | `.claude/rules/markdown_format.md` | Fully covered by `check_md_tables.sh` (PreToolUse hook) + `md-table-align` |
 | `.claude/rules/runtime_instance_layer.md` | Pure re-projection of zone_deps + comment_as_invariant + no_fallback_on_failure for one dir |
 | `.claude/rules/incremental_substrate_migration.md` | §9.12-B done; rule's own Status line declares completion |
-| `.claude/rules/phase9_close_invariants.md` | Phase 9 = DONE 2026-05-24; rule's "Retirement status" line declares informational-only. Keep `check_phase9_close_invariants.sh` as permanent regression check |
+| `.claude/rules/phase9_close_invariants.md` | Phase 9 = DONE 2026-05-24; rule's "Retirement status" line declares informational-only. (The `check_phase9_close_invariants.sh` retention this row directed was reversed 2026-08-20 by ADR-0212 D3 — the script had no executing caller and is deleted.) |
 
 ### D2. Demote 3 rules to ≤15-line pointer stubs (mechanized)
 

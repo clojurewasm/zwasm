@@ -1,6 +1,6 @@
 # c_api Instance lifecycle audit (D-139)
 
-> **Doc-state**: ACTIVE — load-bearing for Phase 9 §9.13-0 close
+> **Doc-state**: ARCHIVED-IN-PLACE 2026-08-20 — was load-bearing for the Phase 9 §9.13-0 close
 > (D-139 discharge per [`phase9_close_master.md`](./phase9_close_master.md) §5.3a Phase A2).
 > Filed 2026-05-24 cycle (post-§9.13-V merge, post-D-167 close).
 
@@ -19,7 +19,7 @@ spec_assert).
 
 `src/api/instance.zig` carries **31 in-source `test "..."`
 blocks** lines 946–1787. Phase 9 I2 invariant baseline (per
-`scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) I2):
+`scripts/check_phase9_close_invariants.sh` I2):
 
 | Block | Lines | Scope                              |
 |-------|-------|------------------------------------|

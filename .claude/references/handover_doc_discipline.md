@@ -189,7 +189,7 @@ the check — act only when it exceeds 120.
 
 ## Related
 
-- [`/continue` SKILL.md anti-patterns](../../skills/continue/SKILL.md)
+- [`/continue` SKILL.md anti-patterns](../skills/continue/SKILL.md)
 - [`extended_challenge.md`](extended_challenge.md) — 3-step
   procedure for `Open questions / blockers` entries.
 - [`investigation_discipline.md`](investigation_discipline.md) —

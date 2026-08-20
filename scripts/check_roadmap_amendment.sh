@@ -47,8 +47,8 @@ MSG=$(cat <<'EOF'
   row description or status cell. Sub-chunk records belong in
   commit messages + `.dev/phase_log/<phase>.md`.
 
-If unsure which bucket this edit falls in, ask the user before
-proceeding.
+If unsure which bucket this edit falls in, treat it as load-bearing
+and file the ADR (§18.2 step 2).
 EOF
 )
 

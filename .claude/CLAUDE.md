@@ -33,7 +33,8 @@ zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
   manual. The release line is the latest `v2.x` tag (see CHANGELOG /
   GitHub Releases — do NOT hardcode it here, it rots). Cut = bump
   `build.zig.zon` + CHANGELOG section + push the `vX.Y.Z` tag →
-  `release.yml` auto-builds + publishes. See `docs/migration_v1_to_v2.md`.
+  `release.yml` auto-builds + publishes. See
+  [`.dev/archive/migration_v1_to_v2.md`](../.dev/archive/migration_v1_to_v2.md).
 - v1 ABI compatibility is out of scope; the C/Zig/CLI surfaces broke v1 on
   purpose (ADR-0156).
 
@@ -106,8 +107,8 @@ text or code identifiers.
   fork big reads/surveys to subagents AND have them return ≤30-line
   summaries (the report returns into main context too); (3) keep
   `.dev/handover.md` current (SessionStart + `PostCompact` re-inject it
-  via `scripts/print_handover_brief.sh`). Unused MCP plugins off in
-  `settings.local.json`. Full rationale: `.claude/references/context_budget.md`.
+  via `scripts/print_handover_brief.sh`). Full rationale:
+  `.claude/references/context_budget.md`.
 
 ## Working agreement (short list)
 
@@ -155,6 +156,10 @@ text or code identifiers.
   adaptive audit (staleness / bloat / lies / debt+lessons coherence /
   extended-challenge consistency) across CLAUDE.md, `.dev/`, `.claude/`,
   `scripts/`.
+- [`meta_audit`](skills/meta_audit/SKILL.md) — deliberate-skepticism audit
+  against ROADMAP §1/§2/§9/§14/§15 and recent ADRs. User-requested.
+- [`dispatch_consistency_audit`](skills/dispatch_consistency_audit/SKILL.md) —
+  three-way consistency of the ZirOp dispatch substrate. On request.
 - [`debug_jit_auto`](skills/debug_jit_auto/SKILL.md) — SEGV /
   miscompile / runtime-crash investigation toolkit.
 
