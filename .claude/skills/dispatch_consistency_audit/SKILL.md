@@ -1,6 +1,6 @@
 ---
 name: dispatch_consistency_audit
-description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Fires at periodic audit_scaffolding boundaries and on explicit request (the §9.12-B build trigger is now DONE — the substrate exists, so the check is always live).
+description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Use when the dispatch substrate is in scope — on explicit request, or alongside a scaffolding audit (the §9.12-B build trigger is DONE, so the check is always applicable; it has no automatic trigger).
 ---
 
 # dispatch_consistency_audit

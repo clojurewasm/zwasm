@@ -807,18 +807,22 @@ entries:
           a separate call: `scripts/wasmtime_misc_native_sweep.sh` and
           `wasmtime_misc_sweep.sh` consume the installed runner binaries, so
           un-installing them has a real trade-off.
-      (2) [staleness] `.claude/CLAUDE.md` points reference clones at a non-existent
-          `ClojureWasmFromScratch/` + `~/zwasm/private/…`; the real downstream
-          consumer is `~/Documents/MyProducts/ClojureWasm/` (correct in
-          `.dev/reference_clones.md`). Reconcile.
-      (3) [staleness] retired working-dir `~/Documents/MyProducts/zwasm_from_scratch/`
-          still cited in `.dev/ROADMAP.md`, `continue/GATE.md`, `STOP_BUCKETS.md`
-          though README/CLAUDE say it was unified into `zwasm/`. Sweep.
-      (4) [staleness] `continue/SKILL.md` BODY (Steps 6-8 self-re-arm,
-          ScheduleWakeup, "loop never voluntarily exits", "fully AUTONOMOUS
-          campaigns") reads as a live campaign under a "RETIRED" banner. Add
-          per-section MAINTENANCE markers or archive the sub-docs (audit_scaffolding
-          skill owns this class).
+      (2) FIXED 2026-08-20 — both paths confirmed absent on disk; CLAUDE.md now
+          names `~/Documents/MyProducts/ClojureWasm/` and drops the dead
+          `~/zwasm/private/v2-investigation/` pointer.
+      (3) FIXED 2026-08-20 for the live citation — ROADMAP §1.5 named the retired
+          working dir AND the retired `zwasm-from-scratch` branch as current, while
+          CLAUDE.md declares "Conflicts -> ROADMAP wins"; it now names `zwasm/` and
+          the `develop/<slug>` -> PR -> `main` flow. `continue/GATE.md` +
+          `STOP_BUCKETS.md` keep theirs under their loop-era headers, and the
+          remaining ROADMAP hits are historical `[x]` rows.
+      (4) PARTIAL 2026-08-20 — the two sections that would actively misdirect in
+          maintenance mode (the stop-condition whitelist, the phase-boundary
+          handler) now carry CAMPAIGN-ONLY markers, and the resume procedure no
+          longer lists the campaign-era Steps 0.5/0.5b/0.6/0.7 as mandatory
+          (ADR-0212 D2). The remaining body — Step 6+7 self-re-arm, ScheduleWakeup,
+          "loop never voluntarily exits" — still reads campaign-live under the
+          RETIRED banner.
       (5) MOOT 2026-08-20 — `scripts/check_three_host_diff.sh` had no executing
           caller and was deleted; git log retains it.
       (6) [onboarding] forced-Japanese chat FIXED 2026-07-29 — the CLAUDE.md

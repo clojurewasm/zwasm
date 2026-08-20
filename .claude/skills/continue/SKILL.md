@@ -19,6 +19,11 @@ Delegate heavy reads/surveys to subagents and keep the working set lean.
 
 ## Stop conditions — strict 3-bucket whitelist
 
+> **CAMPAIGN-ONLY.** This governed the autonomous loop's right to keep
+> going without asking. In maintenance mode `/continue` drives one task
+> and stops when it is done, so there is nothing for a stop whitelist to
+> permit. Read as reference.
+
 Stop ONLY for one of the 3 buckets. Anything else continues.
 
 1. **User intervenes** — explicit message, interrupt, or new directive.
@@ -160,24 +165,24 @@ Outline (full details in [`RESUME.md`](RESUME.md)):
 3. **git log + status** — clean: proceed. Uncommitted in-flight:
    complete or stash. Local ahead of origin: push immediately.
 4. **Step 0.4 — Lesson scan** ([`RESUME.md`](RESUME.md#step-04)).
-5. **Step 0.5 — Debt sweep + barrier-dissolution check**
-   ([`RESUME.md`](RESUME.md#step-05)).
-5b. **Step 0.5b — Live status check** (per-phase `p<N>_*_status.sh`
-   if exists) ([`RESUME.md`](RESUME.md#step-05b)).
-5c. **Step 0.6 — Hard-gate prep awareness** (within 3 rows of a
-   registered hard gate) ([`RESUME.md`](RESUME.md#step-06)).
-5d. **Step 0.7 — Prior-cycle remote verification (ADR-0076 D3+D7)** —
-   `tail -3 /tmp/ubuntu.log` AND `tail -3 /tmp/win.log` mechanically.
-   **ubuntu** FAIL → revert prior commit pair (D3; first-resume + non-code-gap
-   exceptions apply). **windows** FAIL (D7) → do NOT auto-revert: re-run the
-   failing exe once → reproduces = real Win64 bug (debt row + fix); flake =
-   `bash scripts/track_heisenbug.sh <name> segv` + proceed.
-   ([`RESUME.md`](RESUME.md#step-07)).
-6. `zig build test` (Phase 0+); `test-spec` from Phase 1; differential
-   from Phase 7. Output >200 lines → subagent.
-7. **One-sentence status** (phase + last commit + next task). No
-   multi-line summary.
-8. **Immediately enter TDD loop.** `/continue` itself is the go signal.
+5. `zig build test`; `test-spec` / differential when the change reaches
+   them. Output >200 lines → subagent.
+6. **One-sentence status** (last commit + next task). No multi-line
+   summary.
+7. **Immediately enter TDD loop.** `/continue` itself is the go signal.
+
+**On-demand, not per-resume** (ADR-0212 D2 retired the standing duty; the
+procedures stay as capabilities you invoke when they earn their keep):
+
+- **Step 0.5 — Debt sweep + barrier-dissolution**
+  ([`RESUME.md`](RESUME.md#step-05)). Run it when you are about to trust a
+  `blocked-by` row, or before a broad audit.
+  `bash scripts/audit_blocked_by_age.sh` is its mechanized half.
+- **Step 0.5b / 0.6 / 0.7** ([`RESUME.md`](RESUME.md#step-05b)) — per-phase
+  status scripts, hard-gate prep, and the 3-host `/tmp/{ubuntu,win}.log`
+  verification. All three are campaign-era: there are no open phases, no
+  registered hard gates, and CI's `ci-required` — not the local farm — is the
+  authoritative gate (ADR-0076 D9).
 
 ## Per-task TDD loop
 
@@ -360,6 +365,9 @@ natural pause, Steps 6–8 (push/kick/re-arm) once. Then Phase
 boundary. Then §9.<N+1>'s Step 0. Loop never voluntarily exits.
 
 ## Phase boundary — inline, no stop
+
+> **CAMPAIGN-ONLY.** The phase campaign closed 2026-07-01; no `§9.<N>` row
+> is open, so this handler cannot fire. Read as reference.
 
 When the last `[ ]` in §9.<N> flips `[x]`:
 

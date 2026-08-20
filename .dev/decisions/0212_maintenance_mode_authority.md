@@ -68,6 +68,26 @@ Zig 0.16.0"), CONTRIBUTING ("needs nothing else"), `docs/development.md`
 corrected. Removing the dependency instead is a separate decision: two sweep
 scripts consume the installed runner binaries.
 
+**D5 — The scaffolding is made to agree with D1-D4 in the same change.**
+Deleting a duty statement while a live document still issues the duty moves
+one copy of a fact and leaves the other — the failure mode this whole line of
+work is about. Audited and corrected here:
+
+| Where | What it said | Now |
+|---|---|---|
+| `continue/SKILL.md` resume procedure | Step 0.5 debt sweep was step 5 of the mandatory sequence — the duty D2 deletes | Steps 0.5 / 0.5b / 0.6 / 0.7 moved to an explicit on-demand block; the mandatory list keeps handover, lesson scan, git state, tests, status |
+| `continue/SKILL.md` §Stop conditions, §Phase boundary | live-voiced campaign machinery: a stop whitelist for an autonomous loop, a handler keyed on `§9.<N>` rows | CAMPAIGN-ONLY markers (D-526(4), partial) |
+| `audit_scaffolding/SKILL.md` | "Mandatory (the loop fires this skill automatically)" — a phase-boundary trigger needing an open phase, and a stale-debt trigger needing the Step-0.5 cadence | on-demand, pointing at `scripts/audit_blocked_by_age.sh`, which is the surviving mechanized half |
+| `audit_scaffolding/CHECKS.md` F.2a | a "resume cycles" ladder, and "to be authored as a follow-up" for a script that exists | calendar-day ladder matching the script; the script named as the reference implementation |
+| `dispatch_consistency_audit/SKILL.md` | "Fires at periodic audit_scaffolding boundaries" | on request, or with audit_scaffolding when the substrate is in scope |
+| **ROADMAP §1.5** | working directory `zwasm_from_scratch/` and branch `zwasm-from-scratch`, both retired — while CLAUDE.md declares "Conflicts -> ROADMAP wins" | `~/Documents/MyProducts/zwasm/`, and the `develop/<slug>` -> PR -> `main` flow (D-526(3)) |
+| `CLAUDE.md` reference clones | `ClojureWasmFromScratch/` and `~/zwasm/private/v2-investigation/`, neither of which exists on disk | `~/Documents/MyProducts/ClojureWasm/`; dead pointer dropped (D-526(2)) |
+
+The ROADMAP §1.5 edit is a §18.1 amend-in-place (a superseded directory name),
+and this ADR is its §18.2 step 2. ROADMAP §18 needs no other change: it
+requires an ADR for load-bearing edits, never maintainer sign-off, so it is
+already consistent with D1.
+
 ## Alternatives considered
 
 ### Alternative A — delete all five caller-less scripts

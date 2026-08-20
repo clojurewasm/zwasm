@@ -145,9 +145,12 @@ ADR-0153/0181.)
 
 - **Project name** in all public docs and the published artifact: `zwasm`.
 - Binary name: `zwasm`. Package name: `zwasm`.
-- Working directory: `~/Documents/MyProducts/zwasm_from_scratch/`.
-- Branch: `zwasm-from-scratch` — long-lived, branched from the v1
-  charter commit (`517cc5a`).
+- Working directory: `~/Documents/MyProducts/zwasm/` (the separate
+  `zwasm_from_scratch/` tree was unified into it at the v2 cutover).
+- Branch: `main` is the trunk. Work lands on a `develop/<slug>` branch
+  and merges by PR; `main` is ruleset-protected and CI's `ci-required`
+  is the gate. The long-lived `zwasm-from-scratch` branch (from the v1
+  charter commit `517cc5a`) was the campaign-era arrangement.
 - v1 reference: `~/Documents/MyProducts/zwasm/` (read-only; do not
   edit from this project).
 
