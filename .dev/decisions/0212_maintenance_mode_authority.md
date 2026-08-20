@@ -116,8 +116,10 @@ extended the same treatment to:
   `continue` skill and `REWORK.md` cited a **private agent memory** by name as
   the authority for a design priority that ADR-0153 already records.
 - **One more approval gate.** `scripts/check_roadmap_amendment.sh` told the
-  agent to "ask the user" when unsure which §18 bucket an edit falls in;
-  it now says to treat the edit as load-bearing and file the ADR.
+  agent to "ask the user" when unsure which §18 bucket an edit falls in. It
+  now says to name the bucket you chose in the commit message, so the
+  judgement is recorded for whoever reads `git log` next rather than routed
+  to a person.
 - **Closed-phase records marked as live.** Five `.dev/*.md` phase-9/10 planning
   documents carried `Doc-state: ACTIVE` or `DRAFT (uncommitted)` while being
   committed and long closed. They are `ARCHIVED-IN-PLACE`, which is also what
