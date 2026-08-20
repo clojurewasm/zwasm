@@ -57,9 +57,9 @@ a live public surface and are kept:
 | `check_zig_consumer.sh` | **kept** | proves the public `b.addModule("zwasm")` export stays reachable across a package boundary; its header records why it is deliberately manual (pulls the zlinter dev-dep, D-274) |
 
 Both kept scripts lack a home, not a purpose; giving them one is follow-up
-work. ADR-0211 D1 reached the same rule independently a day earlier: deleting
+work. ADR-0211 D1 makes the same call for a different pair: deleting
 `nightly.yml` left `check_proposal_watch.sh` and `check_spec_bump.sh` with no
-automation, and it kept both as on-demand tools rather than deleting them. `check_wasm_h_upstream.sh` compares against a local clone
+automation, and kept both as on-demand tools rather than deleting them. `check_wasm_h_upstream.sh` compares against a local clone
 (`ZWASM_WASM_C_API_PATH`, default `~/Documents/OSS/wasm-c-api`) and SKIPs when
 it is absent, so whatever home it gets has to provide that clone.
 
@@ -75,7 +75,14 @@ Zig 0.16.0"), CONTRIBUTING ("needs nothing else"), `docs/development.md`
 (wasm-tools listed *optional*; "no toolchain beyond Zig") and `docs/tutorial.md`
 — and so did the ledger row that was supposed to be tracking the gap
 (D-526(1) claimed "only `zig build test` is truly toolchain-free"). All five are
-corrected. Removing the dependency instead is a separate decision: two sweep
+corrected. The same defect was hit from the CI side within the same day: reviewing #203,
+`bench.yml` gained a `wasm-tools` install because "the DEFAULT `zig build` that
+`run_bench.sh` performs pulls in the spec-assert exes" — missing since the
+runner joined the install set on 2026-05-23, and unsurfaced because that
+workflow is dispatch-only. Two independent hits on one defect, one in CI and
+one in the contributor docs.
+
+Removing the dependency instead is a separate decision: two sweep
 scripts consume the installed runner binaries.
 
 **D5 — The scaffolding is made to agree with D1-D4 in the same change.**
