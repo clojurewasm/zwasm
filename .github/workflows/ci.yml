@@ -255,6 +255,27 @@ jobs:
           ZWASM_CI_EXTENDED: ${{ (github.event_name == 'push' && matrix.extended) && '1' || '0' }}
         run: bash scripts/ci_gate.sh
 
+      # Official wasi-testsuite wasm32-wasip1 corpus (D-582). ADVISORY: the
+      # corpus reports 14 engine-independent failures today (D-583), so a
+      # blocking placement would red every PR. Step-level `continue-on-error`
+      # keeps the step's `outcome` as `failure` (visible in the run) while its
+      # `conclusion` — and therefore the job's, and therefore
+      # `needs.gate.result` that `ci-required` reads — stays `success`.
+      #
+      # Deliberately a step in THIS job rather than a job of its own: a
+      # separate job would repeat the Zig install and rebuild zwasm from a cold
+      # `.zig-cache` on all three runners (nothing caches `.zig-cache`), paying
+      # a second full build per PR to run two lanes over 72 small binaries.
+      # Here it reuses what `ci_gate.sh` just built.
+      #
+      # Time-boxed in the ADR-0174 sense, not indefinite: when D-583's 14 go
+      # green on all three OSes the step moves into `test-all` and this block
+      # is deleted.
+      - name: test-wasi-p1-official (advisory, D-582)
+        continue-on-error: true
+        shell: bash
+        run: zig build test-wasi-p1-official
+
   # The SINGLE required status check (point the branch ruleset here, not at the
   # individual `gate (...)` legs). Passes when the change was doc-only (gate
   # skipped by design) OR when the 3-host gate succeeded. `always()` so it also

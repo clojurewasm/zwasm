@@ -1172,6 +1172,38 @@ pub fn build(b: *std.Build) void {
     const test_wasi_p1_step = b.step("test-wasi-p1", "Run the WASI 0.1 fixture suite");
     test_wasi_p1_step.dependOn(&run_wasi_p1.step);
 
+    // `zig build test-wasi-p1-official` — the OFFICIAL wasi-testsuite
+    // wasm32-wasip1 corpus (D-582). Deliberately NOT in `test-all` yet: the
+    // corpus reports 14 engine-independent failures (D-583), so folding it
+    // into the blocking gate now would red every PR. CI runs it as an ADVISORY
+    // step in the `gate` job (step-level `continue-on-error`); this step joins
+    // `test-all` when D-583 discharges, which is that row's exit condition.
+    //
+    // Two lanes, because the engines diverge: `--engine jit` fails 4 tests the
+    // interpreter passes, and the default `.auto` prefers the JIT — so a
+    // single unpinned lane would silently measure the JIT and label it
+    // preview1 coverage.
+    const wasi_official_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/wasi/official_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wasi_official_mod.addImport("zwasm", zwasm_lib_mod);
+    const wasi_official_exe = b.addExecutable(.{
+        .name = "zwasm-wasi-p1-official",
+        .root_module = wasi_official_mod,
+    });
+    const run_wasi_official_interp = b.addRunArtifact(wasi_official_exe);
+    run_wasi_official_interp.addArg(b.pathFromRoot("test/wasi/wasip1_official"));
+    run_wasi_official_interp.addArg("interp");
+    const run_wasi_official_jit = b.addRunArtifact(wasi_official_exe);
+    run_wasi_official_jit.addArg(b.pathFromRoot("test/wasi/wasip1_official"));
+    run_wasi_official_jit.addArg("jit");
+    const test_wasi_p1_official_step = b.step("test-wasi-p1-official", "Run the official wasi-testsuite wasm32-wasip1 corpus on both engines (D-582)");
+    test_wasi_p1_official_step.dependOn(&run_wasi_official_interp.step);
+    test_wasi_p1_official_step.dependOn(&run_wasi_official_jit.step);
+
     // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
     // `libzwasm.a` from the shared `core` module (rooted at
     // `src/zwasm.zig` per ADR-0024 D-1), compiles

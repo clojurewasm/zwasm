@@ -68,10 +68,19 @@ shells — contributors never need it; the `.wasm` files are committed.
 | `zig build test` | unit tests (all zones) |
 | `zig build test-spec` | Wasm spec testsuite (1.0/2.0/3.0) |
 | `zig build test-wasi-p1` | WASI 0.1 fixture suite |
+| `zig build test-wasi-p1-official` | official wasi-testsuite `wasm32-wasip1` corpus, `interp` + `jit` lanes. **Not in `test-all`** — see below |
 | `zig build test-wasi-p3` | WASI 0.3 (Component-Model async) incl. the official conformance corpus |
 | `zig build test-realworld` / `test-realworld-run` | real-world `.wasm` fixtures (parse / run) |
-| `zig build test-all` | all of the above (the CI core gate) |
+| `zig build test-all` | all of the above except `test-wasi-p1-official` (the CI core gate) |
 | `zig build lint -- --max-warnings 0` | project linter |
+
+`test-wasi-p1-official` is the one layer `test-all` does not carry. The corpus
+currently reports 14 engine-independent failures (D-583), so CI runs it as an
+**advisory step** in the `gate` job — the red is visible in the run without
+blocking the merge. It is not part of the local `gate_commit.sh` /
+`gate_merge.sh` flow either, so run it directly when touching WASI preview1.
+When D-583 discharges, the step joins `test-all` and the advisory goes away
+(ADR-0208 D2/D3).
 
 ## The merge gate — CI is authoritative
 
