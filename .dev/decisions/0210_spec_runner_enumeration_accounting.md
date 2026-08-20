@@ -149,6 +149,12 @@ shape is right and only the persistent-instance route traps. Whether the
 defect is in `invokeMulti` itself or in the runner's use of it was not
 isolated, and is not claimed either way.
 
+> **Corrected 2026-08-20 — the attribution in the paragraph above is false.**
+> The cause is an x86_64 `table.get` register clobber, not `invokeMulti`; see
+> the Revision history footer and D-590. **The paragraph's opening claim
+> stands: the identity closes with the fail present**, so the fail is a real
+> defect and not an accounting artifact.
+
 Its disposition is **out of scope for this ADR and unsettled** — recorded
 as **D-590**, decided when the JIT lane's CI gating is designed.
 Leaving it unfixed and gating the lane with one accepted fail is one
@@ -221,3 +227,10 @@ empirical claim *"fixing these five defects makes the identity close."*
 Writing that down unimplemented would itself be an unverified claim. The
 criterion is whether the decision can be judged without the code, not
 whether it is an ADR.
+
+## Revision history
+
+| Date       | SHA          | Note |
+|------------|--------------|------|
+| 2026-08-15 | `cef9708c`   | Initial accepted version (D1 + D2 + D3). |
+| 2026-08-20 | _(this)_     | Gap — the attribution at lines 145-150 of "Consequences" is false. It called the surviving `assert_return` fail a defect in the multi-value entry path (`invokeMulti`, the ADR-0106 `entry_buf` route), on the reasoning that the CLI returned correct values on both engines so only the persistent-instance route could trap. Three parts, all wrong: the failing module is `gc/type-subtyping/type-subtyping.17.wasm` (`run () -> ()`, zero results), not `.24`; it traps from the plain CLI, not only through the runner; and the cause is an x86_64 `table.get` register clobber — `emitTableGet` loads the table length into R10, then `gpr.gprLoadSpilled(…, stage_idx = 0)` reloads a spilled index into R10 (`abi.spill_stage_gprs`), so `CMP RDX, R10` compares the index with itself and the in-bounds `JAE` always fires. Re-derive at `54e06e16c`: `zwasm run --engine jit --invoke run test/spec/wasm-3.0-assert/gc/type-subtyping/type-subtyping.17.wasm` traps `oob_table` while `--engine interp` exits 0, and `--invoke 'run='` on `.24` prints `1 1` under both. **What stands: the identity closes with the fail present.** The separation of "real defect" from "accounting artifact" is this ADR's decision and is unaffected — only the location was wrong. Surfaced by D-590, which carries the root cause. |
