@@ -114,8 +114,10 @@ jobs:
 
       # Pinned release binary, NOT the distro package: Ubuntu 22.04's apt
       # ships hyperfine 1.12.0, and bench_watch.sh's load-bearing `-N` flag
-      # needs 1.13+. The pin mirrors the flake's dev-shell version via
-      # versions.lock, same pattern as ci.yml's wasmtime/wasm-tools installs.
+      # needs 1.13+. The version comes from versions.lock, same pattern as
+      # ci.yml's wasmtime/wasm-tools installs — and like those two, it has no
+      # flake.nix counterpart to mirror (the dev shell takes nixpkgs' build;
+      # only Zig is pinned on both sides).
       - name: Install hyperfine
         shell: bash
         run: |
