@@ -248,15 +248,23 @@ pub fn emitTableGet(
     if (pushed_vregs.items.len < 1) return Error.AllocationMissing;
     const idx_v = pushed_vregs.pop().?;
 
-    // Load tables_ptr → RAX; refs → R11; len → R10 (u64, D-475).
+    // Snapshot idx into RDX BEFORE the descriptor loads. r10/r11 are BOTH the
+    // spill-stage regs AND the descriptor regs (refs/len), so with the loads
+    // first a SPILLED idx would land in r10 on top of the length, and
+    // `CMP RDX, R10` would compare the index with itself — `JAE` always fired,
+    // in-bounds or not (D-590). Two facts keep the snapshot alive to the CMP:
+    // RDX is outside the allocatable pool and the spill stages, so nothing
+    // lives there and no later spill re-load can stage over it; and the
+    // descriptor loads write only RAX/R11/R10. Mirrors `emitTableSet` below
+    // and arm64's Step-A X17 snapshot. Staging in EDX zero-extends to RDX
+    // implicitly; an i64 table stages the full 64-bit index (.q, D-475).
+    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
+    try buf.appendSlice(allocator, inst.encMovRR(if (idx64) .q else .d, .rdx, idx_r).slice());
+
+    // Load tables_ptr → RAX; refs → R11; len → R10 (u64, D-475; r10/r11 free now).
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.rax, abi.runtime_ptr_save_gpr, jit_abi.tables_ptr_off).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r11, .rax, tbl_disp).slice());
     try buf.appendSlice(allocator, inst.encMovR64FromMemDisp32(.r10, .rax, tbl_disp + @as(i32, @intCast(jit_abi.tableslice_len_off))).slice());
-
-    // Stage idx in EDX (32-bit MOV zero-extends to RDX implicitly);
-    // an i64 table stages the full 64-bit index (.q, D-475).
-    const idx_r = try gpr.gprLoadSpilled(allocator, buf, alloc, spill_base_off, idx_v, 0);
-    try buf.appendSlice(allocator, inst.encMovRR(if (idx64) .q else .d, .rdx, idx_r).slice());
 
     // CMP RDX, R10 ; JAE trap. .q width (D-475: len is u64).
     try buf.appendSlice(allocator, inst.encCmpRR(.q, .rdx, .r10).slice());
