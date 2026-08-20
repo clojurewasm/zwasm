@@ -85,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
     // Two corpora run under this binary (`smoke`, `wasm-1.0`); name which
     // one a summary belongs to. Basename only — the absolute path is a
     // build-machine detail that just makes the line hard to read.
-    const corpus_name = std.fs.path.basename(corpus_dir);
+    const corpus_name = std.Io.Dir.path.basename(corpus_dir);
     try stdout.print("\nspec_runner[{s}]: {d} passed, {d} failed (of {d} enumerated)\n", .{ corpus_name, passed, failed, enumerated });
     try stdout.flush();
 

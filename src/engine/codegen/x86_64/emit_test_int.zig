@@ -1608,8 +1608,10 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     //   [61..67]  JNE rel32 placeholder   (sig fixup, 6 bytes)
     //   [67..74]  MOV RAX, [R15 + 16]     (load funcptr_base, 7 bytes)
     //   [74..78]  MOV RAX, [RAX + RBX*8]  (load funcptr, 4 bytes)
-    //   [78..81]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
-    //   [81..83]  CALL RAX                (indirect)
+    //   [78..81]  TEST RAX, RAX           (D-586 null-funcptr check, 3 bytes)
+    //   [81..87]  JE rel32 placeholder    (D-586 fixup → code 3, 6 bytes)
+    //   [87..90]  MOV RDI, R15            (restore runtime_ptr, 3 bytes)
+    //   [90..92]  CALL RAX                (indirect)
     // All assertions use body_start_offset() so they survive
     // future +7 prologue shift from JIT-execution sentinel injection.
     const body_start = prologue.body_start_offset(true, 8);
@@ -1634,10 +1636,18 @@ test "compile: call_indirect — bounds + sig (JAE+JNE → trap stub) + CALL RAX
     const expected_funcptr_load = inst.encMovR64FromBaseIdxLsl3(.rax, .rax, .rbx);
     const funcptr_off = body_start + 61;
     try testing.expectEqualSlices(u8, expected_funcptr_load.slice(), out.bytes[funcptr_off .. funcptr_off + expected_funcptr_load.len]);
+    // D-586 null-funcptr check: TEST RAX,RAX (3 bytes) ; JE → the cind sig trap
+    // stub (6 bytes). A host-cleared slot leaves a zero funcptr with a valid
+    // typeidx, and without this the CALL executed it.
+    const expected_fp_test = inst.encTestRR(.q, .rax, .rax);
+    const fp_test_off = body_start + 65;
+    try testing.expectEqualSlices(u8, expected_fp_test.slice(), out.bytes[fp_test_off .. fp_test_off + expected_fp_test.len]);
+    try testing.expectEqual(@as(u8, 0x0F), out.bytes[body_start + 68]);
+    try testing.expectEqual(@as(u8, 0x84), out.bytes[body_start + 69]);
     // Per-call SUB RSP, 32 on Win64 is gone — the
     // shadow lives in the prologue's outgoing region. CALL RAX
     // offset is the same on both Cc.
-    const call_off: u32 = body_start + 68;
+    const call_off: u32 = body_start + 77;
     const expected_call = inst.encCallReg(.rax);
     try testing.expectEqualSlices(u8, expected_call.slice(), out.bytes[call_off .. call_off + expected_call.len]);
 }

@@ -873,8 +873,9 @@ pub fn build(b: *std.Build) void {
     // the public `Engine.compile` (parse + validate). A decode-error
     // return is an EXPECTED reject; a CRASH (panic / SEGV / OOM-loop)
     // is a finding — it kills the loader process → red gate. Full
-    // overnight campaigns ride the §14.3 nightly over a larger
-    // gitignored `wasm-tools smith` corpus (`gen_fuzz_corpus.sh campaign`).
+    // campaigns run on demand over a larger gitignored `wasm-tools smith`
+    // corpus (`gen_fuzz_corpus.sh campaign`; automation retired with
+    // nightly.yml — ADR-0211 D1, revival hints in D-593).
     const fuzz_loader_mod = createSanitizedModule(b, sanitize_opts, .{
         .root_source_file = b.path("test/fuzz/fuzz_loader.zig"),
         .target = target,
@@ -893,14 +894,15 @@ pub fn build(b: *std.Build) void {
     const test_fuzz_step = b.step("test-fuzz", "Run the fuzz smoke over the committed seed corpus (§14.3 / D-256)");
     test_fuzz_step.dependOn(&run_fuzz.step);
 
-    // `zig build fuzz-campaign` — §14.3 nightly. Runs the loader over the
-    // larger gitignored campaign corpus (`gen_fuzz_corpus.sh campaign`,
-    // generated at nightly time on a host with `wasm-tools`). NOT in
-    // test-all (the campaign dir is absent on a normal checkout).
+    // `zig build fuzz-campaign` — on-demand campaign (ADR-0211 D1 / D-593).
+    // Runs the loader over the larger gitignored campaign corpus
+    // (`gen_fuzz_corpus.sh campaign`, generated on a host with
+    // `wasm-tools`). NOT in test-all (the campaign dir is absent on a
+    // normal checkout).
     const run_fuzz_campaign = b.addRunArtifact(fuzz_loader_exe);
     run_fuzz_campaign.addArg(b.pathFromRoot("test/fuzz/corpus/campaign"));
     run_fuzz_campaign.has_side_effects = true;
-    const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (§14.3 nightly)");
+    const fuzz_campaign_step = b.step("fuzz-campaign", "Run the fuzz loader over the gitignored campaign corpus (on-demand, D-593)");
     fuzz_campaign_step.dependOn(&run_fuzz_campaign.step);
 
     // `zig build test-fuzz-exec` (alias `fuzz-diff`) — D-469/D-510 interp-vs-JIT
@@ -1171,6 +1173,38 @@ pub fn build(b: *std.Build) void {
     run_wasi_p1.addArg(b.pathFromRoot("test/wasi"));
     const test_wasi_p1_step = b.step("test-wasi-p1", "Run the WASI 0.1 fixture suite");
     test_wasi_p1_step.dependOn(&run_wasi_p1.step);
+
+    // `zig build test-wasi-p1-official` — the OFFICIAL wasi-testsuite
+    // wasm32-wasip1 corpus (D-582). Deliberately NOT in `test-all` yet: the
+    // corpus reports 14 engine-independent failures (D-583), so folding it
+    // into the blocking gate now would red every PR. CI runs it as an ADVISORY
+    // step in the `gate` job (step-level `continue-on-error`); this step joins
+    // `test-all` when D-583 discharges, which is that row's exit condition.
+    //
+    // Two lanes, because the engines diverge: `--engine jit` fails 4 tests the
+    // interpreter passes, and the default `.auto` prefers the JIT — so a
+    // single unpinned lane would silently measure the JIT and label it
+    // preview1 coverage.
+    const wasi_official_mod = createSanitizedModule(b, sanitize_opts, .{
+        .root_source_file = b.path("test/wasi/official_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    wasi_official_mod.addImport("zwasm", zwasm_lib_mod);
+    const wasi_official_exe = b.addExecutable(.{
+        .name = "zwasm-wasi-p1-official",
+        .root_module = wasi_official_mod,
+    });
+    const run_wasi_official_interp = b.addRunArtifact(wasi_official_exe);
+    run_wasi_official_interp.addArg(b.pathFromRoot("test/wasi/wasip1_official"));
+    run_wasi_official_interp.addArg("interp");
+    const run_wasi_official_jit = b.addRunArtifact(wasi_official_exe);
+    run_wasi_official_jit.addArg(b.pathFromRoot("test/wasi/wasip1_official"));
+    run_wasi_official_jit.addArg("jit");
+    const test_wasi_p1_official_step = b.step("test-wasi-p1-official", "Run the official wasi-testsuite wasm32-wasip1 corpus on both engines (D-582)");
+    test_wasi_p1_official_step.dependOn(&run_wasi_official_interp.step);
+    test_wasi_p1_official_step.dependOn(&run_wasi_official_jit.step);
 
     // `zig build test-c-api` — Phase 3 / §9.3 / 3.9. Builds
     // `libzwasm.a` from the shared `core` module (rooted at

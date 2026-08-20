@@ -5,8 +5,9 @@
 #     seed     (default): small COMMITTED smoke corpus (test/fuzz/corpus/seed/)
 #                          — runs in `zig build test-fuzz` / test-all on the
 #                          toolchain-free test hosts.
-#     campaign: large GITIGNORED corpus (test/fuzz/corpus/campaign/) for the
-#                          §14.3 nightly overnight campaign. `FUZZ_N=<n>` overrides.
+#     campaign: large GITIGNORED corpus (test/fuzz/corpus/campaign/) for
+#                          on-demand fuzz campaigns (automation retired,
+#                          ADR-0211 D1 / D-593). `FUZZ_N=<n>` overrides.
 #
 # Mac-host only (needs `wasm-tools` from `nix develop`; the test hosts run the
 # committed seed corpus through the Zig-built loader, no toolchain). Modules are

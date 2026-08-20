@@ -61,12 +61,34 @@ jobs:
       - name: Add Zig to PATH
         run: echo "$HOME/.local/zig-0.16.0" >> "$GITHUB_PATH"
 
+      # Build-time dependency, not a bench tool: the DEFAULT `zig build` that
+      # run_bench.sh performs pulls in the spec-assert exes, whose
+      # spectest.wasm comes from `wasm-tools parse` (build.zig). Missing since
+      # the runner joined the install set (2026-05-23) — this workflow is
+      # dispatch-only, so nothing surfaced it. Same install as ci.yml.
+      - name: Install wasm-tools (build-time, required by the default install set)
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          v="${WASM_TOOLS_VERSION}"
+          case "${{ runner.os }}" in
+            Linux)  asset="wasm-tools-${v}-x86_64-linux" ;;
+            macOS)  asset="wasm-tools-${v}-aarch64-macos" ;;
+          esac
+          url="https://github.com/bytecodealliance/wasm-tools/releases/download/v${v}/${asset}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          curl -fsSL "$url" -o wt.tar.gz
+          tar -xzf wt.tar.gz --strip-components=1 "${asset}/wasm-tools"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install hyperfine
         run: brew install hyperfine
 
       - name: Verify toolchain
         run: |
           zig version
+          wasm-tools --version
           hyperfine --version
 
       - name: Snapshot history.yaml (pre-run baseline for diff)
@@ -128,6 +150,27 @@ jobs:
       - name: Add Zig to PATH
         run: echo "$HOME/.local/zig-0.16.0" >> "$GITHUB_PATH"
 
+      # Build-time dependency, not a bench tool: the DEFAULT `zig build` that
+      # run_bench.sh performs pulls in the spec-assert exes, whose
+      # spectest.wasm comes from `wasm-tools parse` (build.zig). Missing since
+      # the runner joined the install set (2026-05-23) — this workflow is
+      # dispatch-only, so nothing surfaced it. Same install as ci.yml.
+      - name: Install wasm-tools (build-time, required by the default install set)
+        run: |
+          set -euo pipefail
+          source .github/versions.lock
+          v="${WASM_TOOLS_VERSION}"
+          case "${{ runner.os }}" in
+            Linux)  asset="wasm-tools-${v}-x86_64-linux" ;;
+            macOS)  asset="wasm-tools-${v}-aarch64-macos" ;;
+          esac
+          url="https://github.com/bytecodealliance/wasm-tools/releases/download/v${v}/${asset}.tar.gz"
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          curl -fsSL "$url" -o wt.tar.gz
+          tar -xzf wt.tar.gz --strip-components=1 "${asset}/wasm-tools"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install hyperfine
         run: |
           set -euo pipefail
@@ -137,6 +180,7 @@ jobs:
       - name: Verify toolchain
         run: |
           zig version
+          wasm-tools --version
           hyperfine --version
 
       - name: Snapshot history.yaml (pre-run baseline for diff)

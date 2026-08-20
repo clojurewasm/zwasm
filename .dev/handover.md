@@ -18,19 +18,8 @@ issues / releases / ruleset intact). **Phase 4's repo side is done too** —
 `zwasm/tap/zwasm` (#181). Left to the user: phase 4 item 10 (verify from a
 clean `brew` state) and **phase 5** (cljw pin + wind-down).
 
-## In flight (2026-08-16)
+## In flight (2026-08-18)
 
-- **#186** (jit: trap on a null table funcptr instead of executing it) and
-  **#183** (ADR-0208 — gate WASI preview1 on the official testsuite): both
-  CI-green and mergeable, **awaiting maintainer review since 2026-08-14**.
-  Do not refresh them against `main` until the review lands.
-- **Landed 2026-08-16**: #190 (D-592 retracted — the build-cache mechanism it
-  claimed does not hold; the real defect was `run_oob_trap` never re-running),
-  #192 (the JIT realworld differential had no caller — now in `test-all` with
-  denominator accounting), #191 / #193 (records).
-- `develop/wasi-p1-official-impl` carries #183's implementation — 147 files
-  (vendored corpus + runner + advisory gate), pushed, **no PR**; it lands with
-  the ADR once the review answers.
 - **Next dispatchable — the wasmtime differential is double fail-open.**
   `test/realworld/diff_runner.zig` has a `matched < 30` denominator gate that is
   bypassed on any host without a working wasmtime: two early returns precede it
@@ -89,10 +78,14 @@ clean `brew` state) and **phase 5** (cljw pin + wind-down).
   spec lane is opt-in (`ZWASM_SPEC_ENGINE=jit`) and is NOT in CI, so that row
   is not currently re-derivable for both engines.
 - **WASI 0.1**: syscall SURFACE complete (46/46, ADR-0161). Behaviour against
-  the official wasi-testsuite was measured 2026-08-14 at **58/72 interp,
-  54/72 jit** (x86_64-linux; wasmtime 47.0.3 scores 72/72 through the same
-  harness) — nothing gated that until now. **0.2/CM** default-ON; **0.3 FULL
-  on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
+  the official wasi-testsuite measures **58/72 interp, 54/72 jit** on
+  x86_64-linux (2026-08-18, through `test/wasi/official_runner.zig`; wasmtime
+  scores 72/72 through the same harness — read locally at 47.0.3, while CI
+  pins 45.0.0, so it is not re-derivable there: D-283) — **nothing gates
+  that**, and the CI step is advisory too. ADR-0208 is Accepted and decides
+  the gate: D-582 the corpus + runner infra, D-583 the 14 interp gaps that
+  keep the step advisory rather than blocking. **0.2/CM** default-ON; **0.3
+  FULL on all 3 OSes** (official 45/45, 0 skip). Sandbox triad cross-engine.
 - **Surfaces**: C-API · Zig-API · lean CLI · memory-safety sound · dogfooded
   into cljw. Realworld 56/0 vs wasmtime under `--engine jit`, gating in
   `test-all` since 2026-08-16 (`test-realworld-diff-jit`) **on hosts where

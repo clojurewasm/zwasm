@@ -19,10 +19,11 @@
 //!   zig build test-fuzz                 # walks test/fuzz/corpus/seed/
 //!   zwasm-fuzz-loader <corpus-dir>
 //!
-//! Full overnight campaigns (a larger, gitignored `wasm-tools smith`
-//! corpus) ride the §14.3 nightly workflow; this smoke gate runs the
-//! committed seed corpus so the toolchain-free test hosts can execute
-//! it (no `wasm-tools` at run time).
+//! Full campaigns (a larger, gitignored `wasm-tools smith` corpus)
+//! run on demand via `zig build fuzz-campaign` (automation retired
+//! with nightly.yml — ADR-0211 D1, revival hints in D-593); this
+//! smoke gate runs the committed seed corpus so the toolchain-free
+//! test hosts can execute it (no `wasm-tools` at run time).
 
 const std = @import("std");
 

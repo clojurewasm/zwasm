@@ -215,9 +215,10 @@ These do not change between phases. Changing one requires an ADR.
 - E2E test harness for realworld wasm samples.
 - Fuzz infrastructure: corpus + edge-case generator + differential
   fuzz + overnight campaign.
-- Bench harness with append-only `bench/history.yaml`, multi-arch
-  per-merge recording (Mac directly, Linux via `ubuntunote` SSH,
-  Windows via `windowsmini` SSH per ADR-0049 + ADR-0067).
+- Bench harness with append-only `bench/history.yaml` — deliberate
+  multi-arch recordings (Mac + Linux; Windows timing deferred per
+  ADR-0137/D-249) plus the nightly `bench_watch.yml` gross-regression
+  watch (ADR-0211 D2; the per-merge convention is retired).
 
 ### 3.2 Out of scope permanently
 
@@ -1561,7 +1562,7 @@ progresses):
 | Task | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Done                  |
 |------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------|
 | 11.0 | Open §11 inline + flip Phase Status widget (Phase 10 → DONE; Phase 11 → IN-PROGRESS).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | [x]                   |
-| 11.1 | WASI 0.1 (preview1) **FULL 46/46 (interp)** — completed 2026-06-05 under the **ADR-0161 WASI program** (the earlier "full" label was a 21/46-subset overclaim; ADR-0161 scheduled + this row records the 21→46 completion). All `std.Io.File`/`std.Io.Dir`-based; per-syscall TDD green Mac + x86_64 + Win64 cross-compile. `proc_raise`=notsup, sockets ×4=notsock (no socket fds in the preopen model — host socket-preopen = D-281). **All-engine WASI DONE**: JIT (D-244, `71cd3c85`) + AOT (D-251, `9750b064`) both do REAL WASI via the shared `jit_dispatch.zig` handlers. Per-syscall detail in D-278 + commits. | [x] `1d2cb8df`        |
+| 11.1 | WASI 0.1 (preview1) **syscall surface 46/46 (interp)** — completed 2026-06-05 under the **ADR-0161 WASI program**. This counts implemented syscalls, NOT conformance: the official wasi-testsuite scores 58/72 on the interpreter (ADR-0208, D-582/D-583) (the earlier "full" label was a 21/46-subset overclaim; ADR-0161 scheduled + this row records the 21→46 completion). All `std.Io.File`/`std.Io.Dir`-based; per-syscall TDD green Mac + x86_64 + Win64 cross-compile. `proc_raise`=notsup, sockets ×4=notsock (no socket fds in the preopen model — host socket-preopen = D-281). **All-engine WASI DONE**: JIT (D-244, `71cd3c85`) + AOT (D-251, `9750b064`) both do REAL WASI via the shared `jit_dispatch.zig` handlers. Per-syscall detail in D-278 + commits. | [x] `1d2cb8df`        |
 | 11.2 | Bench infra — per-merge auto-recording into `bench/history.yaml` on **Mac native + ubuntunote** (`scripts/run_bench.sh --quick` local path). **Windows bench timing deferred per ADR-0137 / D-249** (hyperfine absent on `windowsmini`; not autonomously provisionable). 3-host *correctness* reconcile unaffected.                                                                                                                                                                                                                                                                                                         | [x]                   |
 | 11.3 | SIMD per-op gap analysis vs (wasmtime, wazero, wasmer) — identify ops lagging > 3× the median; file Phase 15 debt entries (carried from §9.10 Track A). Profile: `bench/results/simd_gap_profile_p11_3.md` (0/12 ops > 3×; arm64 dot/extmul emit hole → D-246).                                                                                                                                                                                                                                                                                                                                                         | [x]                   |
 | 11.4 | **Moved to Phase 15 (ADR-0135)**. GC-on-JIT precise rooting (D-211) is untestable without GC reclamation — a missed root can only UAF once objects are freed, and the Phase-10 collector is β no-reclaim (`collector_mark_sweep.zig:214`); ADR-0128 §2 = "rooting becomes load-bearing only when reclamation lands". Reclamation was unowned (not in §11.P exit, nor Phase 12/13/14). Re-sequenced: rooting + reclamation land together in Phase 15 (optimisation tier per P14; non-moving no-reclaim is correctness-safe to defer). Row preserved for citation lineage.                                                 | [~] moved to Phase 15 |
@@ -1663,6 +1664,12 @@ hard-gate — Phase 13 opens autonomously per the §12.P close, ADR-0141).
 - The local `pre_push` hook still works; CI is a second line, not
   the first.
 
+> **Revision 2026-08-19 (ADR-0211)**: this exit criterion is a Phase-14-era
+> record. The premise it names (CI second-line) was reversed by ADR-0076 D9;
+> `nightly.yml` is retired (revival hints in D-593), the per-merge recorder
+> convention is retired in favor of the `bench_watch.yml` nightly
+> gross-regression watch, and all three `ci.yml` legs are blocking.
+
 **🔒 gate**: no.
 
 #### §14 task table
@@ -1671,8 +1678,8 @@ hard-gate — Phase 13 opens autonomously per the §12.P close, ADR-0141).
 |------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
 | 14.0 | Open §14 inline + flip Phase Status widget (Phase 13 → DONE; Phase 14 → IN-PROGRESS).                                                                                                                                                                                                                                                                                                                                                                                                                | [x]    |
 | 14.1 | `.github/workflows/pr.yml` — `zig build test-all` matrix on `macos-15` + `ubuntu-22.04` + `windows-2022` (mirrors the local 3-host gate; manual `workflow_dispatch` per §14.5 CI-second-line; reuses bench.yml's zig-0.16.0 install; actionlint-clean; win leg flaky on D-245).                                                                                                                                                                                                                       | [x]    |
-| 14.2 | Per-merge bench recorder → `bench/results/history.yaml`. **Satisfied by existing `.github/workflows/bench.yml`** (workflow_dispatch; bench-mac + bench-linux → fragment artifacts → aggregate bot-commit). Scope is **2-host (Mac+Linux) per ADR-0137**; windows-timing leg deferred (**D-249**, hyperfine absent on windowsmini — perf-completeness, not a gate). No separate `main.yml` (would duplicate bench.yml; auto-on-merge trigger conflicts with the 2026-05-25 manual-CI decision).      | [x]    |
-| 14.3 | `.github/workflows/nightly.yml` — fuzz + spec-bump + proposal-watch. **DONE** (`17e3b6f1`+`1fc63016`): 3/3 legs — (1) fuzz campaign (`gen_fuzz_corpus.sh campaign` → `zig build fuzz-campaign`, ~2000 smith modules; harness `6c80c229`+`16584c1c` = parse/validate/instantiate crash-fuzz); (2) proposal-watch freshness (`check_proposal_watch.sh`, 90d); (3) spec-bump drift (`check_spec_bump.sh` vs `.dev/spec_pin.yaml` Wasm-3.0 baseline). workflow_dispatch; actionlint-clean.               | [x]    |
+| 14.2 | Per-merge bench recorder → `bench/results/history.yaml`. **Satisfied by existing `.github/workflows/bench.yml`** (workflow_dispatch; bench-mac + bench-linux → fragment artifacts → aggregate bot-commit). Scope is **2-host (Mac+Linux) per ADR-0137**; windows-timing leg deferred (**D-249**, hyperfine absent on windowsmini — perf-completeness, not a gate). No separate `main.yml` (would duplicate bench.yml; auto-on-merge trigger conflicts with the 2026-05-25 manual-CI decision). **Revision 2026-08-19 (ADR-0211 D2): the per-merge convention is retired; `bench_watch.yml` (nightly, commit-free, ≥2x/≥2-fixture alert) is the regression watch.** | [x]    |
+| 14.3 | `.github/workflows/nightly.yml` — fuzz + spec-bump + proposal-watch. **DONE** (`17e3b6f1`+`1fc63016`): 3/3 legs — (1) fuzz campaign (`gen_fuzz_corpus.sh campaign` → `zig build fuzz-campaign`, ~2000 smith modules; harness `6c80c229`+`16584c1c` = parse/validate/instantiate crash-fuzz); (2) proposal-watch freshness (`check_proposal_watch.sh`, 90d); (3) spec-bump drift (`check_spec_bump.sh` vs `.dev/spec_pin.yaml` Wasm-3.0 baseline). workflow_dispatch; actionlint-clean. **Revision 2026-08-19 (ADR-0211 D1): nightly.yml retired — never scheduled in this tree and rotted around its legs; revival hints in D-593.** | [x]    |
 | 14.4 | `.github/workflows/bench_baseline.yml` (`workflow_dispatch`) — record per-arch bench baselines on demand. **DONE**: runs `record_baseline_v1_regression.sh` on macos-15 + ubuntu-22.04 (2-host per ADR-0137; win deferred D-249), uploads `baseline_v1_regression.yaml` as a per-arch artifact (per-host floor, not committed). actionlint-clean.                                                                                                                                                      | [x]    |
 | 14.5 | Confirm the local `pre_push` hook still works + document CI-as-second-line (not first); CI green ≠ skip local gate. **DONE**: `.githooks/pre-push` wired (`core.hooksPath=.githooks`), runs 4 audit gates every push (verified live this session); CI-second-line documented in the hook header + ADR-0076 D4 (merge gate is manual `gate_merge.sh`; CI workflows are `workflow_dispatch`).                                                                                                            | [x]    |
 | 14.P | Phase 14 close (🔒 gate: no). **DONE** — re-scoped (ADR-0145): CI workflows (pr/bench/bench_baseline/nightly) authored + actionlint-clean (workflow_dispatch, §14.5 CI-second-line); the new `test-fuzz` test-all layer verified **3-host-green** (Mac+ubuntu+windowsmini reconcile, `29 processed, 0 crashes` each); audit_scaffolding 0-block. Sole windowsmini failure = D-245 win64 SIMD-JIT (the same elevated carry as §13.P; deferred to §11.3/Phase-15). widget 14→DONE; Phase 15 expanded. | [x]    |
@@ -1955,7 +1962,7 @@ Test layers are exposed as Zig build steps. There is **no
 | `zig build test-e2e`       | 4           | End-to-end CLI invocations                         |
 | `zig build test-realworld` | 4           | 50 known-good wasm samples (matches v1)            |
 | `zig build test-c-api`     | 3           | wasm-c-api conformance                             |
-| `zig build test-fuzz`      | 5           | Quick fuzz smoke (full campaigns are nightly)      |
+| `zig build test-fuzz`      | 5           | Quick fuzz smoke (campaign automation: D-593)      |
 | `zig build test-diff`      | 6           | `interp == jit_native` differential                |
 | `zig build test-all`       | 0           | All of the above (skips not-yet-implemented steps) |
 
@@ -1973,7 +1980,7 @@ demand** — with one exception (heavyweight toolchain outputs).
 | Self-authored `.wat`                            | `test/spec/wat/*.wat`                                                                               | `.wasm` regenerated by `zig build test-spec`                                                                                                                                   |
 | Self-authored `.wast`                           | `test/spec/wast/*.wast`                                                                             | `.json` regenerated via `wast2json`                                                                                                                                            |
 | Wasm spec testsuite                             | local copy under `~/Documents/OSS/WebAssembly/testsuite/` (pinned via `scripts/regen_test_data.sh`) | `.json` regenerated                                                                                                                                                            |
-| WASI testsuite                                  | similar — pinned external repo                                                                     | regenerated                                                                                                                                                                    |
+| WASI testsuite                                  | upstream `prod/testsuite-base` prebuilt binaries at a pinned SHA                                    | **`.wasm` + manifests + preopen trees committed** under `test/wasi/wasip1_official/` and `test/component/wasip3_official/` (three guest toolchains to rebuild — the heavyweight-toolchain exception; `wasm-tools strip`ped, 96.5 MiB → 5.5 MiB for p1) + `scripts/vendor_wasip{1,3}_official.sh` pin + regen (ADR-0208 D1, ADR-0205 D3) |
 | Realworld samples (TinyGo / Rust / emcc / etc.) | C / Rust / Go source under `test/realworld/src/` (committed)                                        | **`.wasm` also committed** under `test/realworld/wasm/` (toolchain reproducibility is heavy; the binary is a snapshot) + `scripts/regen_test_data.sh` documents how to rebuild |
 | Bench wasm                                      | source under `bench/runners/src/` or `~/Documents/OSS/sightglass/`                                  | `.wasm` committed under `bench/runners/`                                                                                                                                       |
 | Fuzz corpus                                     | none (generated by `wasm-tools smith`)                                                              | gitignored, regenerated locally                                                                                                                                                |
@@ -2010,10 +2017,12 @@ single host that runs both JITs.
 - Edge cases: hand-crafted (truncated, bad magic, oversized LEB).
 - Differential fuzz: random input → both `interp` and `jit_native`,
   assert equal.
-- Overnight campaign: nightly CI run (Phase 14+); duration TBD per
-  budget.
-- Crash files saved to `test/fuzz/corpus/crash_*` and uploaded to
-  GitHub Release on failure (Phase 14+).
+- Overnight campaign: automation retired with nightly.yml (ADR-0211
+  D1); run on demand, revival hints in D-593. Duration still
+  unmeasured.
+- Crash files saved to `test/fuzz/corpus/crash_*`. (The "uploaded to
+  GitHub Release on failure" leg was aspirational — no workflow ever
+  carried it; a rebuilt campaign runner owns that decision, D-593.)
 
 ### 11.5 Three-OS gate
 
@@ -2041,7 +2050,9 @@ behaviour toward the number, not the underlying goal.
 
 Instead:
 
-- `bench/history.yaml` records every merge's numbers across 3 OS.
+- `bench/history.yaml` records deliberate measurements (§12.4 cadence;
+  the per-merge convention is retired, ADR-0211 D2), and
+  `bench_watch.yml` watches for gross regressions nightly.
 - A regression in any bench triggers investigation, not an automatic
   block.
 - Comparison against reference runtimes (wasm3, wasmtime baseline,
@@ -2073,13 +2084,18 @@ Instead:
 
 ### 12.4 Cadence
 
-- **Per-merge** (manual, under PR-only `main`): record on the
-  **feature branch** via `bash scripts/record_merge_bench.sh
-  --phase-record --reason=...` and commit `history.yaml` into the
-  **same PR** as the code — never a post-merge follow-up (a
-  ruleset-protected `main` would need its own PR each merge).
-  Linux + Windows rows via the analogous remote scripts when
-  needed. Skip for trivial / doc-only changes.
+- **Deliberate recordings only** (ADR-0211 D2, 2026-08-19; the
+  per-merge convention is retired — it assumed merges were local
+  events and went unused once the merge gate moved to CI):
+  `history.yaml` rows come from a local
+  `bash scripts/record_merge_bench.sh --phase-record --reason=...`
+  run or a `bench.yml` dispatch, at phase boundaries or when a
+  change is performance-relevant.
+- **Gross-regression watch**: `bench_watch.yml` (nightly) runs
+  `scripts/bench_watch.sh` — same-run A/B of HEAD vs the latest
+  release tag, alert at ≥2x slower on ≥2 canary fixtures via the
+  scheduled run failing. Commits nothing, gates nothing (§12.1
+  investigation-trigger discipline unchanged).
 - **Manual baselines**: `bash scripts/record_merge_bench.sh
   --arch=...` records on demand.
 

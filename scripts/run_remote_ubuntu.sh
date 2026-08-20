@@ -137,7 +137,7 @@ echo "[run_remote_ubuntu] remote HEAD: $remote_sha"
 # 3. Build / test / bench. `build` is the implicit (default) step in
 #    build.zig — invoking `zig build build` errors, so map it to no
 #    step. `bench` is NOT a zig build step: it runs the §12.4 manual
-#    per-merge recorder (record_merge_bench.sh → run_bench.sh hyperfine,
+#    bench recorder (record_merge_bench.sh → run_bench.sh hyperfine,
 #    pinned via flake.nix) to produce the x86_64-linux row. Extra args
 #    after `bench` forward, e.g. `… bench --quick --phase-record` or
 #    `… bench --quick --bench=tinygo/arith`; default = full --quick.
