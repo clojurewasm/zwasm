@@ -54,10 +54,11 @@ and the wasm level is the strip lever.
 | [wasmtime](https://wasmtime.dev/) | optional | differential oracle in some suites — absent = those comparisons **skip**, never fail |
 | Nix (flakes) | optional | reproducible dev shell (`nix develop`), fixture regeneration shells |
 | `yq` (mikefarah v4) | optional | `.dev/debt.yaml` ledger checks in the pre-commit hook — guarded, prints an install pointer if missing |
-| hyperfine / wasm-tools / wabt | optional | benchmarks, fixture tooling — all guarded |
+| [wasm-tools](https://github.com/bytecodealliance/wasm-tools) | **required** | every `zig build` step generates `spectest.wasm` from `test/spec/spectest.wat`; absent = the build **fails**, it is not guarded |
+| hyperfine / wabt | optional | benchmarks, fixture tooling — all guarded |
 
 The committed test corpus (spec suite, WASI conformance, real-world `.wasm`
-fixtures) runs with **no toolchain beyond Zig**. Regenerating fixtures from
+fixtures) runs with **no toolchain beyond Zig and `wasm-tools`**. Regenerating fixtures from
 source (emcc / TinyGo / Rust) is a maintainer task using the Nix `gen`
 shells — contributors never need it; the `.wasm` files are committed.
 

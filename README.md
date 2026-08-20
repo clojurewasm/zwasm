@@ -195,7 +195,9 @@ zig build test-all     # all enabled test layers
 zig build -Dtarget=x86_64-windows-gnu
 ```
 
-**You only need Zig 0.16.0** — multi-OS verification is handled
+**You need Zig 0.16.0 and [`wasm-tools`](https://github.com/bytecodealliance/wasm-tools)**
+(pinned in [`.github/versions.lock`](.github/versions.lock); the build
+generates `test/spec/spectest.wasm` with it). Multi-OS verification is handled
 automatically by CI on every pull request. The full development story
 (test layers, optional tools, git hooks, what's maintainer-only) is in
 **[`docs/development.md`](docs/development.md)**; the contribution flow is in

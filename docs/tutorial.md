@@ -14,8 +14,10 @@ zig build             # builds the `zwasm` binary into zig-out/bin/
 zig build test        # unit tests
 ```
 
-(Without Nix, install Zig 0.16.0 yourself; the toolchain for generating
-realworld `.wasm` fixtures is Mac-only via `nix develop .#gen`.)
+(Without Nix, install Zig 0.16.0 and `wasm-tools` yourself — the build
+generates `spectest.wasm` with the latter; versions are pinned in
+`.github/versions.lock`. The toolchain for generating realworld `.wasm`
+fixtures is Mac-only via `nix develop .#gen`.)
 
 ## 2. Run a module (CLI)
 
