@@ -1,12 +1,20 @@
-# Windows SSH (`windowsmini`) Setup
+# Windows SSH host setup (optional pre-flight)
 
-> **Doc-state**: ACTIVE — load-bearing reference (Phase 9+ scope).
+> **Doc-state**: ACTIVE — optional maintainer tooling.
 
-zwasm v2's third native platform — Windows x86_64 — is verified
-locally via SSH to a host called `windowsmini`. This is the same
-mini PC and SSH alias the user already maintains for zwasm v1's
-Windows verification (see v1 `.dev/memo.md` "C-g step 5
-prerequisite" entry). For v2, the host is reused as-is.
+**Nothing here is required to contribute.** CI's `ci-required` check runs the
+3-OS gate, Windows included, on every pull request and is the authoritative
+gate (ADR-0076 D9). This document describes an *optional* local pre-flight:
+running the Windows leg yourself over SSH before opening the PR.
+
+Throughout, `windowsmini` is the maintainer's own SSH alias, used here as a
+worked example. Substitute the host you set in `ZWASM_WINDOWS_HOST` and the
+remote clone path you set in `ZWASM_REMOTE_DIR` — see
+[`scripts/dev_hosts.env.example`](../scripts/dev_hosts.env.example) and
+[`docs/development.md`](../docs/development.md) (ADR-0206). With those unset,
+`scripts/run_remote_windows.sh` exits 2 with a pointer instead of guessing, and
+`gate_merge.sh` skips the leg with a warning. Paths under `C:\Users\...`
+below are likewise one machine's layout, not a requirement.
 
 ## Why SSH instead of WSL or VM
 

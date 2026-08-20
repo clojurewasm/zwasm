@@ -23,24 +23,19 @@ the audit.
 
 ## When to invoke
 
-Two firing modes:
+This skill is **on demand** — nothing fires it automatically (ADR-0212 D5
+records what was retired and why). Its mechanized half is a script you can
+run any time:
 
-### Mandatory (the loop fires this skill automatically)
+```sh
+bash scripts/audit_blocked_by_age.sh          # >14d WARN, >30d STALE
+bash scripts/audit_blocked_by_age.sh --gate   # exit 1 on any STALE row
+```
 
-- **Phase boundary** — when the `/continue` skill's per-task TDD
-  loop detects the last `[ ]` of `§9.<N>` flipping to `[x]`, it
-  fires `audit_scaffolding` inline as part of the boundary
-  handler before opening `§9.<N+1>`. This guarantees `blocked-by:
-  <Phase-N>` debt rows + `flake.lock` churn + ROADMAP drift
-  inherent to the closing phase get walked at the moment of
-  closure, not "next time someone notices".
-- **Stale debt review** — when the `/continue` Step 0.5 debt
-  sweep detects a `blocked-by` row whose `Last reviewed` field
-  is more than 3 resume cycles stale, fires this skill in
-  "narrow mode" (only §F debt-coherence checks) so the row's
-  barrier is re-evaluated before silently being trusted again.
+Narrow mode (§F debt-coherence checks only) is still the right shape when
+that script reports STALE rows and you want the barriers re-walked.
 
-### Adaptive (user / agent judgment)
+Invoke this skill when:
 
 - The scaffolding feels off — handover.md disagrees with ROADMAP, an
   ADR cites a section that has moved, etc.
@@ -50,13 +45,11 @@ Two firing modes:
 - The user explicitly says "audit scaffolding" / "check for drift" /
   similar.
 
-The mandatory triggers are recent (added 2026-05-04 to close the
-gap that Phase 6 surfaced: a `blocked-by:` debt row whose barrier
-quietly disappeared was never re-evaluated until human
-intervention). Local-optimisation drift (audit-fix-audit-fix at
-the expense of phase progress) is still a failure mode this skill
-can flag — keep an eye on whether the audit is helping or
-hindering.
+A `blocked-by` row whose barrier quietly disappeared goes unnoticed until
+someone looks; `scripts/audit_blocked_by_age.sh` is what looks. In the other
+direction, local-optimisation drift (audit-fix-audit-fix at the expense of the
+actual work) is a failure mode this skill can flag — keep an eye on whether the
+audit is helping or hindering.
 
 ## Procedure
 

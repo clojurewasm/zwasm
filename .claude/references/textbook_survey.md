@@ -12,7 +12,7 @@ codebases without being pulled by their styles.
 
 | Path                                              | What it teaches                                                          | When to use                                                             |
 |---------------------------------------------------|--------------------------------------------------------------------------|-------------------------------------------------------------------------|
-| `~/Documents/MyProducts/zwasm/`                   | zwasm v1, ~65K LOC, the immediate predecessor                            | Always when introducing or replacing a v1 feature                       |
+| tag `v1.11.1` in this repository                  | zwasm v1, ~65K LOC, the immediate predecessor                            | Always when introducing or replacing a v1 feature                       |
 | `~/Documents/OSS/wasmtime/cranelift/`             | CLIF + VCode + regalloc2 + ISLE                                          | When designing IR shape, regalloc, or the JIT mid-layer                 |
 | `~/Documents/OSS/wasmtime/winch/`                 | Single-pass JIT, MacroAssembler abstraction                              | When designing the per-arch emit layer                                  |
 | `~/Documents/OSS/zware/`                          | Zig idiomatic Wasm interpreter                                           | When deciding Zig data structures / allocator threading / module layout |

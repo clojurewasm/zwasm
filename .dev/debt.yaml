@@ -1,6 +1,5 @@
 # Debt ledger (YAML SSOT — D-227 / ADR-0129).
 # Query/edit discipline: .claude/rules/yaml_ssot_yq.md. yq = mikefarah Go v4.
-# Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
   - id: "D-593"
@@ -796,42 +795,52 @@ entries:
       gets full 3-OS CI gating with ZERO host-specific setup; everything that
       "breaks" is maintainer-only tooling that is env-overridable, gracefully
       SKIP/WARN-ing, or explicitly optional. The real liability is DOC STALENESS.
-      Gaps:
-      (1) [prereq, undocumented] `zig build test-all` needs `wasm-tools` at build
-          time (builds spectest.wasm) but README/CONTRIBUTING imply "just Zig";
-          only `zig build test` is truly toolchain-free. Add wasm-tools (+ optional
-          wasmtime) to README install notes with the `.github/versions.lock` pins
-          (wasm-tools 1.251.0, wasmtime 45.0.0).
-      (2) [staleness] `.claude/CLAUDE.md` points reference clones at a non-existent
-          `ClojureWasmFromScratch/` + `~/zwasm/private/…`; the real downstream
-          consumer is `~/Documents/MyProducts/ClojureWasm/` (correct in
-          `.dev/reference_clones.md`). Reconcile.
-      (3) [staleness] retired working-dir `~/Documents/MyProducts/zwasm_from_scratch/`
-          still cited in `.dev/ROADMAP.md`, `continue/GATE.md`, `STOP_BUCKETS.md`
-          though README/CLAUDE say it was unified into `zwasm/`. Sweep.
-      (4) [staleness] `continue/SKILL.md` BODY (Steps 6-8 self-re-arm,
-          ScheduleWakeup, "loop never voluntarily exits", "fully AUTONOMOUS
-          campaigns") reads as a live campaign under a "RETIRED" banner. Add
-          per-section MAINTENANCE markers or archive the sub-docs (audit_scaffolding
-          skill owns this class).
-      (5) [staleness] `scripts/check_three_host_diff.sh` hardcodes drifted pass
-          totals (e.g. 212 passed, 44/55) vs current 56-fixture reality (handover).
-          Re-anchor or derive.
-      (6) [onboarding] forced-Japanese chat FIXED 2026-07-29 — the CLAUDE.md
+      Findings, each with the verdict it carries today:
+      (1) FIXED 2026-08-20 — and the original wording understated it. Measured on
+          a fresh clone with `wasm-tools` off PATH, **bare `zig build` fails**
+          ("failed to spawn ... wasm-tools: FileNotFound"), not just `test-all`:
+          the default install step installs `zwasm-spec-wasm-2-0-assert`, whose
+          module embeds `spectest.wasm`, so `wasm-tools parse` runs before
+          anything is installed. README,
+          CONTRIBUTING, `docs/development.md` (tool table + "no toolchain beyond
+          Zig") and `docs/tutorial.md` now state wasm-tools as required, pinned
+          via `.github/versions.lock`. Making the build itself toolchain-free is
+          a separate call: `scripts/wasmtime_misc_native_sweep.sh` and
+          `wasmtime_misc_sweep.sh` consume the installed runner binaries, so
+          un-installing them has a real trade-off.
+      (2) FIXED 2026-08-20 — both paths confirmed absent on disk; CLAUDE.md now
+          names `~/Documents/MyProducts/ClojureWasm/` and drops the dead
+          `~/zwasm/private/v2-investigation/` pointer.
+      (3) FIXED 2026-08-20 for the live citation — ROADMAP §1.5 named the retired
+          working dir AND the retired `zwasm-from-scratch` branch as current, while
+          CLAUDE.md declares "Conflicts -> ROADMAP wins"; it now names `zwasm/` and
+          the `develop/<slug>` -> PR -> `main` flow. `continue/GATE.md` +
+          `STOP_BUCKETS.md` keep theirs under their loop-era headers, and the
+          remaining ROADMAP hits are historical `[x]` rows.
+      (4) PARTIAL 2026-08-20 — the two sections that would actively misdirect in
+          maintenance mode (the stop-condition whitelist, the phase-boundary
+          handler) now carry CAMPAIGN-ONLY markers, and the resume procedure no
+          longer lists the campaign-era Steps 0.5/0.5b/0.6/0.7 as mandatory
+          (ADR-0212 D2). The remaining body — Step 6+7 self-re-arm, ScheduleWakeup,
+          "loop never voluntarily exits" — still reads campaign-live under the
+          RETIRED banner.
+      (5) MOOT 2026-08-20 — `scripts/check_three_host_diff.sh` had no executing
+          caller and was deleted; git log retains it.
+      (6) FIXED 2026-07-29 — [onboarding] forced-Japanese chat; the CLAUDE.md
           language policy now documents overriding `outputStyle` in
           settings.local.json (the SessionStart hook injects no language directive;
           code/commits/docs are English anyway).
-      (7) [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
+      (7) OPEN — [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
           in copy-paste commands even though the scripts accept WASM_SPEC_REPO /
           WASM_TESTSUITE_REPO / WASMTIME_REPO / WASM_PROPOSAL_ROOT overrides —
           align the runbook to the env vars, and note the reference clones are
           absent even locally (spec re-vendor is maintainer-only; the baked corpora
           under test/spec/ ship in the clone).
-      (8) [cleanup] `scripts/win64_debug/attach_dump.sh` +
+      (8) OPEN — [cleanup] `scripts/win64_debug/attach_dump.sh` +
           `.claude/skills/debug_jit_auto/RECIPES.md` hardcode literal
           `Documents/MyProducts/zwasm` / `/c/Users/shota/…` with no override.
       WORKS (fair): Zig 0.16.0 pinned coherently (flake.nix / versions.lock /
-      README); `zig build test` toolchain-free, `test-all` needs only wasm-tools;
+      README); the build needs exactly one tool beyond Zig (wasm-tools, pinned);
       committed spec corpus + realworld fixtures run with NO external clone; git
       hooks are `git rev-parse`-relative + auto-activated by the flake shellHook;
       `.github/workflows/ci.yml` runs the SAME `ci_gate.sh` on mac/linux/windows
@@ -840,7 +849,7 @@ entries:
       users; the SSH 3-host farm is WARN-and-continue (never hard-fails) and
       downgraded to optional pre-PR pre-flight (CI's ci-required is authoritative).
     first_raised: "2026-07-28"
-    last_reviewed: "2026-07-28"
+    last_reviewed: "2026-08-20"
     refs: |-
       ClojureWasm Discussion #11 (dev-process Q from ieugen); companion ClojureWasm
       debt D-565 (same audit, other repo). audit_scaffolding skill owns the
@@ -2028,7 +2037,7 @@ entries:
     first_raised: "2026-05-30"
     last_reviewed: "2026-08-12"
     refs: |-
-      `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/` (no GC emit file — cf. the EH/TC/func-ref files present); `src/zwasm/instance.zig:169` (interp invoke path); `scripts/check_phase10_close_invariants.sh` I16; `build.zig:69-71` (needs_gc_heap skip); lesson `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`; ROADMAP §10 / 10.G
+      `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/` (no GC emit file — cf. the EH/TC/func-ref files present); `src/zwasm/instance.zig:169` (interp invoke path); the phase-10 close invariant I16 (script deleted 2026-08-20; see git log); `build.zig:69-71` (needs_gc_heap skip); lesson `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`; ROADMAP §10 / 10.G
     front: B-hardening
   - id: "D-202"
     layer: "code"
@@ -2056,7 +2065,7 @@ entries:
     status: "note"
     description: |-
       BARRIER DISSOLVED (re-walk 2026-08-12, sweep S4): same dissolution as D-010: emcc fixtures are WASI-standalone; no env shim needed.
-      blocked-by: Phase 11 embenchen full-perf-suite scope (sub-row a; 4 fixtures; emcc env-shim runtime distinct from ADR-0065 Cat III spectest host imports). **Sub-row (b) externref-segment DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase, `externref-segment.0.wasm` now PASSES, `skip_externref_segment.md` → Closed/Superseded. Only sub-row (a) embenchen remains; its barrier holds per ADR-0065 (emcc-env-shim NOT in Phase 9 Cat III scope). | **D-072 (c)-path: actual root-cause fixes for 5 `wasmtime_misc` realruntime fixtures**. Path B's vocab migration in chunk 9.9-h-23 discharged the runner-side enforcement gap (the 5 fixtures now correctly skip via prefix vocab → `0 skip-impl + 5 skip-adr` on `test-wasmtime-misc-runtime`). This row tracks the downstream task: **actually fix the fixtures** so the skip-ADRs can retire. **Sub-row (a) — 4 embenchen fixtures** (`skip_embenchen_emcc_env_imports.md` scope; fannkuch / fasta / ifs / primes). Discharge trigger: Phase 11 embenchen full-perf-suite work item (per ADR-0012 §6 "Out of Phase-6 scope" table) lands the `emcc env imports` shim; retire `skip_embenchen_emcc_env_imports.md` in same chunk (delete the ADR file + delete the prefix lines from the 4 manifests). **Sub-row (b) — DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase; `externref-segment.0.wasm` now PASSES end-to-end as a plain `module` directive (D-290 wasm-tools regen dropped the skip-line; runtime gate reports PASS), and `skip_externref_segment.md` is Closed/Superseded. Only sub-row (a) remains open. Barrier re-walked each resume per `/continue` Step 0.5 (no vague phrasing).
+      blocked-by: Phase 11 embenchen full-perf-suite scope (sub-row a; 4 fixtures; emcc env-shim runtime distinct from ADR-0065 Cat III spectest host imports). **Sub-row (b) externref-segment DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase, `externref-segment.0.wasm` now PASSES, `skip_externref_segment.md` → Closed/Superseded. Only sub-row (a) embenchen remains; its barrier holds per ADR-0065 (emcc-env-shim NOT in Phase 9 Cat III scope). | **D-072 (c)-path: actual root-cause fixes for 5 `wasmtime_misc` realruntime fixtures**. Path B's vocab migration in chunk 9.9-h-23 discharged the runner-side enforcement gap (the 5 fixtures now correctly skip via prefix vocab → `0 skip-impl + 5 skip-adr` on `test-wasmtime-misc-runtime`). This row tracks the downstream task: **actually fix the fixtures** so the skip-ADRs can retire. **Sub-row (a) — 4 embenchen fixtures** (`skip_embenchen_emcc_env_imports.md` scope; fannkuch / fasta / ifs / primes). Discharge trigger: Phase 11 embenchen full-perf-suite work item (per ADR-0012 §6 "Out of Phase-6 scope" table) lands the `emcc env imports` shim; retire `skip_embenchen_emcc_env_imports.md` in same chunk (delete the ADR file + delete the prefix lines from the 4 manifests). **Sub-row (b) — DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase; `externref-segment.0.wasm` now PASSES end-to-end as a plain `module` directive (D-290 wasm-tools regen dropped the skip-line; runtime gate reports PASS), and `skip_externref_segment.md` is Closed/Superseded. Only sub-row (a) remains open. Barrier re-walked on each debt sweep (no vague phrasing).
     first_raised: "2026-05-12"
     last_reviewed: "2026-08-12"
     refs: |-
@@ -3132,28 +3141,21 @@ entries:
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
 conventions: |-
-  > Tracked technical debt. Refresh on every `/continue` resume —
-  > see `.claude/skills/continue/SKILL.md` Step 0.5.
+  > Tracked technical debt.
   >
   > **Discipline (per 2026-05-04 dialogue)**:
   >
   > - Every entry has `Status: now` OR `Status: blocked-by: <具体的な
   >   構造的障害>`. There is no "later" / "low priority" / "small effort"
   >   bucket — those are how debt accumulates.
-  > - On every resume, attempt to discharge **every `now` entry** before
-  >   moving on to the active task. Effort estimate is irrelevant; only
-  >   structural impossibility blocks discharge.
   > - When discharged, **delete** the row (git log retains the trace
   >   via the discharge commit message — `chore(debt): close D-NNN
   >   <one line>`).
   > - When a `blocked-by` row's structural barrier is removed, flip to
   >   `Status: now` immediately.
-  > - The **`Last reviewed`** column is mandatory for `blocked-by` rows.
-  >   Step 0.5 of `/continue` SKILL.md tracks resume-cycle staleness:
-  >   if a row's `Last reviewed` is more than 3 cycles old, the loop
-  >   fires `audit_scaffolding` in narrow mode (§F only) to re-evaluate
-  >   the named barrier. This closes the failure mode where
-  >   `blocked-by:` quietly outlives its barrier.
+  > - The **`Last reviewed`** column is mandatory for `blocked-by` rows,
+  >   so a stale barrier is visible as a date. Re-evaluating one is an
+  >   on-demand audit (`audit_scaffolding` §F), not a standing cadence.
 
 
 
@@ -3184,7 +3186,7 @@ conventions: |-
   - `A-diag-tail` — surface/diagnostic finishing (D-334; cap-bounded at
     validator.zig's 3400-line cap = principled stop).
   - `B-hardening` — steady-state hardening / natural-discharge: external-blocked
-    (upstream Zig / 3-host) + future-phase rows; `/continue` Step 0.5 re-walks
+    (upstream Zig / 3-host) + future-phase rows; a debt sweep re-walks
     each barrier and discharges what dissolved. **Default** for open rows.
   - `C-dogfooding` — cw consumer-side dogfooding DONE (ADR-0168); further signal
     only if the cw-from-scratch redesign adds a v2 consumer (D-264).

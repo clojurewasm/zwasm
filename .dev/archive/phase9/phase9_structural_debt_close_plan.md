@@ -3,7 +3,7 @@
 > **Doc-state**: ARCHIVED 2026-05-22 — superseded by [`.dev/phase9_close_master.md`](../../phase9_close_master.md). Kept for ADR / ROADMAP citation lineage; do not edit.
 
 > **Status**: CLOSED 2026-05-21 — §6 (a)〜(h) + (j) Step A +
-> Step B (cohorts 1-6) all done; (i) Rejected (ADR-0080).
+> Step B (cohorts 1-6) all done; (i) Rejected (ADR-0213, filed as 0080).
 > Cumulative discharge: 43 → 0 FAIL, +93 PASS, 192 → 0
 > runtime-skip; ROADMAP §9.12-E [x] at `7b2e1b02`. handover.md
 > Cold-start procedure step 1 reference removed; future cycles
@@ -137,7 +137,7 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
 
 ### (i) Phase 9 exit redefinition ADR — D1 解消 [**REJECTED 2026-05-21**]
 
-- ~~`.dev/decisions/00NN_phase9_exit_redefinition.md`~~ → ADR-0080
+- ~~`.dev/decisions/00NN_phase9_exit_redefinition.md`~~ → ADR-0213 (filed as 0080)
   authored Proposed (commit `52a93fbc`), then **Rejected**
   (commit `dc07b791`) per user-collab spike findings.
 - 経緯: 当初 §9.12-E lockin の escape valve として "Phase 10
@@ -147,7 +147,7 @@ D-153 (12 cycle 経過時点で skip-impl 不動) はそれ自体が
 - 結果: 旧 exit "skip-impl == 0 literally" を **保持** (= 緩め
   ない)。manifest_skip_impl は実は既に 0 (close-plan §6 (e) で
   判明); 残る runtime SKIP は §6 (j) Step B で discharge。
-- ADR-0080 の Rejection note に lineage を保存。
+- ADR-0213 の Rejection note に lineage を保存。
 
 ### (j) D-153 direct implementation [CLOSED 2026-05-21 §9.12-E [x] `7b2e1b02`]
 

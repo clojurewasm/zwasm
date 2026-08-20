@@ -1,6 +1,6 @@
 # Phase 10 "100% both backends" — scope reassessment (prep for full investigation)
 
-> **Doc-state**: SUPERSEDED-BY
+> **Doc-state**: ARCHIVED — SUPERSEDED-BY
 > **Superseded-by**: `.dev/decisions/0133_phase10_exit_rescope.md` (2026-06-03)
 >
 > RESOLVED. The investigation this doc prepped was executed 2026-06-03 and landed

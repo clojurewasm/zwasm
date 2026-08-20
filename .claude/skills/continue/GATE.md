@@ -90,11 +90,10 @@ verify; predates this rule, unaffected).
 bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1
 ```
 
-Runs once at Phase close. Script does `git fetch + reset --hard
-origin/zwasm-from-scratch` on windowsmini clone at
-`~/Documents/MyProducts/zwasm_from_scratch` and runs `zig build
-test-all`. After full green: `bash scripts/should_gate_windows.sh
---record`. See [`LOOP.md`](LOOP.md) §"Phase-boundary Windows
+Ran once at Phase close: the script did `git fetch + reset --hard` on the
+Windows host's clone and ran `zig build test-all`, then recorded the batch
+via a helper that no longer exists (`should_gate_windows.sh`, deleted per
+ADR-0206 D5). See [`LOOP.md`](LOOP.md) §"Phase-boundary Windows
 reconciliation".
 
 ## Gate verdict per cycle

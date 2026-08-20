@@ -66,8 +66,9 @@ Don't write speculative numbers in mutable docs:
 | ROADMAP §9.<N> chunk records (immutable) | row at chunk-close time | handover |
 | Hypothesis with TTL | debt row body, prefixed `Hypothesis (verified at <SHA-or-date>): ...` | handover |
 
-`/continue` Step 0.5b runs `p<N>_*_status.sh` BEFORE believing
-handover narrative; live script wins on disagreement.
+Where a `p<N>_*_status.sh` script exists, run it before believing the
+handover narrative (`/continue` Step 0.5b, on demand); the live script wins
+on disagreement.
 
 ### "Next candidates" correct shape (names + Refs only)
 
@@ -188,7 +189,7 @@ the check — act only when it exceeds 120.
 
 ## Related
 
-- [`/continue` SKILL.md anti-patterns](../../skills/continue/SKILL.md)
+- [`/continue` SKILL.md anti-patterns](../skills/continue/SKILL.md)
 - [`extended_challenge.md`](extended_challenge.md) — 3-step
   procedure for `Open questions / blockers` entries.
 - [`investigation_discipline.md`](investigation_discipline.md) —

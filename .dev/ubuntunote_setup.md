@@ -1,9 +1,18 @@
-# Ubuntu SSH (`ubuntunote`) Setup
+# Linux SSH host setup (optional pre-flight)
 
-> **Doc-state**: ACTIVE — load-bearing reference (Phase 9+ scope).
+> **Doc-state**: ACTIVE — optional maintainer tooling.
 
-zwasm v2's Linux x86_64 verification host. **Native x86_64
-hardware** (replaces the OrbStack Rosetta-2 path that tripped
+**Nothing here is required to contribute.** CI's `ci-required` check runs the
+Linux leg on every pull request and is the authoritative gate (ADR-0076 D9).
+This document describes an *optional* local pre-flight.
+
+`ubuntunote` is the maintainer's own SSH alias and hostname, used here as a
+worked example; substitute what you set in `ZWASM_UBUNTU_HOST`, with the clone
+path in `ZWASM_REMOTE_DIR` (see
+[`scripts/dev_hosts.env.example`](../scripts/dev_hosts.env.example), ADR-0206).
+
+zwasm v2's Linux x86_64 verification host wants **native x86_64
+hardware** (it replaces the OrbStack Rosetta-2 path that tripped
 D-134 — see
 [`.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`](lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md)).
 

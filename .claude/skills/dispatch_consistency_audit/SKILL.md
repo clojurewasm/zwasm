@@ -1,6 +1,6 @@
 ---
 name: dispatch_consistency_audit
-description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Fires at periodic audit_scaffolding boundaries and on explicit request (the §9.12-B build trigger is now DONE — the substrate exists, so the check is always live).
+description: Audit Q3 C adoption's dispatch substrate consistency — three-way match of ZirOp tag count = per-op file count = 5-axis handler implementation count; `wasm_level` / `wasi_level` metadata consistency; sampling check that build-option DCE works as expected. Use when the dispatch substrate is in scope — on explicit request, or alongside a scaffolding audit (the §9.12-B build trigger is DONE, so the check is always applicable; it has no automatic trigger).
 ---
 
 # dispatch_consistency_audit
@@ -186,5 +186,5 @@ finding is a Phase 9 completion blocker.
 - ADR-0023 §4.5 amend (per-op file pattern formalised)
 - Master plan §7.7 (Q3 C design consistency audit)
 - `scripts/check_build_dce.sh` (functional A1; sampling mode used here)
-- ~~`scripts/p9_completion_status.sh`~~ (deleted 2026-05-22 per ADR-0104; superseded by `scripts/check_phase9_close_invariants.sh` per `.dev/phase9_close_master.md` Phase C wiring)
+- ~~`scripts/p9_completion_status.sh`~~ (deleted 2026-05-22 per ADR-0104; its successor `check_phase9_close_invariants.sh` was itself deleted 2026-08-20 once phase 9 closed — this skill never invoked either)
 - `audit_scaffolding §K.7` (Phase 9 completion enforcement integration)

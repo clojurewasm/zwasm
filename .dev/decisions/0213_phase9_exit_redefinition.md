@@ -1,10 +1,14 @@
-# 0080 — Phase 9 exit redefinition: literal-zero OR named-successor-phase ADR escape
+# 0213 — Phase 9 exit redefinition: literal-zero OR named-successor-phase ADR escape
 
 - **Status**: Rejected (2026-05-21; superseded by direct
   implementation — see Rejection note below)
 - **Date**: 2026-05-21
 - **Author**: autonomous /continue loop (close-plan §6 (i))
 - **Tags**: phase-9, exit-criterion, governance, skip-impl, escape-valve
+- **Renumbered 2026-08-20**: filed as `0080` (`52a93fbc`, 2026-05-21 01:19).
+  ADR-0080 was claimed independently nine hours later by the `emit.zig`
+  int/float split ADR, and every downstream citation of "ADR-0080" resolves to
+  that one, so this ADR takes the next free number. Content unchanged.
 
 ## Rejection note (2026-05-21, post-Proposed)
 
