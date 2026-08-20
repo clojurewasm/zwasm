@@ -144,7 +144,7 @@ echo "[run_remote_ubuntu] remote HEAD: $remote_sha"
 # Optional env-passthrough: `ZWASM_SPEC_ENGINE=jit bash scripts/run_remote_ubuntu.sh
 # test-spec-wasm-3.0-assert` forwards the engine selector across SSH + nix develop
 # so the remote runs the JIT spec path (the x86_64 JIT-EH functional verify; cf.
-# check_phase10_close_invariants.sh "run interp + ZWASM_SPEC_ENGINE=jit spec runner").
+# the phase-10 close invariants, whose script was deleted 2026-08-20).
 ENV_PREFIX=""
 [ -n "${ZWASM_SPEC_ENGINE:-}" ] && ENV_PREFIX="ZWASM_SPEC_ENGINE=$ZWASM_SPEC_ENGINE "
 case "$STEP" in

@@ -131,10 +131,9 @@ text or code identifiers.
 - Subagent fork for: Step 0 surveys, large test logs (>200 lines),
   cross-codebase searches (>5 files), audit/simplify/security-review
   fan-out.
-- Debt + lessons live in git: [`.dev/debt.yaml`](../.dev/debt.yaml) (ledger,
-  refresh per `/continue` Step 0.5), [`.dev/lessons/`](../.dev/lessons/)
-  (re-derivable observations, INDEX.md is the keyword index for Step
-  0.4).
+- Debt + lessons live in git: [`.dev/debt.yaml`](../.dev/debt.yaml) (ledger),
+  [`.dev/lessons/`](../.dev/lessons/) (re-derivable observations, INDEX.md is
+  the keyword index).
 - Don't paper over absences. Walk the 3-step procedure in
   [`extended_challenge.md`](rules/extended_challenge.md) before
   declaring something missing or shipping a SKIP-X workaround.

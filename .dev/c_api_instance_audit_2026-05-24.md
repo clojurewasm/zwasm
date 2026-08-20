@@ -19,7 +19,7 @@ spec_assert).
 
 `src/api/instance.zig` carries **31 in-source `test "..."`
 blocks** lines 946–1787. Phase 9 I2 invariant baseline (per
-`scripts/check_phase9_close_invariants.sh` I2):
+`scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) I2):
 
 | Block | Lines | Scope                              |
 |-------|-------|------------------------------------|

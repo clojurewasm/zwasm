@@ -19,7 +19,7 @@ Phase 9 (SIMD-128) は単一サブシステム + 確立された prior art (wasm
 
 ## 既に自動確認済み(invariants gate 経由)
 
-ADR-0104 で導入された `scripts/check_phase9_close_invariants.sh --gate` (現在 **18/18 PASS**) が以下を機械的にカバー:
+ADR-0104 で導入された `scripts/check_phase9_close_invariants.sh (script deleted 2026-08-20 — no executing caller; git log retains it) --gate` (現在 **18/18 PASS**) が以下を機械的にカバー:
 
 - I1: `SKIP-WIN64-EXHAUSTION` / `SKIP-WIN64-CALL-INDIRECT-TRAP` / `SKIP-WIN64-MULTI-RESULT` arm すべて削除済み (D-162 / D-163 / D-164 closed)
 - I2: c_api Wasm-2.0 utilisation tests (4 ブロック) `src/api/instance.zig` に存在
@@ -268,7 +268,7 @@ Phase 10 close 後、Phase 11 (WASI 0.1 full + bench infra) が吸収する事�
 - `.dev/archive/phase_gates/phase8_transition_gate.md` (テンプレート; 構造ミラー)
 - `.claude/skills/continue/SKILL.md` §「Exception — hard human-in-loop transition gates」
 - `.dev/phase9_close_master.md` §6 Phase 9 = DONE exit predicate (current authoritative)
-- `scripts/check_phase9_close_invariants.sh` (18 invariants gate; ADR-0104)
+- `scripts/check_phase9_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) (18 invariants gate; ADR-0104)
 - ROADMAP §9 Phase Status widget (line 1183-1184), §9.10 (Track A disposition), §9.13-0 (Cat IV reconcile), §9.13-V (Value=16), §9.13 (本ゲート)
 - ROADMAP §4.10 (GC subsystem) + §4 ZIR catalogue (lines 476–611 — Phase 10 オプコード番地確保済み)
 - ADR-0023 §「feature/」 ディレクトリ構造 (gc / exception_handling / tail_call / memory64 スロット確保)

@@ -48,7 +48,7 @@ footnote.
    Also §2 already documents one deliberate deferral (GC-on-JIT rooting) — a
    precedent for documenting multi-memory deferral the same way.
 2. **ROADMAP §10** `.dev/ROADMAP.md:1331` — "pass=fail=skip=0 (both backends)";
-   six rows at 1353-1358; **10.P close** = `scripts/check_phase10_close_invariants.sh`
+   six rows at 1353-1358; **10.P close** = `scripts/check_phase10_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it)
    (23 invariants, design plan §8). No multi-memory/Phase-14 caveat in §10 text.
 3. **Multi-memory deferral** `src/engine/compile.zig:124` (`> 1 → Error.MultipleMemories`,
    memidx-fixed-at-0 MVP) + `src/parse/sections.zig` (enabled at parse, count>1
@@ -88,7 +88,7 @@ footnote.
 3. **Re-measure the non-deferred gap fresh** (skips #4 above + the 4 interp
    trap_fails + JIT eh/try_table) — what's genuinely Phase-10-closeable vs
    deferred. This sizes "how close is interp-100% / JIT-modulo-deferred".
-4. **10.P close-invariant script** (`scripts/check_phase10_close_invariants.sh`,
+4. **10.P close-invariant script** (`scripts/check_phase10_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it),
    design plan §8) — does it need the carve-out, and is the design plan the SSOT
    for it?
 

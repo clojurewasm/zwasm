@@ -402,7 +402,7 @@ v1 で発覚した「spec 通過後 realworld で出た」5 件 (data_count orde
 - `SKIP-P10-MEM64-GAP = 0` (memory64 全 axis OK)
 - `SKIP-P10-CROSS-GAP = 0` (cross-subsystem 7 pair OK)
 
-`scripts/check_phase10_close_invariants.sh` で機械検証。Phase 9 で skip→後発 detect の同型パターン予防。
+`scripts/check_phase10_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) で機械検証。Phase 9 で skip→後発 detect の同型パターン予防。
 
 ### §4.6 spec corpus 取り込み手順
 
@@ -517,7 +517,7 @@ ABI 安定性のため build-option で消せない:
 | G.11 | collector_mark_sweep.zig (Phase 10 β) | architectural | STW; barrier ゼロ |  |
 | G.12 | gc_stress_runner 本実装 + cross fixtures (GC × EH × TC × memory64) | test |  |  |
 | G.13 | GC spec corpus + realworld (dart + wasm_of_ocaml + hoot) green | test |  | reconcile 1 |
-| P.1 | `scripts/check_phase10_close_invariants.sh` 整備 | infrastructure | §8 全 invariant |  |
+| P.1 | `scripts/check_phase10_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) 整備 | infrastructure | §8 全 invariant |  |
 | P.2 | Phase 10 close: widget 10→DONE; Phase 11 inline 展開 | infrastructure |  | reconcile 1 (final) |
 
 依存順序 — J.0 amend → J.invest (plan + test strategy) → J.1+ Native Zig API impl (Runtime → JitRuntime rename を最初に下ろし 10.M/R/TC/E/G の rename churn 回避) → F.* c_api 残り (J と並行可) → test infra (T.1-T.4) → Z.1 ZirInstr 拡張 → 設計ラウンド ADR → サブシステム別実装。
@@ -526,7 +526,7 @@ ABI 安定性のため build-option で消せない:
 
 ## §8. Phase 10 = DONE invariants 草案
 
-`scripts/check_phase10_close_invariants.sh` を P.1 で整備:
+`scripts/check_phase10_close_invariants.sh` (script deleted 2026-08-20 — no executing caller; git log retains it) を P.1 で整備:
 
 | ID | 内容 |
 |----|------|

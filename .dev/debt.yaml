@@ -1,6 +1,5 @@
 # Debt ledger (YAML SSOT — D-227 / ADR-0129).
 # Query/edit discipline: .claude/rules/yaml_ssot_yq.md. yq = mikefarah Go v4.
-# Refresh on every /continue resume — .claude/skills/continue/RESUME.md Step 0.5.
 
 entries:
   - id: "D-593"
@@ -797,11 +796,17 @@ entries:
       "breaks" is maintainer-only tooling that is env-overridable, gracefully
       SKIP/WARN-ing, or explicitly optional. The real liability is DOC STALENESS.
       Gaps:
-      (1) [prereq, undocumented] `zig build test-all` needs `wasm-tools` at build
-          time (builds spectest.wasm) but README/CONTRIBUTING imply "just Zig";
-          only `zig build test` is truly toolchain-free. Add wasm-tools (+ optional
-          wasmtime) to README install notes with the `.github/versions.lock` pins
-          (wasm-tools 1.251.0, wasmtime 45.0.0).
+      (1) FIXED 2026-08-20 — and the original wording understated it. Measured on
+          a fresh clone with `wasm-tools` off PATH, **bare `zig build` fails**
+          ("failed to spawn ... wasm-tools: FileNotFound"), not just `test-all`:
+          three spec-runner exes are `installArtifact`-ed, so the default install
+          step pulls in the `spectest.wat` -> `spectest.wasm` generation. README,
+          CONTRIBUTING, `docs/development.md` (tool table + "no toolchain beyond
+          Zig") and `docs/tutorial.md` now state wasm-tools as required, pinned
+          via `.github/versions.lock`. Making the build itself toolchain-free is
+          a separate call: `scripts/wasmtime_misc_native_sweep.sh` and
+          `wasmtime_misc_sweep.sh` consume the installed runner binaries, so
+          un-installing them has a real trade-off.
       (2) [staleness] `.claude/CLAUDE.md` points reference clones at a non-existent
           `ClojureWasmFromScratch/` + `~/zwasm/private/…`; the real downstream
           consumer is `~/Documents/MyProducts/ClojureWasm/` (correct in
@@ -814,9 +819,8 @@ entries:
           campaigns") reads as a live campaign under a "RETIRED" banner. Add
           per-section MAINTENANCE markers or archive the sub-docs (audit_scaffolding
           skill owns this class).
-      (5) [staleness] `scripts/check_three_host_diff.sh` hardcodes drifted pass
-          totals (e.g. 212 passed, 44/55) vs current 56-fixture reality (handover).
-          Re-anchor or derive.
+      (5) MOOT 2026-08-20 — `scripts/check_three_host_diff.sh` had no executing
+          caller and was deleted; git log retains it.
       (6) [onboarding] forced-Japanese chat FIXED 2026-07-29 — the CLAUDE.md
           language policy now documents overriding `outputStyle` in
           settings.local.json (the SessionStart hook injects no language directive;
@@ -831,7 +835,7 @@ entries:
           `.claude/skills/debug_jit_auto/RECIPES.md` hardcode literal
           `Documents/MyProducts/zwasm` / `/c/Users/shota/…` with no override.
       WORKS (fair): Zig 0.16.0 pinned coherently (flake.nix / versions.lock /
-      README); `zig build test` toolchain-free, `test-all` needs only wasm-tools;
+      README); the build needs exactly one tool beyond Zig (wasm-tools, pinned);
       committed spec corpus + realworld fixtures run with NO external clone; git
       hooks are `git rev-parse`-relative + auto-activated by the flake shellHook;
       `.github/workflows/ci.yml` runs the SAME `ci_gate.sh` on mac/linux/windows
@@ -840,7 +844,7 @@ entries:
       users; the SSH 3-host farm is WARN-and-continue (never hard-fails) and
       downgraded to optional pre-PR pre-flight (CI's ci-required is authoritative).
     first_raised: "2026-07-28"
-    last_reviewed: "2026-07-28"
+    last_reviewed: "2026-08-20"
     refs: |-
       ClojureWasm Discussion #11 (dev-process Q from ieugen); companion ClojureWasm
       debt D-565 (same audit, other repo). audit_scaffolding skill owns the
@@ -2028,7 +2032,7 @@ entries:
     first_raised: "2026-05-30"
     last_reviewed: "2026-08-12"
     refs: |-
-      `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/` (no GC emit file — cf. the EH/TC/func-ref files present); `src/zwasm/instance.zig:169` (interp invoke path); `scripts/check_phase10_close_invariants.sh` I16; `build.zig:69-71` (needs_gc_heap skip); lesson `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`; ROADMAP §10 / 10.G
+      `src/engine/codegen/{arm64,x86_64}/ops/wasm_3_0/` (no GC emit file — cf. the EH/TC/func-ref files present); `src/zwasm/instance.zig:169` (interp invoke path); the phase-10 close invariant I16 (script deleted 2026-08-20; see git log); `build.zig:69-71` (needs_gc_heap skip); lesson `2026-05-30-phase10-jit-coverage-partial-spec-corpus-interp`; ROADMAP §10 / 10.G
     front: B-hardening
   - id: "D-202"
     layer: "code"
@@ -3132,28 +3136,21 @@ entries:
       src/feature/component/async.zig (SharedStream/SharedFuture/WaitableSet rendezvous primitives);
       test/component/two_async_components_*.wat (the d-a..d-c-2 fixtures); ADR-0195
 conventions: |-
-  > Tracked technical debt. Refresh on every `/continue` resume —
-  > see `.claude/skills/continue/SKILL.md` Step 0.5.
+  > Tracked technical debt.
   >
   > **Discipline (per 2026-05-04 dialogue)**:
   >
   > - Every entry has `Status: now` OR `Status: blocked-by: <具体的な
   >   構造的障害>`. There is no "later" / "low priority" / "small effort"
   >   bucket — those are how debt accumulates.
-  > - On every resume, attempt to discharge **every `now` entry** before
-  >   moving on to the active task. Effort estimate is irrelevant; only
-  >   structural impossibility blocks discharge.
   > - When discharged, **delete** the row (git log retains the trace
   >   via the discharge commit message — `chore(debt): close D-NNN
   >   <one line>`).
   > - When a `blocked-by` row's structural barrier is removed, flip to
   >   `Status: now` immediately.
-  > - The **`Last reviewed`** column is mandatory for `blocked-by` rows.
-  >   Step 0.5 of `/continue` SKILL.md tracks resume-cycle staleness:
-  >   if a row's `Last reviewed` is more than 3 cycles old, the loop
-  >   fires `audit_scaffolding` in narrow mode (§F only) to re-evaluate
-  >   the named barrier. This closes the failure mode where
-  >   `blocked-by:` quietly outlives its barrier.
+  > - The **`Last reviewed`** column is mandatory for `blocked-by` rows,
+  >   so a stale barrier is visible as a date. Re-evaluating one is an
+  >   on-demand audit (`audit_scaffolding` §F), not a standing cadence.
 
 
 
