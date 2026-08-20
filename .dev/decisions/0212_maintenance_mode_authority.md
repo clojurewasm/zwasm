@@ -57,7 +57,9 @@ a live public surface and are kept:
 | `check_zig_consumer.sh` | **kept** | proves the public `b.addModule("zwasm")` export stays reachable across a package boundary; its header records why it is deliberately manual (pulls the zlinter dev-dep, D-274) |
 
 Both kept scripts lack a home, not a purpose; giving them one is follow-up
-work. `check_wasm_h_upstream.sh` compares against a local clone
+work. ADR-0211 D1 reached the same rule independently a day earlier: deleting
+`nightly.yml` left `check_proposal_watch.sh` and `check_spec_bump.sh` with no
+automation, and it kept both as on-demand tools rather than deleting them. `check_wasm_h_upstream.sh` compares against a local clone
 (`ZWASM_WASM_C_API_PATH`, default `~/Documents/OSS/wasm-c-api`) and SKIPs when
 it is absent, so whatever home it gets has to provide that clone.
 
@@ -88,7 +90,7 @@ work is about. Audited and corrected here:
 | `audit_scaffolding/SKILL.md` | "Mandatory (the loop fires this skill automatically)" — a phase-boundary trigger needing an open phase, and a stale-debt trigger needing the Step-0.5 cadence | on-demand, pointing at `scripts/audit_blocked_by_age.sh`, which is the surviving mechanized half |
 | `audit_scaffolding/CHECKS.md` F.2a | a "resume cycles" ladder, and "to be authored as a follow-up" for a script that exists | calendar-day ladder matching the script; the script named as the reference implementation |
 | `dispatch_consistency_audit/SKILL.md` | "Fires at periodic audit_scaffolding boundaries" | on request, or with audit_scaffolding when the substrate is in scope |
-| **ROADMAP §1.5 / §2 P10 / §5 / §11.5 / §13.3 / §14 / row 15.6** | six live sections plus one open row still described the campaign branch model — working dir `zwasm_from_scratch/`, trunk `zwasm-from-scratch`, "main branch is frozen for v1", and a §14 *inviolable* "❌ Pushing to zwasm-from-scratch without user approval" (an apparatus-internal approval gate D1 deletes) — while CLAUDE.md declares "Conflicts -> ROADMAP wins" | the real tree, and `develop/<slug>` -> PR -> `main` with `ci-required` as the gate. §5's layout tree is rooted at `zwasm/`; §11.5's Windows leg names `ZWASM_WINDOWS_HOST` / `ZWASM_REMOTE_DIR` (ADR-0206) instead of the maintainer's old paths; §1.5 stops pointing "v1 reference" at this repo's own path — v1 is tag `v1.11.1` in this history (D-526(3)) |
+| **ROADMAP §1 / §1.5 / §2 P10+P11 / §4 A7-A8 / §5 / §11.5 / §13.3 / §14 / row 15.6** | the live normative sections still described the campaign branch model and named the maintainer's SSH hosts as the gate (P11 "all gated locally", A7 "local pre-push gate", A8 "Windows verified via SSH before any release") — contradicting ADR-0076 D9 and, since 2026-08-20, ADR-0211 D3 — working dir `zwasm_from_scratch/`, trunk `zwasm-from-scratch`, "main branch is frozen for v1", and a §14 *inviolable* "❌ Pushing to zwasm-from-scratch without user approval" (an apparatus-internal approval gate D1 deletes) — while CLAUDE.md declares "Conflicts -> ROADMAP wins" | the real tree, and `develop/<slug>` -> PR -> `main` with `ci-required` as the gate. §5's layout tree is rooted at `zwasm/`; §11.5's Windows leg names `ZWASM_WINDOWS_HOST` / `ZWASM_REMOTE_DIR` (ADR-0206) instead of the maintainer's old paths; §1.5 stops pointing "v1 reference" at this repo's own path — v1 is tag `v1.11.1` in this history (D-526(3)) |
 | `continue/SKILL.md` per-turn block | step 6 told the agent to `git push origin zwasm-from-scratch`, step 8 made a `ScheduleWakeup` re-arm *mandatory* — live executable instructions for a retired loop | push the `develop/<slug>` branch and open the PR; the loop-era ending kept as one CAMPAIGN-ONLY note |
 | `continue/RESUME.md` Step 0.5 | "For every `now`-status entry, attempt discharge before active task" and "Barrier-dissolution check (unconditional, every resume)" — the duty, restated where SKILL.md now links for the *on-demand* capability | sweep-scoped wording; the banner names which steps are on-demand |
 | `audit_scaffolding/CHECKS.md` §J.4 | a second, different staleness ladder ("5 resume cycles, 1 cycle ~ 1 day") in the same file as F.2a | both state the script's 14/30-day ladder |
@@ -182,7 +184,7 @@ already consistent with D1.
 ## References
 
 - Discussion #207 (the proposal this answers), #201 (the CI-side predecessor),
-  PR #203 (ADR-0211, the CI truth sweep)
+  ADR-0211 (the CI truth sweep, merged as #203)
 - ADR-0129 (debt ledger YAML SSOT — the directive D1 releases), ADR-0206 D5
   (script retention, revised here), ADR-0076 D9 (CI is authoritative),
   ADR-0156 (release stays user-only — unchanged), ADR-0118 (loop scaffolding)

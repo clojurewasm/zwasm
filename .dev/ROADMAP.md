@@ -59,11 +59,11 @@ ecosystem compatibility, and a dual-backend (interpreter + JIT-arm64
   `zwasm.h` extensions are subordinate.
 - **Single-pass JIT for both ARM64 and x86_64** with a shared mid-IR
   (ZIR). Same compiler pipeline for in-memory JIT and on-disk AOT.
-- **Three-OS first-class**: macOS aarch64, Linux x86_64, Windows
-  x86_64 are all gated. Mac runs locally; Linux x86_64 and Windows
-  x86_64 are verified through SSH hosts (`ubuntunote` native +
-  `windowsmini`) per ADR-0049 + ADR-0067 — plus, eventually,
-  GitHub-hosted runners.
+- **Three-OS first-class**: macOS aarch64, Linux x86_64 and Windows
+  x86_64 are all gated. CI's `ci-required` check runs every leg on every
+  pull request and is the authority (ADR-0076 D9; all three blocking per
+  ADR-0211 D3). Running a leg locally over SSH is an optional pre-flight
+  (§11.5).
 - **Differential-tested**: interpreter ↔ JIT-arm64 ↔ JIT-x86
   three-way equivalence is the primary correctness gate.
 - **No backwards compatibility with v1**: breaking the v1 ABI is
@@ -170,7 +170,7 @@ These do not change between phases. Changing one requires an ADR.
 | P8  | **wasm-c-api is the C ABI primary**          | `zwasm.h` extensions are subordinate. ABI breakage requires an ADR (with deprecation window).                                                                                                  |
 | P9  | **Knowledge compression by ROADMAP and ADR** | ROADMAP narrates the project; ADRs justify deviations from it. There is no per-task / per-concept chapter cadence.                                                                             |
 | P10 | **v1 stays untouched, but is not copied**    | v1 is frozen at tag `v1.11.1`; v2 work lands on `main` through `develop/<slug>` PRs. v1 source may be **read** as a textbook; **never copy-and-paste** — re-design every line.                   |
-| P11 | **Three OS first-class**                     | macOS aarch64, Linux x86_64, Windows x86_64 are all gated locally (Mac native + `ubuntunote` SSH + `windowsmini` SSH per ADR-0049 + ADR-0067).                                                 |
+| P11 | **Three OS first-class**                     | macOS aarch64, Linux x86_64 and Windows x86_64 are all gated, by CI's `ci-required` check on every PR (ADR-0076 D9; all three legs blocking per ADR-0211 D3).                                   |
 | P12 | **Differential testing is the oracle**       | Every test that runs a wasm module asserts `interp == jit` on the host's native backend. The two-platform gate (and Phase 14's CI matrix) gives `interp == jit_arm64 == jit_x86` transitively. |
 | P13 | **Day-one ZIR sized for the full target**    | All Wasm 3.0 ops + Phase 3-4 proposal ops + JIT pseudo-ops are reserved as `ZirOp` slots from day 1. Implementation is staged; the type is not.                                                |
 | P14 | **Optimisation lands last in commit order**  | Phases 1-10 = simplest correct implementation; perf work comes after correctness. Phase 15 MEASURED the v1 W43/W44/W45 ports as ~0-headroom (v2 emit already efficient) and instead closed the D-265 register-homing rework (ADR-0153). Optimising tier stays permanently out (§3.2).         |
@@ -185,8 +185,8 @@ These do not change between phases. Changing one requires an ADR.
 | A4  | `ZIR.verify()` runs after every analysis pass                                                                                                                                | Inline in `src/ir/verifier.zig`; called per pass    |
 | A5  | Differential test gates every wasm-execution test (Phase 7+)                                                                                                                 | `zig build test-all`                                |
 | A6  | ADR is required for: layer/contract change, ZIR shape change, C ABI surface change, phase order change, regression allowance, tier promotion                                 | Reviewer checklist; pre-merge audit                 |
-| A7  | Mac native + `ubuntunote` SSH (Linux x86_64 native) = local pre-push gate per ADR-0049 + ADR-0067                                                                            | `.githooks/pre_push`                                |
-| A8  | Windows x86_64 native verified via SSH (`windowsmini`) before any release (release is user-only, ADR-0156) — a completion/3-host correctness gate, not a loop-triggered one | `scripts/run_remote_windows.sh` (Phase 15+)         |
+| A7  | CI's `ci-required` check is the merge gate; the local SSH fan-out is an optional pre-flight (ADR-0076 D9)                                                                     | `.github/workflows/ci.yml`, `scripts/ci_gate.sh`    |
+| A8  | Windows x86_64 is verified natively on every PR by the blocking CI leg (ADR-0211 D3); release stays user-only (ADR-0156)                                                     | `.github/workflows/ci.yml` gate matrix              |
 | A9  | Bench history is append-only                                                                                                                                                 | `bench/history.yaml` reviewed at every merge        |
 | A10 | Spec test fail=0 / skip=0 is a merge gate (Phase 2+)                                                                                                                         | `zig build test-spec`                               |
 | A11 | All paths are `snake_case`; no hyphens in file or directory names                                                                                                            | Reviewer; convention                                |
@@ -1102,7 +1102,7 @@ zwasm/
 │   ├── record_merge_bench.sh
 │   ├── run_bench.sh
 │   ├── run_spec.sh
-│   ├── run_remote_windows.sh   # Phase 15+ — drives the windowsmini SSH host
+│   ├── run_remote_windows.sh   # optional pre-flight — drives $ZWASM_WINDOWS_HOST
 │   ├── regen_test_data.sh
 │   ├── sync_versions.sh
 │   ├── fetch_wasm_c_api.sh
@@ -1118,7 +1118,7 @@ zwasm/
 │   ├── handover.md
 │   ├── proposal_watch.md
 │   ├── orbstack_setup.md
-│   ├── windows_ssh_setup.md    # windowsmini SSH workflow
+│   ├── windows_ssh_setup.md    # optional Windows SSH pre-flight setup
 │   └── decisions/
 │       ├── README.md
 │       ├── 0000_template.md
@@ -2037,8 +2037,9 @@ CI's `ci-required` runs the 3-OS gate on every PR and is the authority
 (ADR-0076 D9). The local fan-out below is an **optional pre-flight**:
 
 - Mac aarch64 native — `bash scripts/gate_merge.sh`.
-- ubuntunote Ubuntu x86_64 native (per ADR-0067 pivot; OrbStack
-  retired) — `bash scripts/run_remote_ubuntu.sh test-all`.
+- Linux x86_64 native — `bash scripts/run_remote_ubuntu.sh test-all` (drives
+  the host named by `ZWASM_UBUNTU_HOST`; native hardware, not emulation —
+  ADR-0067 retired the OrbStack Rosetta-2 path).
 - Windows x86_64 native — `bash scripts/run_remote_windows.sh` (drives the
   Windows SSH host named by `ZWASM_WINDOWS_HOST`; pulls the branch under test
   on the remote clone at `ZWASM_REMOTE_DIR`, then runs the requested
