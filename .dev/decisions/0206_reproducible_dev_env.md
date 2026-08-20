@@ -93,6 +93,16 @@ campaign-era `.claude/skills/continue/` sub-docs (labeled historical, D4).
 
 ## Revision history
 
+- 2026-08-20 (D5 revision, ADR-0212) — **D5's retention reason for
+  `check_phase{9,10}_close_invariants.sh` did not hold.** They were kept as
+  "invoked by the live `dispatch_consistency_audit` skill"; re-verified
+  2026-08-20, that skill invokes neither — its only mention is a struck-through
+  note recording that `check_phase9_close_invariants.sh` had superseded
+  `p9_completion_status.sh`. Both scripts are deleted, together with
+  `check_three_host_diff.sh`, whose "small, self-contained maintainer
+  convenience" reason is undercut by D-526(5): it hardcodes pass totals that
+  drifted. `mac_gate.sh` is unaffected and stays.
+
 - 2026-08-12 (D2 revision, user-directed) — **the two SSH host names lost
   their in-repo defaults.** `ZWASM_UBUNTU_HOST` / `ZWASM_WINDOWS_HOST` no
   longer fall back to the maintainer's aliases: unset now means "no such
