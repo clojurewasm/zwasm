@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# §14.3 spec-bump: alert when WebAssembly/{spec,testsuite} upstream advances
+# Spec-bump: alert when WebAssembly/{spec,testsuite} upstream advances
 # beyond the vendoring pin (`.dev/spec_pin.yaml`) — the cue to update the OSS
 # clones, re-run regen_spec_*.sh, and exercise any new conformance tests.
+# On-demand tool (its nightly.yml automation was retired 2026-08-19,
+# ADR-0211 D1 / D-593). Note --gate compares against upstream HEAD, a moving
+# target — it goes red again after every pin bump by design.
 #
 #   bash scripts/check_spec_bump.sh [--gate]
 #     default : report drift, exit 0.
-#     --gate  : exit 1 on drift (the nightly turns drift into a red check).
+#     --gate  : exit 1 on drift.
 #
 # Network: one `git ls-remote` per repo. An unreachable upstream WARNs (does
-# not fail) so a transient network blip doesn't red the nightly.
+# not fail) so a transient network blip doesn't turn into a false red.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

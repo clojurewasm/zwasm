@@ -4,11 +4,12 @@
 
 The sustainable procedure for following upstream Wasm spec + `wasm-tools`
 drift and re-vendoring the conformance corpus. Triggered when
-`scripts/check_spec_bump.sh` reports DRIFT (the nightly leg, §14.3) or before a
-release tag. **CI is intentionally NOT wired yet** (user-gated 2026-06-14) —
-this is a manual/cron-ready procedure.
+`scripts/check_spec_bump.sh` reports DRIFT (on-demand since ADR-0211 D1) or
+before a release tag. **CI is intentionally NOT wired** (user-gated
+2026-06-14; the nightly.yml automation was retired 2026-08-19, D-593) —
+this is a manual procedure.
 
-## 0. Detect drift (the "nightly check")
+## 0. Detect drift
 
 ```sh
 bash scripts/check_spec_bump.sh          # report spec/testsuite drift vs pin

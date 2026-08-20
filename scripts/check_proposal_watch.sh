@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Check `.dev/proposal_watch.md` "Last reviewed" freshness (§14.3 nightly).
+# Check `.dev/proposal_watch.md` "Last reviewed" freshness. On-demand tool
+# (its nightly.yml automation was retired 2026-08-19, ADR-0211 D1 / D-593).
 # The proposal watch is reviewed quarterly (90 days); this flags drift so
 # the WebAssembly-proposal phase table gets re-evaluated on cadence.
 #
 #   bash scripts/check_proposal_watch.sh [--gate]
 #     default : warn if stale, exit 0.
-#     --gate  : exit 1 if stale (the nightly turns staleness into a red check).
+#     --gate  : exit 1 if stale.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
