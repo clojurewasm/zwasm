@@ -136,7 +136,7 @@ results"** — including the Status as it transitions.
 - [`extended_challenge.md`](extended_challenge.md) — the 3-step
   procedure when stuck. Spike (Step 4) is the highest-level fallback
   before declaring blocked.
-- [`LOOP.md`](../../skills/continue/LOOP.md) §"Chunk types" — defines
+- [`LOOP.md`](../skills/continue/LOOP.md) §"Chunk types" — defines
   `architectural`-typed chunks + 3-cycle measurable-progress cap.
   §2 is the commit-time enforcement that supports the cap.
 

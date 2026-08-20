@@ -33,15 +33,16 @@ zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
   manual. The release line is the latest `v2.x` tag (see CHANGELOG /
   GitHub Releases — do NOT hardcode it here, it rots). Cut = bump
   `build.zig.zon` + CHANGELOG section + push the `vX.Y.Z` tag →
-  `release.yml` auto-builds + publishes. See `docs/migration_v1_to_v2.md`.
+  `release.yml` auto-builds + publishes. See
+  [`.dev/archive/migration_v1_to_v2.md`](../.dev/archive/migration_v1_to_v2.md).
 - v1 ABI compatibility is out of scope; the C/Zig/CLI surfaces broke v1 on
   purpose (ADR-0156).
 
-Read-only reference clones: `~/Documents/OSS/` + `zwasm/` (v1) +
-`ClojureWasmFromScratch/`. Full list at
-[`.dev/reference_clones.md`](../.dev/reference_clones.md); mirrored in
-`additionalDirectories` setting. Never edit or commit from these
-paths. Pre-redesign investigation: `~/zwasm/private/v2-investigation/`.
+Read-only reference clones: `~/Documents/OSS/` (upstream runtimes + specs) and
+`~/Documents/MyProducts/ClojureWasm/` (cljw, the downstream consumer). Full
+list at [`.dev/reference_clones.md`](../.dev/reference_clones.md); mirrored in
+the `additionalDirectories` setting. Never edit or commit from these paths.
+v1 is not a separate clone — it is tag `v1.11.1` in this repository.
 
 ## Language policy
 
@@ -106,8 +107,8 @@ text or code identifiers.
   fork big reads/surveys to subagents AND have them return ≤30-line
   summaries (the report returns into main context too); (3) keep
   `.dev/handover.md` current (SessionStart + `PostCompact` re-inject it
-  via `scripts/print_handover_brief.sh`). Unused MCP plugins off in
-  `settings.local.json`. Full rationale: `.claude/references/context_budget.md`.
+  via `scripts/print_handover_brief.sh`). Full rationale:
+  `.claude/references/context_budget.md`.
 
 ## Working agreement (short list)
 
@@ -131,10 +132,9 @@ text or code identifiers.
 - Subagent fork for: Step 0 surveys, large test logs (>200 lines),
   cross-codebase searches (>5 files), audit/simplify/security-review
   fan-out.
-- Debt + lessons live in git: [`.dev/debt.yaml`](../.dev/debt.yaml) (ledger,
-  refresh per `/continue` Step 0.5), [`.dev/lessons/`](../.dev/lessons/)
-  (re-derivable observations, INDEX.md is the keyword index for Step
-  0.4).
+- Debt + lessons live in git: [`.dev/debt.yaml`](../.dev/debt.yaml) (ledger),
+  [`.dev/lessons/`](../.dev/lessons/) (re-derivable observations, INDEX.md is
+  the keyword index).
 - Don't paper over absences. Walk the 3-step procedure in
   [`extended_challenge.md`](rules/extended_challenge.md) before
   declaring something missing or shipping a SKIP-X workaround.
@@ -156,6 +156,10 @@ text or code identifiers.
   adaptive audit (staleness / bloat / lies / debt+lessons coherence /
   extended-challenge consistency) across CLAUDE.md, `.dev/`, `.claude/`,
   `scripts/`.
+- [`meta_audit`](skills/meta_audit/SKILL.md) — deliberate-skepticism audit
+  against ROADMAP §1/§2/§9/§14/§15 and recent ADRs. User-requested.
+- [`dispatch_consistency_audit`](skills/dispatch_consistency_audit/SKILL.md) —
+  three-way consistency of the ZirOp dispatch substrate. On request.
 - [`debug_jit_auto`](skills/debug_jit_auto/SKILL.md) — SEGV /
   miscompile / runtime-crash investigation toolkit.
 

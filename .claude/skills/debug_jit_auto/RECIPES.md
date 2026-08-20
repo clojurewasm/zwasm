@@ -6,8 +6,8 @@
 > decision tree, lessons, edit-this-file meta) so the on-demand load
 > stays under the 500-line skill-readability threshold.
 >
-> Every recipe is autonomous-loop-invocable: copy the block, swap in
-> the binary / argv / manifest, capture stderr/stdout to `/tmp/`,
+> Every recipe is copy-paste-ready: swap in the binary / argv / manifest,
+> capture stderr/stdout to `/tmp/`,
 > grep for the signature. No human-in-loop debugger steering needed.
 
 ## Autonomous recipe 1 — `lldb -b` first triage

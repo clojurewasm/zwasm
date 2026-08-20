@@ -8,8 +8,7 @@
 > Loaded on demand when a rework campaign is active (handover `## Active
 > rework campaign`). Authored per ADR-0153. Sits ABOVE bundle mode +
 > the `architectural` chunk type — a multi-bundle campaign with five
-> ordered phases. The design priority it serves:
-> `feedback_design_priority_completeness_over_v010` (memory) + ROADMAP
+> ordered phases. The design priority it serves: ADR-0153 + ROADMAP
 > §1.2 (parity) + §1.4 (lightweight-fast).
 
 ## When a campaign triggers

@@ -1,7 +1,7 @@
 # Phase 10 / 10.J — Native Zig API: execution plan + integrated test strategy
 
-> **Doc-state**: ACTIVE — gates J.1+ implementation chunks per
-> ADR-0109 Revision 2026-05-25.
+> **Doc-state**: ARCHIVED-IN-PLACE 2026-08-20 — gated the 10.J chunks per
+> ADR-0109 Revision 2026-05-25; Phase 10 closed. Do not edit.
 > **Genesis**: 2026-05-25, post-10.J-0 amend round; synthesizes
 > `private/notes/p10-J.invest-code-survey.md` (990 lines) +
 > `private/notes/p10-J.invest-test-survey.md` (579 lines) into the

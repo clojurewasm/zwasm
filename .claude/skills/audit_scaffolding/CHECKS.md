@@ -210,42 +210,36 @@ yq -r '.entries[] | select(.status == "blocked-by") | .id + ": " + .description'
 ### F.2a Blocked-by escalation by age (added 2026-05-21)
 
 Close-plan §6 (h) (resolving close-plan B2 — 30+ `blocked-by`
-rows accumulating without re-evaluation). Pairs with the
-unconditional barrier-dissolution check in `/continue` Resume
-Step 0.5; this audit-side variant catches rows that survived
-that check (the barrier still holds) but are due for deeper
-re-walk.
+rows accumulating without re-evaluation). A barrier nobody has
+re-walked is being trusted silently, which is how a dissolved
+barrier (a closed campaign removing the blocker) goes unnoticed.
 
-Threshold ladder, evaluated against each row's `Last reviewed`
-column:
+Threshold ladder, evaluated against each row's `last_reviewed`
+date — calendar days, matching what the script implements:
 
-| Age (today − Last reviewed)              | Finding                  | Action                                                                              |
-|------------------------------------------|--------------------------|-------------------------------------------------------------------------------------|
-| ≤ 3 resume cycles (= ≤ 14 calendar days) | `none` (clean)           | No action. Routine.                                                                 |
-| > 3 cycles / > 14 days                   | `soon`                   | Re-walk the barrier; update `Last reviewed` if still blocked. Same-resume task.     |
-| > 5 cycles / > 30 days                   | `block`                  | Barrier likely fossilised. File an ADR or lesson capturing the structural cause, OR promote the row to `now` (the barrier is no longer real). |
+| Age (today − last_reviewed) | Finding        | Action                                                                              |
+|------------------------------|----------------|-------------------------------------------------------------------------------------|
+| ≤ 14 days                    | `none` (clean) | No action. Routine.                                                                 |
+| > 14 days                    | `soon` (WARN)  | Re-walk the barrier; update `last_reviewed` if still blocked.                        |
+| > 30 days                    | `block` (STALE)| Barrier likely fossilised. File an ADR or lesson capturing the structural cause, OR promote the row to `now` (the barrier is no longer real). |
 
-The cycle count is approximated by calendar days because the
-loop has no global cycle counter — 1 cycle ≈ 5 calendar days
-is the working conversion (longer when the user is away).
-When in doubt, the calendar-day threshold wins.
+A missing `last_reviewed` on a `blocked-by` row is STALE by
+definition — there is no date to trust.
 
-Multiple escalations in one resume (≥ 3 rows hitting `soon` /
-`block`) fire the `/continue` Step 0.5 narrow-audit trigger —
-that's the structural failure-mode this rule prevents
-(multiple barriers evaporating together as a closed phase /
-landed ADR / Zig bump renders many at once).
+Three or more rows hitting `soon` / `block` at once is the
+structural failure this rule exists for (several barriers
+evaporating together as a closed campaign or landed ADR renders
+them moot) — it promotes to `suggest meta_audit` (`watch`
+severity), which is also what §J.4 records.
 
 The runnable form of this check lives at:
 
 ```sh
-bash scripts/audit_blocked_by_age.sh   # to be authored as a follow-up debt
+bash scripts/audit_blocked_by_age.sh   # informational; --gate exits 1 on STALE
 ```
 
-Until the script lands, the audit performs the calendar
-arithmetic inline by `awk`-extracting the `Last reviewed`
-column from `.dev/debt.yaml` and comparing against `date -u
-+%Y-%m-%d`.
+The script is the reference implementation of the ladder above;
+there is no inline fallback to keep in sync with it.
 
 ### F.3 Lessons INDEX coverage
 
@@ -683,11 +677,10 @@ oldest 5 rows by First-raised date (`soon` severity).
 
 ### J.4 Stale debt review
 
-Any debt row whose `Last reviewed` date is older than 5 resume
-cycles (where 1 cycle ≈ 1 day; tracked via the `audit_scaffolding`
-runs themselves). Dovetails with §F.2; promotes to `suggest
-meta_audit` (`watch` severity) when ≥ 3 rows are stale (§F.2
-alone surfaces the single-row case).
+Any debt row that `scripts/audit_blocked_by_age.sh` reports STALE
+(`last_reviewed` older than 30 days, or missing) — the same ladder
+§F.2a states. Promotes to `suggest meta_audit` (`watch` severity)
+when ≥ 3 rows are stale; §F.2a alone surfaces the single-row case.
 
 ### J.5 §14 forbidden-list near-miss
 

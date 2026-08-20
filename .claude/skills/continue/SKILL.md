@@ -19,6 +19,11 @@ Delegate heavy reads/surveys to subagents and keep the working set lean.
 
 ## Stop conditions — strict 3-bucket whitelist
 
+> **CAMPAIGN-ONLY.** This governed the autonomous loop's right to keep
+> going without asking. `/continue` now drives one task and stops when it
+> is done, so nothing here fires — do not act on it. For today's flow see
+> §Resume procedure.
+
 Stop ONLY for one of the 3 buckets. Anything else continues.
 
 1. **User intervenes** — explicit message, interrupt, or new directive.
@@ -40,6 +45,9 @@ destructive-action policy + non-stop exhaustive list:
 [`STOP_BUCKETS.md`](STOP_BUCKETS.md).
 
 ## Loop mechanics — see `LOOP.md`
+
+> **CAMPAIGN-ONLY.** There is no self-perpetuation: `/continue` drives one
+> task and the turn ends. Do not act on LOOP.md's push or re-arm contract.
 
 Push policy + Self-perpetuation (the `ScheduleWakeup` re-arm contract):
 sibling file [`LOOP.md`](LOOP.md). Read once per session at the top of
@@ -103,8 +111,7 @@ redesign. Full mechanics: sibling [`REWORK.md`](REWORK.md).
 
 **Default posture (ADR-0153): schedule the rework, do NOT defer past
 v0.1.0.** v0.1.0 timing never gates the decision; correctness + design
-quality do (design priority: memory
-`feedback_design_priority_completeness_over_v010`). The rework stays
+quality do (design priority: ADR-0153). The rework stays
 WITHIN the inviolable principles — P3/P6 single-pass, no optimising
 tier (§1.3/§3.2); staying within them IS the autonomous,
 philosophy-aligned judgment (only a *proven* impossibility is the rare
@@ -160,24 +167,24 @@ Outline (full details in [`RESUME.md`](RESUME.md)):
 3. **git log + status** — clean: proceed. Uncommitted in-flight:
    complete or stash. Local ahead of origin: push immediately.
 4. **Step 0.4 — Lesson scan** ([`RESUME.md`](RESUME.md#step-04)).
-5. **Step 0.5 — Debt sweep + barrier-dissolution check**
-   ([`RESUME.md`](RESUME.md#step-05)).
-5b. **Step 0.5b — Live status check** (per-phase `p<N>_*_status.sh`
-   if exists) ([`RESUME.md`](RESUME.md#step-05b)).
-5c. **Step 0.6 — Hard-gate prep awareness** (within 3 rows of a
-   registered hard gate) ([`RESUME.md`](RESUME.md#step-06)).
-5d. **Step 0.7 — Prior-cycle remote verification (ADR-0076 D3+D7)** —
-   `tail -3 /tmp/ubuntu.log` AND `tail -3 /tmp/win.log` mechanically.
-   **ubuntu** FAIL → revert prior commit pair (D3; first-resume + non-code-gap
-   exceptions apply). **windows** FAIL (D7) → do NOT auto-revert: re-run the
-   failing exe once → reproduces = real Win64 bug (debt row + fix); flake =
-   `bash scripts/track_heisenbug.sh <name> segv` + proceed.
-   ([`RESUME.md`](RESUME.md#step-07)).
-6. `zig build test` (Phase 0+); `test-spec` from Phase 1; differential
-   from Phase 7. Output >200 lines → subagent.
-7. **One-sentence status** (phase + last commit + next task). No
-   multi-line summary.
-8. **Immediately enter TDD loop.** `/continue` itself is the go signal.
+5. `zig build test`; `test-spec` / differential when the change reaches
+   them. Output >200 lines → subagent.
+6. **One-sentence status** (last commit + next task). No multi-line
+   summary.
+7. **Immediately enter TDD loop.** `/continue` itself is the go signal.
+
+**On-demand, not per-resume** (ADR-0212 D2 retired the standing duty; the
+procedures stay as capabilities you invoke when they earn their keep):
+
+- **Step 0.5 — Debt sweep + barrier-dissolution**
+  ([`RESUME.md`](RESUME.md#step-05)). Run it when you are about to trust a
+  `blocked-by` row, or before a broad audit.
+  `bash scripts/audit_blocked_by_age.sh` is its mechanized half.
+- **Step 0.5b / 0.6 / 0.7** ([`RESUME.md`](RESUME.md#step-05b)) — per-phase
+  status scripts, hard-gate prep, and the 3-host `/tmp/{ubuntu,win}.log`
+  verification. All three are campaign-era: there are no open phases, no
+  registered hard gates, and CI's `ci-required` — not the local farm — is the
+  authoritative gate (ADR-0076 D9).
 
 ## Per-task TDD loop
 
@@ -268,11 +275,10 @@ Classify: `bash scripts/classify_chunk_scope.sh` → map to gate
 command per ADR-0076 D1. Full pipeline + Step 5b bench-delta sub-step
 (Phase 8b only):  [`GATE.md`](GATE.md).
 
-### Step 6+7 — Commit pair (per chunk) + push/kick/re-arm (per turn) (ADR-0076 D2+D5)
+### Step 6+7 — Commit pair (per chunk) + push (per turn) (ADR-0076 D2)
 
-A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–8 once at
-turn end (ADR-0076 D5-a/b). The legacy 2-push cycle is a single-push
-commit pair per chunk.
+A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–7 once at
+turn end. The legacy 2-push cycle is a single-push commit pair per chunk.
 
 **Per chunk** (every chunk in the turn):
 
@@ -301,33 +307,24 @@ granularity)** — Mac+ubuntu are the fast loop; pack several debt-items /
 slices into one turn before flushing. End the turn only at a natural
 pause: immediately-actionable work exhausted, approaching context-fill /
 auto-compact, hard-gate / bucket-3 / user touchpoint, or a deliberate
-flush. **Do NOT end a turn just to poll the windows gate** (D8) — it runs
-batched in the background; verify its verdict at the next Step 0.7.
+flush.
 
 **Per turn** (once, at the pause that ends the turn):
 
-6. **Single push (ADR-0076 D2)**. `git pull --rebase --autostash origin zwasm-from-scratch && git push origin zwasm-from-scratch`.
-   One push lands ALL the turn's commit pairs (rebase integrates the
-   bench-CI bot commits once).
-7. **Remote kicks (background; ADR-0076 D3+D5-b+D6+D8)**. `run_in_background: true`,
-   do NOT wait. **ubuntu = always** (D6): `bash scripts/run_remote_ubuntu.sh test-all
-   > /tmp/ubuntu.log 2>&1` (x86_64, every turn). **windows = BATCHED** (D8 — windows
-   is the slow host; batch it, NEVER poll-wait on it): when the batch cadence
-   fires (RETIRED mechanism — its `should_gate_windows.sh` helper is deleted,
-   ADR-0206 D5), kick
-   `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (Win64). The
-   batched cadence (≥6 commits if the batch touched ABI/calling-convention/frame-layout
-   paths, else ≥12; ABI-risk no longer immediate) keeps iteration fast on Mac+ubuntu
-   while still catching Win64 drift per batch. **Do NOT end a turn or re-arm merely to
-   poll windows** — kick it in the background when the batch fires, keep chaining the
-   next chunks, and verify its verdict at the next Step 0.7 whenever it lands. ubuntu
-   red → auto-revert (D3). **windows red → NOT auto-revert** (heisenbug-prone): re-run
-   once → reproduces = real bug (debt+fix); flake = `track_heisenbug.sh` + proceed.
-8. **Re-arm**: `ScheduleWakeup(delaySeconds=60, prompt="/continue")`.
-   Literal `60` = harness floor (`[60, 3600]` clamp). The tool
-   description's "default 1200–1800s" does NOT apply — see
-   [`LOOP.md`](LOOP.md) §"Self-perpetuation". Mandatory.
-9. **Final user text**: one sentence (turn's closed task id(s) + next task id).
+6. **Push the branch**. `git push -u origin develop/<slug>`, and open the PR
+   when it is ready for review. CI's `ci-required` (3-OS) is the gate.
+   `main` is ruleset-protected — never push to it directly (ROADMAP §14).
+7. **Final user text**: one sentence (turn's closed task id(s) + next task id).
+
+> **CAMPAIGN-ONLY — the loop-era turn ending.** It was: one push to
+> `zwasm-from-scratch`; background `run_remote_{ubuntu,windows}.sh test-all`
+> kicks whose verdicts Step 0.7 read back from `/tmp/{ubuntu,win}.log`, with a
+> batched Windows cadence and an ubuntu-red auto-revert; then a mandatory
+> `ScheduleWakeup(delaySeconds=60, prompt="/continue")` re-arm so the loop
+> continued unattended. None of it applies now — the branch is retired, CI's
+> 3-OS gate replaced the SSH farm as the authority (ADR-0076 D9), the batch
+> helper is deleted (ADR-0206 D5), and maintenance mode has no self-re-arm.
+> [`LOOP.md`](LOOP.md) keeps the retired contract.
 
 ## Auto-compact recovery
 
@@ -349,17 +346,23 @@ Two implications:
    is not losing bearings overnight.
 
 The loop is designed so auto-compact loses at most one task's worth
-of in-flight Steps 0-3. Steps 4-6 end with git artifacts; Step 7 ends
-with handover + wakeup. Anchor on those.
+of in-flight Steps 0-3. Steps 4-6 end with git artifacts. Anchor on those.
 
 ### Repeat
 
-Steps 0–5 (commit pair) for each `[ ]` task in §9.<N>, **chaining
-in-turn** (D5-a) — back-to-back without push/re-arm. At the turn's
-natural pause, Steps 6–8 (push/kick/re-arm) once. Then Phase
-boundary. Then §9.<N+1>'s Step 0. Loop never voluntarily exits.
+Steps 0–5 (commit pair) per task, chaining in-turn where the tasks
+belong to the same piece of work. At the turn's natural pause, Steps 6–7
+(push, then the one-sentence status) once.
+
+> **CAMPAIGN-ONLY.** The loop-era form of this section chained across
+> `§9.<N>` rows into the phase-boundary handler and never voluntarily
+> exited. Maintenance mode ends the turn when the task is done.
 
 ## Phase boundary — inline, no stop
+
+> **CAMPAIGN-ONLY.** The phase campaign closed 2026-07-01; no `§9.<N>` row
+> is open, so this handler cannot fire — do not act on it. To run an audit,
+> invoke `audit_scaffolding` directly.
 
 When the last `[ ]` in §9.<N> flips `[x]`:
 

@@ -20,12 +20,12 @@ entry point per ROADMAP §11.1.
 
 ## Test data policy (ROADMAP §11.2)
 
-Single uniform rule across Mac / OrbStack Ubuntu / `windowsmini`:
+Single uniform rule across all three supported OSes:
 
 | Category                       | source-of-truth (committed)                 | derivative                                             |
 |--------------------------------|---------------------------------------------|--------------------------------------------------------|
 | Self-authored `.wat` / `.wast` | `test/spec/wat/`, `test/spec/wast/`         | `.wasm` / `.json` regenerated on demand                |
-| WebAssembly spec testsuite     | `~/Documents/OSS/WebAssembly/testsuite/`    | regenerated                                            |
+| WebAssembly spec testsuite     | upstream pin, vendored under `test/spec/`   | regenerated                                            |
 | WASI testsuite                 | upstream pin (Phase 4+)                     | regenerated                                            |
 | Realworld samples              | C / Rust / Go src in `test/realworld/src/`  | **`.wasm` also committed** (toolchain reproducibility) |
 | Bench wasm                     | `bench/runners/src/` or upstream sightglass | `.wasm` committed under `bench/runners/`               |
@@ -34,16 +34,13 @@ Single uniform rule across Mac / OrbStack Ubuntu / `windowsmini`:
 `scripts/regen_test_data.sh` re-derives everything; identical across
 all three OSes.
 
-## Three-OS gate
+## Three-OS verification
 
-Local pre-push (ROADMAP §11.5):
-
-- Mac aarch64 native: `zig build test-all`
-- OrbStack Ubuntu x86_64: `orb run -m my-ubuntu-amd64 bash -c '... zig build test-all'`
-- Windows x86_64 native: `bash scripts/run_remote_windows.sh test-all`
-  (the script `git pull`s `origin/main` on the
-  `windowsmini` clone at `~/Documents/MyProducts/zwasm`
-  and then runs `zig build test-all` there).
+CI's `ci-required` check runs `zig build test-all` on macOS aarch64, Linux
+x86_64 and Windows x86_64 for every pull request, and is the authoritative
+gate. Locally, `zig build test-all` on your own machine covers one of the
+three; the optional SSH fan-out that covers the other two is described in
+[`docs/development.md`](../docs/development.md).
 
 ## Differential testing (Phase 7+)
 

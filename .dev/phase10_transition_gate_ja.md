@@ -1,6 +1,7 @@
 # Phase 9 → Phase 10 遷移ゲート (日本語版・再現実反映)
 
-> **Doc-state**: DRAFT (未コミット; レビュー用)
+> **Doc-state**: ARCHIVED-IN-PLACE 2026-08-20 — Phase 10 opened 2026-05-24;
+> kept for citation lineage. Do not edit.
 > **派生元**: `.dev/phase10_transition_gate.md` (2026-05-12 作成)
 > **再生成日**: 2026-05-24 (Phase 9 close `00cb63de` / `add3da3d` 後)
 > **位置づけ**: 原文は §9.12 番号付け期 + Tier-0 リフレーム前に作成されたため、本書は ADR-0062 renumber (§9.12 → §9.13) / ADR-0067 (ubuntunote ピボット) / ADR-0104 (Phase 9 真スコープ正直会計) / ADR-0110 (Value=16 widen) / `check_phase9_close_invariants.sh` 機構導入後の現実に合わせて書き直したもの。

@@ -1,6 +1,7 @@
 # Phase 10 設計プラン (実装方針版 / r3)
 
-> **Doc-state**: DRAFT (uncommitted; レビュー用)
+> **Doc-state**: ARCHIVED-IN-PLACE 2026-08-20 — Phase 10 closed; kept for
+> ADR / ROADMAP citation lineage. Do not edit.
 > **対**: `.dev/phase10_transition_gate_ja.md`, `private/notes/p10-design/{01..12}-*.md`
 > **目的**: あるべき論 (clean architecture / comptime DCE / 責務分離 / zero-cost-when-unused / 集約性 / テスト先付) で各設計判断を再評価し、具体的にやることを述べる
 > **r2 → r3 変更**: Q1 (spike なし直接実装) / Q2 (wall-clock 試算削除) / Q3 (parse-time `needs_gc_heap`) / Q4 (realworld 9 fixture / 5 toolchain 確定) / Q5 (専用 dir 作らず既存 `emit_test_*` 拡張) を確定反映

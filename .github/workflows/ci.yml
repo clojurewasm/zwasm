@@ -213,10 +213,11 @@ jobs:
           fi
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # Build-time dependency: `zig build test-all` runs `wasm-tools parse` to
-      # produce spectest.wasm from test/spec/spectest.wat (build.zig). Required
-      # (not best-effort) — test-all cannot build without it.
-      - name: Install wasm-tools (build-time, required for test-all)
+      # Build-time dependency: the default `zig build` installs
+      # zwasm-spec-wasm-2-0-assert, which embeds spectest.wasm produced by
+      # `wasm-tools parse` from test/spec/spectest.wat (build.zig). Required
+      # (not best-effort) — even a plain build fails without it.
+      - name: Install wasm-tools (build-time, required for any zig build)
         shell: bash
         run: |
           set -euo pipefail

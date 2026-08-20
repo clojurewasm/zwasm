@@ -60,7 +60,7 @@ with `rr record` directly. **D-134's investigation** (LD_PRELOAD
 sigaction shim + handler-entry probe + dmesg
 `print-fatal-signals` + vanilla C reproducer) is documented in
 the canonical pattern at
-[`.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`](../../.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md);
+[`.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md`](../../../.dev/lessons/2026-05-17-d134-rosetta-2-signal-translation-limit.md);
 the same shape applies to future SIGSEGV / signal-handling
 oddities.
 

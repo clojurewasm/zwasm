@@ -9,10 +9,10 @@
 > "clear session" can sweep 一気に by walking the buckets top-down (A → B → C). This is the
 > 配線＋参照チェーン so the leftover never rots silently.
 
-## How to use — resume wiring (`/continue` RESUME §0.5)
+## How to use
 
-When Step 0.5 (debt sweep) finds **no `now` row + no high-value 完成形 chunk + no fresh external
-signal**, do NOT take a "minimal idle turn." Instead:
+When there is **no `now` row + no high-value 完成形 chunk + no fresh external signal** and you
+are looking for the next thing to pick up:
 1. Open this index. Take the **next un-swept item from Bucket A, then B, then C** (skip D =
    externally blocked; only barrier-dissolution-check those).
 2. Work it as a normal TDD commit-pair chunk (Steps 0–7). Chain several per turn (D5-a).
