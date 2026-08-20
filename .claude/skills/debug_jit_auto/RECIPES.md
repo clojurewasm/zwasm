@@ -725,3 +725,20 @@ was there. Compare against the same op's arm64 twin and against the sibling
 op in the same file: in D-590, `emitTableSet` and arm64 `emitTableGet` both
 snapshot operands *before* the descriptor loads and say so in a comment,
 and only x86_64 `emitTableGet` had the order inverted.
+
+The threshold is a property of the **ABI, not of the module**:
+`abi.allocatable_gprs` is 4 wide on SysV x86_64, 6 on Win64, 8 on arm64, so
+the same `.wasm` crosses the spill boundary at a different `live=` on each
+host — a green sweep on the wrong one proves nothing.
+
+Deciding whether a candidate emit site is really this bug needs the **stage
+index**, not just the register: the collision requires the live value and
+the reload to land on the SAME `spill_stage_gprs[i]`. Most GC op handlers
+keep their scratch in stage 1 (`slab` = R11) and take stage 0 for the
+result, which is disjoint and safe — a scan that ignores the index reports
+every one of them. Two things a literal-`.r10` grep also misses:
+`codegen/{arm64,x86_64}/ops/**` binds the stage regs to named consts
+(`slab` / `call_scratch` / `len_scratch`), and `scripts/spill_aware_check.sh`
+never reads that subtree (`find … -maxdepth 2`, 37 of 469 x86_64 files) —
+nor would it fire here, since it checks that a handler *uses* the
+spill-aware helpers, never *where* it calls them.
