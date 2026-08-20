@@ -99,12 +99,27 @@ to the heading.
 | 16 | JIT bytes dump via runner instrumentation (`ZWASM_DEBUG=jit.dump`, codified) | any | Disassemble a JIT body |
 | 17 | Manifest-bisect via `test/private/d-165/` scratch | any | Isolate which directive triggers the bug |
 | 18 | **lldb VALUE-trace inside JIT code (`scripts/jit_value_trace.sh`)** | Mac/ubuntu | **Miscompile = wrong output, NO crash** — read regs/mem at a JIT instruction |
+| 19 | **Attribute a spec-lane fail before reading any codegen** | any | **FIRST step on every `ZWASM_SPEC_ENGINE=jit` fail** — the detail line names the func, not the module |
+| 20 | **Operand-stack-pressure sweep** | any | JIT-only wrong result/trap where each op passes in isolation → spilled operand |
 
 
 ## When to invoke each recipe (decision tree)
 
 ```
+Fail came from a spec-assert runner lane (ZWASM_SPEC_ENGINE=jit)?
+└── Recipe 19 FIRST — the detail line prints the func name only, so in a
+    corpus where every module exports `run` it does not say which module
+    failed. Bisect the manifest to the module, then reproduce on the CLI
+    (`zwasm run --engine jit/--engine interp`) for a precise trap kind.
+    Only then enter the tree below. (D-590: a `table.get` regalloc bug
+    spent a cycle inside `invokeMulti` for want of this step.)
+
 Host = Mac / ubuntunote?
+├── JIT-only wrong result / wrong trap, but each op passes in isolation?
+│   └── Recipe 20 (operand-stack-pressure sweep): find the live-value
+│       count where it flips. A clean boundary = a spilled operand →
+│       audit the emit site's `gprLoadSpilled` `stage_idx` against the
+│       physical registers already live there.
 ├── Wrong OUTPUT but NO crash (value miscompile — e.g. diff-jit mismatch)?
 │   └── Recipe 18 (`scripts/jit_value_trace.sh`): disasm the suspect func,
 │       then VALUE-trace the instruction (regs/mem) interp-vs-jit. This is
