@@ -795,7 +795,7 @@ entries:
       gets full 3-OS CI gating with ZERO host-specific setup; everything that
       "breaks" is maintainer-only tooling that is env-overridable, gracefully
       SKIP/WARN-ing, or explicitly optional. The real liability is DOC STALENESS.
-      Gaps:
+      Findings, each with the verdict it carries today:
       (1) FIXED 2026-08-20 — and the original wording understated it. Measured on
           a fresh clone with `wasm-tools` off PATH, **bare `zig build` fails**
           ("failed to spawn ... wasm-tools: FileNotFound"), not just `test-all`:
@@ -825,19 +825,20 @@ entries:
           RETIRED banner.
       (5) MOOT 2026-08-20 — `scripts/check_three_host_diff.sh` had no executing
           caller and was deleted; git log retains it.
-      (6) [onboarding] forced-Japanese chat FIXED 2026-07-29 — the CLAUDE.md
+      (6) FIXED 2026-07-29 — [onboarding] forced-Japanese chat; the CLAUDE.md
           language policy now documents overriding `outputStyle` in
           settings.local.json (the SessionStart hook injects no language directive;
           code/commits/docs are English anyway).
-      (7) [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
+      (7) OPEN — [reproducibility] `spec_revendor_runbook.md` hardcodes `~/Documents/OSS/…`
           in copy-paste commands even though the scripts accept WASM_SPEC_REPO /
           WASM_TESTSUITE_REPO / WASMTIME_REPO / WASM_PROPOSAL_ROOT overrides —
           align the runbook to the env vars, and note the reference clones are
           absent even locally (spec re-vendor is maintainer-only; the baked corpora
           under test/spec/ ship in the clone).
-      (8) [cleanup] `scripts/win64_debug/attach_dump.sh` +
+      (8) OPEN — [cleanup] `scripts/win64_debug/attach_dump.sh` +
           `.claude/skills/debug_jit_auto/RECIPES.md` hardcode literal
           `Documents/MyProducts/zwasm` / `/c/Users/shota/…` with no override.
+      Still open: (4) partial, (7), (8).
       WORKS (fair): Zig 0.16.0 pinned coherently (flake.nix / versions.lock /
       README); the build needs exactly one tool beyond Zig (wasm-tools, pinned);
       committed spec corpus + realworld fixtures run with NO external clone; git
@@ -2064,7 +2065,7 @@ entries:
     status: "note"
     description: |-
       BARRIER DISSOLVED (re-walk 2026-08-12, sweep S4): same dissolution as D-010: emcc fixtures are WASI-standalone; no env shim needed.
-      blocked-by: Phase 11 embenchen full-perf-suite scope (sub-row a; 4 fixtures; emcc env-shim runtime distinct from ADR-0065 Cat III spectest host imports). **Sub-row (b) externref-segment DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase, `externref-segment.0.wasm` now PASSES, `skip_externref_segment.md` → Closed/Superseded. Only sub-row (a) embenchen remains; its barrier holds per ADR-0065 (emcc-env-shim NOT in Phase 9 Cat III scope). | **D-072 (c)-path: actual root-cause fixes for 5 `wasmtime_misc` realruntime fixtures**. Path B's vocab migration in chunk 9.9-h-23 discharged the runner-side enforcement gap (the 5 fixtures now correctly skip via prefix vocab → `0 skip-impl + 5 skip-adr` on `test-wasmtime-misc-runtime`). This row tracks the downstream task: **actually fix the fixtures** so the skip-ADRs can retire. **Sub-row (a) — 4 embenchen fixtures** (`skip_embenchen_emcc_env_imports.md` scope; fannkuch / fasta / ifs / primes). Discharge trigger: Phase 11 embenchen full-perf-suite work item (per ADR-0012 §6 "Out of Phase-6 scope" table) lands the `emcc env imports` shim; retire `skip_embenchen_emcc_env_imports.md` in same chunk (delete the ADR file + delete the prefix lines from the 4 manifests). **Sub-row (b) — DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase; `externref-segment.0.wasm` now PASSES end-to-end as a plain `module` directive (D-290 wasm-tools regen dropped the skip-line; runtime gate reports PASS), and `skip_externref_segment.md` is Closed/Superseded. Only sub-row (a) remains open. Barrier re-walked each resume per `/continue` Step 0.5 (no vague phrasing).
+      blocked-by: Phase 11 embenchen full-perf-suite scope (sub-row a; 4 fixtures; emcc env-shim runtime distinct from ADR-0065 Cat III spectest host imports). **Sub-row (b) externref-segment DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase, `externref-segment.0.wasm` now PASSES, `skip_externref_segment.md` → Closed/Superseded. Only sub-row (a) embenchen remains; its barrier holds per ADR-0065 (emcc-env-shim NOT in Phase 9 Cat III scope). | **D-072 (c)-path: actual root-cause fixes for 5 `wasmtime_misc` realruntime fixtures**. Path B's vocab migration in chunk 9.9-h-23 discharged the runner-side enforcement gap (the 5 fixtures now correctly skip via prefix vocab → `0 skip-impl + 5 skip-adr` on `test-wasmtime-misc-runtime`). This row tracks the downstream task: **actually fix the fixtures** so the skip-ADRs can retire. **Sub-row (a) — 4 embenchen fixtures** (`skip_embenchen_emcc_env_imports.md` scope; fannkuch / fasta / ifs / primes). Discharge trigger: Phase 11 embenchen full-perf-suite work item (per ADR-0012 §6 "Out of Phase-6 scope" table) lands the `emcc env imports` shim; retire `skip_embenchen_emcc_env_imports.md` in same chunk (delete the ADR file + delete the prefix lines from the 4 manifests). **Sub-row (b) — DISCHARGED 2026-06-13** (verified 2026-06-15 debt-sweep): externref reftype landed in a later phase; `externref-segment.0.wasm` now PASSES end-to-end as a plain `module` directive (D-290 wasm-tools regen dropped the skip-line; runtime gate reports PASS), and `skip_externref_segment.md` is Closed/Superseded. Only sub-row (a) remains open. Barrier re-walked on each debt sweep (no vague phrasing).
     first_raised: "2026-05-12"
     last_reviewed: "2026-08-12"
     refs: |-
@@ -3185,7 +3186,7 @@ conventions: |-
   - `A-diag-tail` — surface/diagnostic finishing (D-334; cap-bounded at
     validator.zig's 3400-line cap = principled stop).
   - `B-hardening` — steady-state hardening / natural-discharge: external-blocked
-    (upstream Zig / 3-host) + future-phase rows; `/continue` Step 0.5 re-walks
+    (upstream Zig / 3-host) + future-phase rows; a debt sweep re-walks
     each barrier and discharges what dissolved. **Default** for open rows.
   - `C-dogfooding` — cw consumer-side dogfooding DONE (ADR-0168); further signal
     only if the cw-from-scratch redesign adds a v2 consumer (D-264).

@@ -5,7 +5,7 @@ zwasm on a fresh machine. If any other document disagrees with this one about
 the development environment, this one wins (design/architecture questions are
 owned by [`.dev/ROADMAP.md`](../.dev/ROADMAP.md)).
 
-**The short version: you need Zig 0.16.0. Nothing else.** The authoritative
+**The short version: you need Zig 0.16.0 and `wasm-tools`.** The authoritative
 test gate is GitHub CI, which runs the 3-OS matrix on every pull request
 (all three legs blocking) — you do not need multiple machines, SSH hosts,
 Nix, or any maintainer-specific setup to contribute.
@@ -54,13 +54,13 @@ and the wasm level is the strip lever.
 | [wasmtime](https://wasmtime.dev/) | optional | differential oracle in some suites — absent = those comparisons **skip**, never fail |
 | Nix (flakes) | optional | reproducible dev shell (`nix develop`), fixture regeneration shells |
 | `yq` (mikefarah v4) | optional | `.dev/debt.yaml` ledger checks in the pre-commit hook — guarded, prints an install pointer if missing |
-| [wasm-tools](https://github.com/bytecodealliance/wasm-tools) | **required** | every `zig build` step generates `spectest.wasm` from `test/spec/spectest.wat`; absent = the build **fails**, it is not guarded |
+| [wasm-tools](https://github.com/bytecodealliance/wasm-tools) | **required** | the default `zig build` installs `zwasm-spec-wasm-2-0-assert`, which embeds `spectest.wasm` generated from `test/spec/spectest.wat`; absent = the build **fails**, it is not guarded |
 | hyperfine / wabt | optional | benchmarks, fixture tooling — all guarded |
 
 The committed test corpus (spec suite, WASI conformance, real-world `.wasm`
-fixtures) runs with **no toolchain beyond Zig and `wasm-tools`**. Regenerating fixtures from
-source (emcc / TinyGo / Rust) is a maintainer task using the Nix `gen`
-shells — contributors never need it; the `.wasm` files are committed.
+fixtures) runs with **no toolchain beyond Zig and `wasm-tools`**. Regenerating
+fixtures from source (emcc / TinyGo / Rust) is a maintainer task using the Nix
+`gen` shells — contributors never need it; the `.wasm` files are committed.
 
 ## Test layers
 

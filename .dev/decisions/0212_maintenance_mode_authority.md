@@ -1,6 +1,6 @@
 # 0212 — Narrow maintainer approval to product surfaces; retire the standing record duties
 
-- **Status**: Proposed (becomes Accepted when the maintainer answers discussion #207)
+- **Status**: Accepted (2026-08-20, maintainer-directed; published for review in discussion #207)
 - **Date**: 2026-08-20
 - **Author**: chaploud
 - **Tags**: process, governance, records, docs
@@ -49,18 +49,21 @@ a live public surface and are kept:
 | Script | Verdict | Reason |
 |---|---|---|
 | `check_phase9_close_invariants.sh` | deleted | phase-9 close gate; the phase closed 2026-05-24 |
-| `check_phase10_close_invariants.sh` | deleted | phase-10 close gate; the phase closed |
+| `check_phase10_close_invariants.sh` | deleted | phase-10 close gate; the phase closed 2026-05-24 with phase 9 |
 | `check_three_host_diff.sh` | deleted | hardcodes pass totals that already drifted (D-526(5)); the 3-host farm is an optional pre-flight since ADR-0076 D9 |
-| `check_wasm_h_upstream.sh` | **kept** | drift detector for `include/wasm.h` against upstream `WebAssembly/wasm-c-api` — a public C ABI guard |
+| `check_wasm_h_upstream.sh` | **kept** | drift detector for `include/wasm.h` against upstream `WebAssembly/wasm-c-api` — a public C ABI guard. It compares against a local clone (`ZWASM_WASM_C_API_PATH`, default `~/Documents/OSS/wasm-c-api`) and SKIPs where that is absent, so any home it is given has to provide the clone |
 | `check_zig_consumer.sh` | **kept** | proves the public `b.addModule("zwasm")` export stays reachable across a package boundary; its header records why it is deliberately manual (pulls the zlinter dev-dep, D-274) |
 
 Both kept scripts lack a home, not a purpose. Giving them one is follow-up work.
 
 **D4 — Doc-truth: `wasm-tools` is a build prerequisite.** Measured on a fresh
 clone with `wasm-tools` off `PATH`, **bare `zig build` fails**, not merely
-`zig build test-all`: three spec-runner executables are `installArtifact`-ed,
-so the default install step pulls in the `spectest.wat` → `spectest.wasm`
-generation. Four living documents claimed otherwise — README ("You only need
+`zig build test-all`. The default install step installs
+`zwasm-spec-wasm-2-0-assert` (`build.zig:624`), whose module embeds
+`spectest.wasm` (`build.zig:606`), so `wasm-tools parse` runs on the
+`spectest.wat` → `spectest.wasm` step before anything is installed. The other
+two installed spec runners do not import it — un-installing that one exe would
+be enough to take `wasm-tools` off the default path. Four living documents claimed otherwise — README ("You only need
 Zig 0.16.0"), CONTRIBUTING ("needs nothing else"), `docs/development.md`
 (wasm-tools listed *optional*; "no toolchain beyond Zig") and `docs/tutorial.md`
 — and so did the ledger row that was supposed to be tracking the gap
@@ -80,7 +83,13 @@ work is about. Audited and corrected here:
 | `audit_scaffolding/SKILL.md` | "Mandatory (the loop fires this skill automatically)" — a phase-boundary trigger needing an open phase, and a stale-debt trigger needing the Step-0.5 cadence | on-demand, pointing at `scripts/audit_blocked_by_age.sh`, which is the surviving mechanized half |
 | `audit_scaffolding/CHECKS.md` F.2a | a "resume cycles" ladder, and "to be authored as a follow-up" for a script that exists | calendar-day ladder matching the script; the script named as the reference implementation |
 | `dispatch_consistency_audit/SKILL.md` | "Fires at periodic audit_scaffolding boundaries" | on request, or with audit_scaffolding when the substrate is in scope |
-| **ROADMAP §1.5** | working directory `zwasm_from_scratch/` and branch `zwasm-from-scratch`, both retired — while CLAUDE.md declares "Conflicts -> ROADMAP wins" | `~/Documents/MyProducts/zwasm/`, and the `develop/<slug>` -> PR -> `main` flow (D-526(3)) |
+| **ROADMAP §1.5 / §2 P10 / §5 / §11.5 / §13.3 / §14 / row 15.6** | six live sections plus one open row still described the campaign branch model — working dir `zwasm_from_scratch/`, trunk `zwasm-from-scratch`, "main branch is frozen for v1", and a §14 *inviolable* "❌ Pushing to zwasm-from-scratch without user approval" (an apparatus-internal approval gate D1 deletes) — while CLAUDE.md declares "Conflicts -> ROADMAP wins" | the real tree, and `develop/<slug>` -> PR -> `main` with `ci-required` as the gate. §5's layout tree is rooted at `zwasm/`; §11.5's Windows leg names `ZWASM_WINDOWS_HOST` / `ZWASM_REMOTE_DIR` (ADR-0206) instead of the maintainer's old paths; §1.5 stops pointing "v1 reference" at this repo's own path — v1 is tag `v1.11.1` in this history (D-526(3)) |
+| `continue/SKILL.md` per-turn block | step 6 told the agent to `git push origin zwasm-from-scratch`, step 8 made a `ScheduleWakeup` re-arm *mandatory* — live executable instructions for a retired loop | push the `develop/<slug>` branch and open the PR; the loop-era ending kept as one CAMPAIGN-ONLY note |
+| `continue/RESUME.md` Step 0.5 | "For every `now`-status entry, attempt discharge before active task" and "Barrier-dissolution check (unconditional, every resume)" — the duty, restated where SKILL.md now links for the *on-demand* capability | sweep-scoped wording; the banner names which steps are on-demand |
+| `audit_scaffolding/CHECKS.md` §J.4 | a second, different staleness ladder ("5 resume cycles, 1 cycle ~ 1 day") in the same file as F.2a | both state the script's 14/30-day ladder |
+| `scripts/check_lesson_citing.sh` | told the reader to "backfill at the next phase boundary" — a handler that can no longer fire, while the script still WARNs | points at the on-demand audit |
+| `.dev/remaining_sweep.md`, `references/handover_doc_discipline.md` | entry points keyed on the per-resume Step 0.5 / 0.5b cadence | on-demand wording |
+| `.github/workflows/ci.yml` | the wasm-tools step said "required for test-all" — the same understatement D4 corrects | required for any `zig build` |
 | `CLAUDE.md` reference clones | `ClojureWasmFromScratch/` and `~/zwasm/private/v2-investigation/`, neither of which exists on disk | `~/Documents/MyProducts/ClojureWasm/`; dead pointer dropped (D-526(2)) |
 
 The ROADMAP §1.5 edit is a §18.1 amend-in-place (a superseded directory name),
@@ -92,11 +101,12 @@ already consistent with D1.
 
 ### Alternative A — delete all five caller-less scripts
 
-- **Sketch**: treat "no executing caller" as sufficient grounds, as #207 reads.
+- **Sketch**: treat "no executing caller" as sufficient grounds on its own.
 - **Why rejected**: two of the five guard public surfaces (the C ABI header and
   the Zig package-boundary export). Deleting them trades a documented
-  capability for a shorter `scripts/` listing. The finding only appears on
-  reading each script, which is why #207 asked for per-script re-verification.
+  capability for a shorter `scripts/` listing. #207 did not propose this — it
+  asked for each to be re-verified in its own deletion PR, which is exactly
+  what surfaced the split.
 
 ### Alternative B — archive the closed-phase `.dev/*.md` planning docs
 
@@ -129,7 +139,8 @@ already consistent with D1.
   - ADR-0206 D5 retained `check_phase{9,10}_close_invariants.sh` because the
     `dispatch_consistency_audit` skill invoked them. Re-verified 2026-08-20:
     it does not, and never did — the skill's only mention is a struck-through
-    provenance note. A revision note is added to ADR-0206.
+    provenance note, and `git log -S` over that path finds no commit that ever
+    added an invocation. A revision note is added to ADR-0206.
   - `check_wasm_h_upstream.sh` and `check_zig_consumer.sh` need a home.
   - Making `zig build` toolchain-free (un-installing the three spec-runner
     exes, or generating `spectest.wasm` without `wasm-tools`) is unresolved;

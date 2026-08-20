@@ -144,7 +144,7 @@ NOW (cycle 37 closed)
   rule (Resume Procedure Step 2 / Step 7 re-target
   detection). User resumes by walking the collab checklist.
 
-  E.1  bash scripts/check_phase9_close_invariants.sh (script deleted 2026-08-20 — no executing caller; git log retains it) --gate
+  E.1  bash scripts/check_phase9_close_invariants.sh --gate (script deleted 2026-08-20 — no executing caller; git log retains it)
        → exit 0 expected (all I1-I7 hold)
   E.2  3-host test-all final green confirmation
   E.3  ADR-0105 + ADR-0106 Status confirm (already Accepted)

@@ -1,9 +1,12 @@
 # Resume procedure — detailed steps
 
-> **Loop-era doc (2026-07-01).** The resume/orientation steps still apply, but
-> the branch specifics are HISTORICAL: `main` is now PR-only. Any
-> `zwasm-from-scratch` references below describe the retired single-branch loop;
-> today's flow is a `develop/<slug>` branch → PR → CI → merge (see `SKILL.md`).
+> **Loop-era doc (2026-07-01).** Steps 0.4 and the orientation steps still
+> apply. Steps 0.5 / 0.5b / 0.6 / 0.7 are **on-demand capabilities, not a
+> per-resume duty** (ADR-0212 D2) — 0.5b and 0.6 need an open phase and a
+> registered hard gate, and 0.7 reads the retired SSH farm's logs. Branch
+> specifics are HISTORICAL: `main` is PR-only. Any `zwasm-from-scratch`
+> reference below describes the retired single-branch loop; today's flow is a
+> `develop/<slug>` branch → PR → CI → merge (see `SKILL.md`).
 
 Sibling of [`SKILL.md`](SKILL.md). SKILL.md gives the outline; this
 file has the detailed per-step procedure. Read on-demand when
@@ -103,8 +106,8 @@ concept.
 ## Step 0.5 — Debt sweep + barrier-dissolution
 
 `.dev/debt.yaml` is the YAML SSOT (D-227 / ADR-0129); query/edit it with
-`yq` per [`yaml_ssot_yq.md`](../../rules/yaml_ssot_yq.md). For every
-`now`-status entry, attempt discharge before active task. **Effort estimate
+`yq` per [`yaml_ssot_yq.md`](../../rules/yaml_ssot_yq.md). When you run a
+sweep, take the `now`-status entries and attempt discharge. **Effort estimate
 irrelevant**; only structural impossibility (`blocked-by` named barrier in
 `description`) prevents discharge.
 
@@ -118,7 +121,7 @@ entry in the same commit (`yq -i 'del(.entries[] | select(.id == env(DROW)))'`;
 git log retains the trace). New debts discovered during active task get
 appended at Step 7, not mid-task.
 
-### Barrier-dissolution check (unconditional, every resume)
+### Barrier-dissolution check
 
 Regardless of `last_reviewed` date, walk every `blocked-by` entry and
 re-evaluate the named barrier (the predicate at the head of `description`)

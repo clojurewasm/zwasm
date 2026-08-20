@@ -46,6 +46,9 @@ destructive-action policy + non-stop exhaustive list:
 
 ## Loop mechanics — see `LOOP.md`
 
+> **CAMPAIGN-ONLY.** Maintenance mode has no self-perpetuation: `/continue`
+> drives one task and the turn ends. Read as reference.
+
 Push policy + Self-perpetuation (the `ScheduleWakeup` re-arm contract):
 sibling file [`LOOP.md`](LOOP.md). Read once per session at the top of
 resume; does not change between iterations.
@@ -311,28 +314,20 @@ batched in the background; verify its verdict at the next Step 0.7.
 
 **Per turn** (once, at the pause that ends the turn):
 
-6. **Single push (ADR-0076 D2)**. `git pull --rebase --autostash origin zwasm-from-scratch && git push origin zwasm-from-scratch`.
-   One push lands ALL the turn's commit pairs (rebase integrates the
-   bench-CI bot commits once).
-7. **Remote kicks (background; ADR-0076 D3+D5-b+D6+D8)**. `run_in_background: true`,
-   do NOT wait. **ubuntu = always** (D6): `bash scripts/run_remote_ubuntu.sh test-all
-   > /tmp/ubuntu.log 2>&1` (x86_64, every turn). **windows = BATCHED** (D8 — windows
-   is the slow host; batch it, NEVER poll-wait on it): when the batch cadence
-   fires (RETIRED mechanism — its `should_gate_windows.sh` helper is deleted,
-   ADR-0206 D5), kick
-   `bash scripts/run_remote_windows.sh test-all > /tmp/win.log 2>&1` (Win64). The
-   batched cadence (≥6 commits if the batch touched ABI/calling-convention/frame-layout
-   paths, else ≥12; ABI-risk no longer immediate) keeps iteration fast on Mac+ubuntu
-   while still catching Win64 drift per batch. **Do NOT end a turn or re-arm merely to
-   poll windows** — kick it in the background when the batch fires, keep chaining the
-   next chunks, and verify its verdict at the next Step 0.7 whenever it lands. ubuntu
-   red → auto-revert (D3). **windows red → NOT auto-revert** (heisenbug-prone): re-run
-   once → reproduces = real bug (debt+fix); flake = `track_heisenbug.sh` + proceed.
-8. **Re-arm**: `ScheduleWakeup(delaySeconds=60, prompt="/continue")`.
-   Literal `60` = harness floor (`[60, 3600]` clamp). The tool
-   description's "default 1200–1800s" does NOT apply — see
-   [`LOOP.md`](LOOP.md) §"Self-perpetuation". Mandatory.
-9. **Final user text**: one sentence (turn's closed task id(s) + next task id).
+6. **Push the branch**. `git push -u origin develop/<slug>`, and open the PR
+   when it is ready for review. CI's `ci-required` (3-OS) is the gate.
+   `main` is ruleset-protected — never push to it directly (ROADMAP §14).
+7. **Final user text**: one sentence (turn's closed task id(s) + next task id).
+
+> **CAMPAIGN-ONLY — the loop-era turn ending.** It was: one push to
+> `zwasm-from-scratch`; background `run_remote_{ubuntu,windows}.sh test-all`
+> kicks whose verdicts Step 0.7 read back from `/tmp/{ubuntu,win}.log`, with a
+> batched Windows cadence and an ubuntu-red auto-revert; then a mandatory
+> `ScheduleWakeup(delaySeconds=60, prompt="/continue")` re-arm so the loop
+> continued unattended. None of it applies now — the branch is retired, CI's
+> 3-OS gate replaced the SSH farm as the authority (ADR-0076 D9), the batch
+> helper is deleted (ADR-0206 D5), and maintenance mode has no self-re-arm.
+> [`LOOP.md`](LOOP.md) keeps the retired contract.
 
 ## Auto-compact recovery
 

@@ -66,8 +66,9 @@ Don't write speculative numbers in mutable docs:
 | ROADMAP §9.<N> chunk records (immutable) | row at chunk-close time | handover |
 | Hypothesis with TTL | debt row body, prefixed `Hypothesis (verified at <SHA-or-date>): ...` | handover |
 
-`/continue` Step 0.5b runs `p<N>_*_status.sh` BEFORE believing
-handover narrative; live script wins on disagreement.
+Where a `p<N>_*_status.sh` script exists, run it before believing the
+handover narrative (`/continue` Step 0.5b, on demand); the live script wins
+on disagreement.
 
 ### "Next candidates" correct shape (names + Refs only)
 

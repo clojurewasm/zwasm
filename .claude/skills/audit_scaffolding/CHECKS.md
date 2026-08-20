@@ -676,11 +676,10 @@ oldest 5 rows by First-raised date (`soon` severity).
 
 ### J.4 Stale debt review
 
-Any debt row whose `Last reviewed` date is older than 5 resume
-cycles (where 1 cycle ≈ 1 day; tracked via the `audit_scaffolding`
-runs themselves). Dovetails with §F.2; promotes to `suggest
-meta_audit` (`watch` severity) when ≥ 3 rows are stale (§F.2
-alone surfaces the single-row case).
+Any debt row that `scripts/audit_blocked_by_age.sh` reports STALE
+(`last_reviewed` older than 30 days, or missing) — the same ladder
+§F.2a states. Promotes to `suggest meta_audit` (`watch` severity)
+when ≥ 3 rows are stale; §F.2a alone surfaces the single-row case.
 
 ### J.5 §14 forbidden-list near-miss
 

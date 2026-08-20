@@ -23,11 +23,9 @@ the audit.
 
 ## When to invoke
 
-This skill is **on demand**. It had two automatic triggers; both were
-campaign machinery and neither can fire today. A phase boundary needed an
-open `§9.<N>` row — the phase campaign closed 2026-07-01. A stale-debt
-review needed the per-resume Step 0.5 cadence, retired by ADR-0212 D2. Its
-mechanized half survives as a script you can run any time:
+This skill is **on demand** — nothing fires it automatically (ADR-0212 D5
+records what was retired and why). Its mechanized half is a script you can
+run any time:
 
 ```sh
 bash scripts/audit_blocked_by_age.sh          # >14d WARN, >30d STALE

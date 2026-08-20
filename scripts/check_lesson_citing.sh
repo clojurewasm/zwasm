@@ -47,7 +47,7 @@ fi
 
 echo ""
 echo "$count lesson(s) have unfilled <backfill>/TBD/pending Citing markers."
-echo "Backfill at the next phase boundary (per /continue Phase boundary §3)."
+echo "Backfill when you next touch the lesson, or during an audit_scaffolding run (§F)."
 
 if [ "$strict" -eq 1 ]; then
   exit 1

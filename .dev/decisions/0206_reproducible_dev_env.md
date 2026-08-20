@@ -96,8 +96,9 @@ campaign-era `.claude/skills/continue/` sub-docs (labeled historical, D4).
 - 2026-08-20 (D5 revision, ADR-0212) — **D5's retention reason for
   `check_phase{9,10}_close_invariants.sh` did not hold.** They were kept as
   "invoked by the live `dispatch_consistency_audit` skill"; re-verified
-  2026-08-20, that skill invokes neither — its only mention is a struck-through
-  note recording that `check_phase9_close_invariants.sh` had superseded
+  2026-08-20, that skill invokes neither, and `git log -S` finds no commit that
+  ever added an invocation — its only mention is a struck-through note
+  recording that `check_phase9_close_invariants.sh` had superseded
   `p9_completion_status.sh`. Both scripts are deleted, together with
   `check_three_host_diff.sh`, whose "small, self-contained maintainer
   convenience" reason is undercut by D-526(5): it hardcodes pass totals that

@@ -44,9 +44,9 @@ Releases (tags / published artifacts) are cut manually by the maintainer only.
 
 zwasm targets **Zig 0.16.0** (pinned) and needs
 [`wasm-tools`](https://github.com/bytecodealliance/wasm-tools) on your `PATH`
-— every `zig build` step generates `spectest.wasm` from
-`test/spec/spectest.wat` with it. Both versions are pinned in
-[`versions.lock`](versions.lock). With them installed:
+— the default `zig build` generates `spectest.wasm` from
+`test/spec/spectest.wat` with it, so without it even a plain build fails. Both
+versions are pinned in [`versions.lock`](versions.lock). With them installed:
 
 ```sh
 zig build              # compile the zwasm CLI + library

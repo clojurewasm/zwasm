@@ -37,10 +37,11 @@ zwasm v2 is a ground-up redesign of zwasm (v1 git history at commit 517cc5a).
 - v1 ABI compatibility is out of scope; the C/Zig/CLI surfaces broke v1 on
   purpose (ADR-0156).
 
-Read-only reference clones: `~/Documents/OSS/` + `~/Documents/MyProducts/`
-`zwasm/` (v1) + `ClojureWasm/` (cljw, the downstream consumer). Full list at
-[`.dev/reference_clones.md`](../.dev/reference_clones.md); mirrored in
-`additionalDirectories` setting. Never edit or commit from these paths.
+Read-only reference clones: `~/Documents/OSS/` (upstream runtimes + specs) and
+`~/Documents/MyProducts/ClojureWasm/` (cljw, the downstream consumer). Full
+list at [`.dev/reference_clones.md`](../.dev/reference_clones.md); mirrored in
+the `additionalDirectories` setting. Never edit or commit from these paths.
+v1 is not a separate clone — it is tag `v1.11.1` in this repository.
 
 ## Language policy
 
