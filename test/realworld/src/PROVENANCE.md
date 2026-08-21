@@ -38,7 +38,9 @@ cp target/wasm32-wasip1/release/sha256.wasm ../../wasm/rust_sha256.wasm
 Zig is on PATH in `nix develop .#gen` (same pinned 0.16.0 as the runtime
 itself — self-language dogfood-adjacent corpus). Each source compiles
 standalone to wasm32-wasi and writes to stdout via `fd_write` (AssemblyScript
-dropped WASI, so Zig is the lean WASI-stdout generator here):
+dropped WASI, so Zig is the lean WASI-stdout generator here; the `asc_`
+section below later restored an AssemblyScript lane via the official
+wasi-shim):
 
 ```sh
 cd test/realworld/src/zig
@@ -75,3 +77,34 @@ done
 - `fannkuch` — pancake-flip permutation count (recursion-free perm generator + integer-heavy).
 - `fasta` — LCG pseudo-random + weighted nucleotide selection (FP + branch-heavy).
 - `primes` — trial-division prime counting (integer arithmetic + tight branch loop).
+
+## assemblyscript/compute_mix.ts → wasm/asc_compute_mix.wasm
+
+AssemblyScript compiles through **Binaryen**, not LLVM — the `asc_` fixture is
+the corpus's only Binaryen-emitted module (every other family is LLVM-based
+except Go's own SSA backend), a codegen shape neither the rest of the corpus
+nor the spec suites cover. Core AssemblyScript dropped built-in WASI in 0.20;
+the official `@assemblyscript/wasi-shim` package restores a
+`wasi_snapshot_preview1` binding (`console.log` → `fd_write`, exit →
+`proc_exit`), so the module ends up with the same two-import surface as the
+emcc standalone fixtures.
+
+The toolchain is npm-locked: exact versions live in
+`assemblyscript/package-lock.json` (first landed as assemblyscript 0.28.20 +
+wasi-shim 0.1.0, backed by binaryen 131.0.0-nightly.20260721 — the lockfile is
+authoritative, this sentence is history). `nix develop .#gen` provides
+node/npm; `asc` itself is a pure-JS compiler, so the emitted bytes depend only
+on the locked npm versions, not on the generation host.
+
+```sh
+cd test/realworld/src/assemblyscript
+npm ci
+npm run build   # asc compute_mix.ts -O3 + wasi-shim asconfig → ../../wasm/asc_compute_mix.wasm
+```
+
+- `compute_mix` — u64 iterative fib + Eratosthenes sieve + FNV-1a over an
+  LCG-filled buffer + f64 sqrt summation + UTF-16 string building, one
+  `console.log` line each. Externally checkable anchors:
+  fib(90) = 2880067194370816120, pi(10^4) = 1229; the rest is pinned by the
+  wasmtime differential. Deterministic by construction (no time / randomness /
+  environment input; f64 uses only IEEE-exact ops).

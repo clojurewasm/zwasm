@@ -1,10 +1,12 @@
 # test/realworld — four runners over the toolchain corpus
 
 `test/realworld/wasm/` holds 50+ pre-compiled `.wasm` fixtures
-emitted by C / C++ / Rust / TinyGo / Go / emcc / Zig toolchains. The
-`emcc_` prefix marks emscripten-emitted modules (`-sSTANDALONE_WASM` → WASI;
-the embenchen benchmark reproduction), distinct from bare-clang `c_`. Four
-runners exercise the corpus from different angles:
+emitted by C / C++ / Rust / TinyGo / Go / emcc / Zig / AssemblyScript
+toolchains. The `emcc_` prefix marks emscripten-emitted modules
+(`-sSTANDALONE_WASM` → WASI; the embenchen benchmark reproduction), distinct
+from bare-clang `c_`; the `asc_` prefix marks AssemblyScript modules — the
+corpus's only **Binaryen**-backend emitter (everything else is LLVM or Go's
+SSA). Four runners exercise the corpus from different angles:
 
 | Runner                | Step                                | Verifies                                                                  |
 |-----------------------|-------------------------------------|---------------------------------------------------------------------------|
@@ -66,7 +68,7 @@ note on this convention.
 
 1. Drop `.wasm` into `test/realworld/wasm/<toolchain>_<scenario>.wasm`
    (the `<toolchain>_` prefix groups by emitter — `c_`, `cpp_`,
-   `rust_`, `tinygo_`, `go_`).
+   `rust_`, `tinygo_`, `go_`, `emcc_`, `zig_`, `asc_`).
 2. All the runners pick it up automatically — including the gating
    `--jit` lane, so a fixture the JIT cannot run turns `test-all` red.
 3. If the fixture exits non-zero deliberately (e.g. `proc_exit(N)`

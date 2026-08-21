@@ -1,0 +1,12 @@
+{
+  "name": "zwasm-realworld-asc-fixtures",
+  "private": true,
+  "description": "AssemblyScript sources for test/realworld/wasm/asc_*.wasm — see ../PROVENANCE.md",
+  "scripts": {
+    "build": "asc compute_mix.ts -o ../../wasm/asc_compute_mix.wasm --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json -O3"
+  },
+  "devDependencies": {
+    "@assemblyscript/wasi-shim": "0.1.0",
+    "assemblyscript": "0.28.20"
+  }
+}
