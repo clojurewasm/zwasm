@@ -2,7 +2,6 @@
 paths:
   - ".dev/decisions/**"
   - ".dev/lessons/**"
-  - ".dev/handover.md"
   - ".dev/debt.yaml"
 ---
 

@@ -95,6 +95,11 @@ static/build checks (lint, the build-option DCE matrix, AOT cross-compile,
 cold-cache builds and would dominate every PR's wall-clock. All three legs are
 blocking (ADR-0211 D3). There is no additional hidden gate beyond CI.
 
+A green `zig build test` / `test-all` on a single OS is **not** sufficient
+evidence for changes that touch platform branches, ABI boundaries, or feature
+flips — each OS masks the other two's failures (a POSIX run says nothing about
+Windows; aarch64 nothing about x86_64). Let the 3-OS PR gate judge those.
+
 Doc-only PRs (Markdown, `docs/`, `.dev/`, `.claude/`, `LICENSE`) skip the
 heavy 3-OS legs automatically and are gated by the fast `doc-truth` job
 instead.

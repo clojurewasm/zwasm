@@ -1,5 +1,5 @@
 ---
-description: "Every .dev/*.md file (except always-active ROADMAP/handover/debt/proposal_watch/lessons-INDEX) declares a Doc-state header (ACTIVE / ARCHIVED-IN-PLACE / ARCHIVED / SUPERSEDED-BY)."
+description: "Every .dev/*.md file (except always-active ROADMAP/debt/proposal_watch/lessons-INDEX) declares a Doc-state header (ACTIVE / ARCHIVED-IN-PLACE / ARCHIVED / SUPERSEDED-BY)."
 paths:
   - ".dev/*.md"
   - ".dev/archive/**/*.md"
@@ -8,7 +8,7 @@ paths:
 # Doc-state marker (stub per ADR-0118 D2)
 
 `.dev/*.md` files (except always-active rulebook docs — ROADMAP /
-handover / debt / proposal_watch / lessons/INDEX) MUST declare in the
+debt / proposal_watch / lessons/INDEX) MUST declare in the
 top-of-file blockquote:
 
 ```markdown

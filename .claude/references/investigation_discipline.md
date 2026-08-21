@@ -211,7 +211,8 @@ For §2 (discharge attempt):
   case — handover-claim vs landed-state divergence this rule defends)
 - `.dev/lessons/2026-05-18-debt-dedup-grep-before-file.md` (Step 0
   framing-challenge motivation)
-- [`handover_doc_discipline.md`](handover_doc_discipline.md) §2 —
-  no future-tense numeric predictions (complement to §1 hypothesis
-  list which IS allowed to enumerate predictions because each has
-  a probe).
+- No future-tense numeric predictions in mutable docs (formerly
+  handover_doc_discipline §2; that reference retired when
+  `.dev/handover.md` froze — #207 plank 4). Complement to the §1
+  hypothesis list, which IS allowed to enumerate predictions because
+  each has a probe.

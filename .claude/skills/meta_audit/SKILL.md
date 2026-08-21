@@ -80,7 +80,9 @@ Re-read in order:
 4. ROADMAP §14 (forbidden actions)
 5. ROADMAP §15 (future go/no-go decision points)
 6. The 5 most recent ADRs in `.dev/decisions/` (by NNNN)
-7. `.dev/handover.md`
+7. `.dev/handover.md` (FROZEN 2026-08-20, #207 plank 4 — historical
+   record; read for background only, file no staleness findings
+   against it)
 8. `.dev/debt.yaml` (full Active section)
 9. `.dev/lessons/INDEX.md`
 
@@ -91,8 +93,8 @@ Answer each in 1-2 sentences. Brevity is the discipline; a
 
 1. **Phase scope drift**: does the current Phase's exit criterion
    (as written in ROADMAP §9) still match what the implementation
-   has been doing? Surfacing point: when sub-rows accumulate in
-   `handover.md` that don't map to ROADMAP rows.
+   has been doing? (Campaign-era surfacing point: sub-rows
+   accumulating in the then-live handover.md.)
 2. **Recent-ADR honesty**: do the last 5 ADRs' Alternatives
    sections genuinely reject paths, or did some Alternatives
    appear later via Revision history (suggesting the original
@@ -128,8 +130,8 @@ self-review pattern.
 ### Step 4 — Execute
 
 Commit per the artefact-production plan. Granularity: one commit
-per artefact-class (e.g. one commit for "ADR + ROADMAP edit + handover sync"
-per ROADMAP §18.2; one commit for "all lesson amendments";
+per artefact-class (e.g. one commit for "ADR + ROADMAP edit" per
+ROADMAP §18.2; one commit for "all lesson amendments";
 one commit for rule changes).
 
 ### Step 5 — Self-review the diff (2 passes via subagents)

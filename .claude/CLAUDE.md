@@ -105,9 +105,10 @@ text or code identifiers.
   invariant + enforcement pointer; verbose rationale lives in
   `.claude/references/*.md` (no frontmatter → on-demand read only); (2)
   fork big reads/surveys to subagents AND have them return ≤30-line
-  summaries (the report returns into main context too); (3) keep
-  `.dev/handover.md` current (SessionStart + `PostCompact` re-inject it
-  via `scripts/print_handover_brief.sh`). Full rationale:
+  summaries (the report returns into main context too); (3) the
+  SessionStart + `PostCompact` brief (`scripts/print_handover_brief.sh`)
+  re-anchors on live state — open PRs/issues + last commits
+  (`.dev/handover.md` is frozen; discussion #207 plank 4). Full rationale:
   `.claude/references/context_budget.md`.
 
 ## Working agreement (short list)
@@ -127,7 +128,7 @@ text or code identifiers.
   [`textbook_survey.md`](rules/textbook_survey.md). No copy-paste
   from v1 per [`no_copy_from_v1.md`](rules/no_copy_from_v1.md).
 - Commit at natural granularity. `private/` is gitignored agent scratch
-  (not authoritative; promote to ROADMAP/ADR/lesson/debt/handover if it
+  (not authoritative; promote to ROADMAP/ADR/lesson/debt if it
   matters).
 - Subagent fork for: Step 0 surveys, large test logs (>200 lines),
   cross-codebase searches (>5 files), audit/simplify/security-review
@@ -170,8 +171,8 @@ feature / engine / interp / wasi / api / cli / diagnostic / support /
 platform — shape per ADR-0023 + ADR-0024).
 `include/` public C headers. `build.zig` build script. `flake.nix` Nix
 dev shell pinned to Zig 0.16.0.
-`.dev/` ROADMAP + handover + debt + lessons + decisions + phase_log +
-setup docs.
+`.dev/` ROADMAP + debt + lessons + decisions + phase_log + setup
+docs (+ the frozen handover.md).
 `.claude/` settings, skills, rules, output styles.
 `scripts/` gate, zone_check, file_size_check, bench, run_remote_*, ...
 `test/` unified `zig build test-all` aggregator + per-layer suites.
@@ -214,9 +215,10 @@ run on every PR. [`scripts/gate_merge.sh`](../scripts/gate_merge.sh) (local
 
 - [`.dev/ROADMAP.md`](../.dev/ROADMAP.md) — single source of truth (mission,
   principles, phase plan). Conflicts → ROADMAP wins.
-- [`.dev/handover.md`](../.dev/handover.md) — current state (≤ 100 lines,
-  replaced not appended). Optional `## Active bundle` section per
-  ADR-0118 D6.
+- [`.dev/handover.md`](../.dev/handover.md) — **FROZEN 2026-08-20**
+  (discussion #207 plank 4; ADR-0212 D1): campaign-era state snapshot,
+  kept as-is. Current state = open PRs + issues (the SessionStart brief
+  prints them).
 - [`.dev/debt.yaml`](../.dev/debt.yaml) — debt ledger.
 - [`.dev/lessons/`](../.dev/lessons/) — observational notes (see INDEX.md).
 - [`.dev/decisions/`](../.dev/decisions/) — ADRs (load-bearing deviations

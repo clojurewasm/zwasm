@@ -12,7 +12,6 @@
 # Exempt files (always-active rulebook docs):
 EXEMPT=(
   "ROADMAP.md"
-  "handover.md"
   "debt.yaml"
   "proposal_watch.md"
   "lessons/INDEX.md"
