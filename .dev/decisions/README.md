@@ -63,8 +63,16 @@ ADR has:
 - **Add**: when a load-bearing decision is made that **diverges from
   the ROADMAP**. Number = max(existing) + 1, or `_DRAFT_<slug>.md`
   if the canonical number isn't confirmed yet.
-- **Supersede**: do not edit a historical ADR. Add a new one and mark
-  the old one `Status: Superseded by NNNN`.
+- **Supersede**: a change to a *decision* gets a new ADR; mark the old
+  one `Status: Superseded by NNNN`. Three edit classes touch a
+  historical ADR in place, because they change no decision content:
+  restructuring an ADR of a still-open campaign; mechanical bulk edits
+  (renames, repoints); and reference-hygiene or dated correction notes
+  — appended, body intact, the SHA recorded in Revision history
+  (`check_adr_history.sh` verifies it). Corrected 2026-08-21 per the
+  maintainer's #207 review: measured before this correction, 150 of
+  214 ADRs had commits after the one that introduced them — the old
+  wording described a practice this project never had.
 - **Scope-downgrade** (per ADR-0050): when a successor ADR narrows
   the original's exit criterion but the design itself stays
   load-bearing, flip the original to
