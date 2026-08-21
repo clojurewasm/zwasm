@@ -30,17 +30,30 @@
 //! The `--jit` lane (D-283) re-runs the same corpus through the
 //! WASI-aware `--engine jit` path and byte-diffs against the same
 //! wasmtime reference — the realworld JIT-correctness net. It is
-//! the lane `test-all` runs, and it gates on every way the JIT can
+//! a lane `test-all` runs, and it gates on every way the JIT can
 //! fail to answer for a fixture the oracle ran: MISMATCH-JIT,
 //! SKIP-JIT-*, and — as a structural guard — a fixture that never
 //! reached the lane (see the gate at the bottom of `main`).
 //! Counting only mismatches would let a lane that verified nothing
 //! report success.
 //!
+//! The `--interp` lane (issue #215) is the same differential with the
+//! engine PINNED to the interpreter (`Limits{ .engine = .interp }`, the
+//! D-496 selection surface). It exists because both default-`Limits`
+//! realworld runners resolve `.auto`, which prefers the JIT — so without
+//! it no lane in `test-all` executes the realworld corpus on the interp
+//! and checks the result. It gates like the JIT lane (mismatch, skip,
+//! and shortfall all fatal; identity printed and checked), with one more
+//! bucket: fixtures whose forced-interp wall-clock dominates the corpus
+//! are enumerated out as SKIP-INTERP-SLOW — printed and counted, never
+//! silent (ADR-0210) — and stay covered by the manual `--interp-all`
+//! variant.
+//!
 //! Usage:
-//!   zig build test-realworld-diff      # interp lane only
-//!   zig build test-realworld-diff-jit  # + the gating JIT lane (test-all)
-//!   diff_runner_exe <corpus-dir> [--jit|--aot|--wasmer]
+//!   zig build test-realworld-diff         # shared (.auto) lane only
+//!   zig build test-realworld-diff-jit     # + the gating JIT + forced-interp lanes (test-all)
+//!   zig build test-realworld-diff-interp  # forced-interp over the FULL corpus (manual)
+//!   diff_runner_exe <corpus-dir> [--jit|--aot|--wasmer|--interp|--interp-all]
 
 const std = @import("std");
 
@@ -85,6 +98,35 @@ fn resetPreopenScratch(io: std.Io, cwd: std.Io.Dir) !void {
 /// differential. Tune up once a subprocess-based (timeout-able) lane lands.
 const aot_size_cap: usize = 64 * 1024;
 
+/// Fixtures enumerated OUT of the gating `--interp` lane. Cutline: forced-
+/// interp wall-clock >= 10s (x86_64-linux Debug, main @ 053f0c942,
+/// 2026-08-21) — together 81.7s of the corpus's 116.0s total, versus +34s
+/// for the 52 fixtures the gating lane keeps (the cost class the JIT lane's
+/// +29s established for `test-all`). Each is printed as SKIP-INTERP-SLOW and
+/// counted in the lane's identity (ADR-0210: an exclusion is enumerated and
+/// accounted, never silent); `--interp-all` (the manual
+/// `test-realworld-diff-interp` step) runs them too, so full-corpus interp
+/// coverage stays one command away. A row whose fixture vanishes from the
+/// corpus fails the lane (stale-entry check in the gate) rather than rotting.
+const InterpSlowSkip = struct { name: []const u8, measured: []const u8 };
+const interp_slow_skips = [_]InterpSlowSkip{
+    .{ .name = "c_large_memory.wasm", .measured = "35.7s" },
+    .{ .name = "rust_fib_compute.wasm", .measured = "21.0s" },
+    .{ .name = "go_json_marshal.wasm", .measured = "13.3s" },
+    .{ .name = "go_sort_benchmark.wasm", .measured = "11.7s" },
+};
+
+/// Per-fixture deadline for the gating `--interp` lane, via the cooperative
+/// interrupt the interp dispatch loop polls (ADR-0179 #3a-4) — the interp
+/// runs in-process, so like the JIT lane a hang would otherwise wedge
+/// `test-all` to CI's cap instead of failing loudly. Slowest gated fixture
+/// measured 9.5s (`emcc_fannkuch`, x86_64-linux Debug, 2026-08-21), so 60s is
+/// ~6x headroom for a slower host while still turning a hang into a fatal
+/// SKIP-INTERP-TRAP. `--interp-all` raises it to 240s: the enumerated
+/// fixtures it re-admits measure up to 35.7s.
+const interp_deadline_ms: u64 = 60_000;
+const interp_all_deadline_ms: u64 = 240_000;
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
@@ -116,9 +158,17 @@ pub fn main(init: std.process.Init) !void {
     //             net: GATING, wired into `test-all`, and the realworld gate
     //             whose oracle is an independent runtime rather than a
     //             checked-in expectation or zwasm itself.
+    //   --interp  run via the captured path with the engine pinned to the
+    //             interpreter (`Limits{ .engine = .interp }`) + byte-diff vs
+    //             wasmtime (issue #215). GATING, wired into `test-all`
+    //             alongside `--jit`; the `interp_slow_skips` fixtures are
+    //             enumerated skips. `--interp-all` is the same lane with the
+    //             skip table ignored and a larger deadline (manual step).
     var aot_lane = false;
     var wasmer_lane = false;
     var jit_lane = false;
+    var interp_lane = false;
+    var interp_all = false;
     while (arg_it.next()) |a| {
         if (std.mem.eql(u8, a, "--aot")) {
             aot_lane = true;
@@ -126,6 +176,11 @@ pub fn main(init: std.process.Init) !void {
             wasmer_lane = true;
         } else if (std.mem.eql(u8, a, "--jit")) {
             jit_lane = true;
+        } else if (std.mem.eql(u8, a, "--interp")) {
+            interp_lane = true;
+        } else if (std.mem.eql(u8, a, "--interp-all")) {
+            interp_lane = true;
+            interp_all = true;
         }
     }
 
@@ -215,6 +270,26 @@ pub fn main(init: std.process.Init) !void {
     var jit_oracle_failed: u32 = 0;
     var jit_pre_oracle: u32 = 0;
 
+    // Forced-interp lane (issue #215). Same bucketing discipline as the JIT
+    // lane, with two differences: the identity has one extra bucket (the
+    // enumerated slow skips), and oracle-unspawnable gets its OWN counter
+    // instead of reusing `skipped_wasmtime_fail` — an enumerated fixture whose
+    // oracle also fails to spawn must land in exactly one interp bucket, and
+    // the shared counter cannot know about the enumeration.
+    var interp_matched: u32 = 0;
+    var interp_mismatched: u32 = 0;
+    var interp_skipped: u32 = 0;
+    var interp_skipped_empty: u32 = 0;
+    var interp_eligible: u32 = 0;
+    var interp_oracle_failed: u32 = 0;
+    var interp_unspawnable: u32 = 0;
+    var interp_pre_oracle: u32 = 0;
+    var interp_enum_skipped: u32 = 0;
+    // Which `interp_slow_skips` rows matched a real corpus file this walk —
+    // the gate fails on a row that matched none (stale entry), so the table
+    // cannot silently outlive a renamed or deleted fixture.
+    var interp_enum_seen = [_]bool{false} ** interp_slow_skips.len;
+
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
@@ -228,9 +303,33 @@ pub fn main(init: std.process.Init) !void {
             try stdout.print("SKIP-V2-READ  {s}\n", .{entry.name});
             skipped_v2 += 1;
             jit_pre_oracle += 1;
+            interp_pre_oracle += 1;
             continue;
         };
         defer gpa.free(bytes);
+
+        // Enumerated slow-skip check for the gating `--interp` lane — BEFORE
+        // the oracle spawn on purpose: the exclusion is a corpus-level property
+        // of the fixture, so it must not also land in an oracle-side bucket (a
+        // fixture in two buckets breaks the identity on exactly the host where
+        // it matters, e.g. wasmtime-unusable, where every spawn fails).
+        const interp_enum_measured: ?[]const u8 = blk: {
+            if (!interp_lane or interp_all) break :blk null;
+            for (interp_slow_skips, 0..) |row, i| {
+                if (std.mem.eql(u8, row.name, entry.name)) {
+                    interp_enum_seen[i] = true;
+                    break :blk row.measured;
+                }
+            }
+            break :blk null;
+        };
+        if (interp_enum_measured) |measured| {
+            try stdout.print(
+                "  SKIP-INTERP-SLOW  {s} (enumerated: forced-interp {s} measured; excluded from the gating lane, covered by --interp-all)\n",
+                .{ entry.name, measured },
+            );
+            interp_enum_skipped += 1;
+        }
 
         const needs_preopen = fixtureNeedsPreopen(entry.name);
         // `try`, not a categorised skip: being unable to create a directory
@@ -257,6 +356,7 @@ pub fn main(init: std.process.Init) !void {
         }) catch |err| {
             try stdout.print("SKIP-WASMTIME-FAIL  {s}: {s}\n", .{ entry.name, @errorName(err) });
             skipped_wasmtime_fail += 1;
+            if (interp_lane and interp_enum_measured == null) interp_unspawnable += 1;
             continue;
         };
         defer gpa.free(wt_result.stdout);
@@ -281,27 +381,37 @@ pub fn main(init: std.process.Init) !void {
             jit_oracle_failed += 1;
         }
 
+        // Same owed-a-verdict rule as the JIT lane, minus the enumerated
+        // fixtures — those are already in their own bucket above.
+        const interp_owed = interp_lane and wt_exit == 0 and interp_enum_measured == null;
+        if (interp_owed) interp_eligible += 1;
+        if (interp_lane and wt_exit != 0 and interp_enum_measured == null) {
+            try stdout.print("  ORACLE-FAILED-INTERP  {s} (wasmtime exit={d} — outside the differential's scope)\n", .{ entry.name, wt_exit });
+            interp_oracle_failed += 1;
+        }
+
         // Mirror wasmtime's default of `argv[0] = <wasm filename>`
         // so guests like `c_hello_wasi` that print argv[0] produce
         // identical bytes.
         const v2_argv: [1][]const u8 = .{entry.name};
 
-        // The AOT and JIT lanes run BEFORE the interp, not after. Neither reads
-        // an interp result — only `bytes` and the wasmtime reference — and every
-        // exit from the interp block below (its error `catch`, SKIP-V2-TRAP,
-        // SKIP-EMPTY) is a `continue` that would otherwise deny these lanes a
-        // fixture the oracle DID run. That mattered once the JIT lane started
-        // gating on its denominator: an interp-side skip, which the interp lane
-        // itself tolerates, failed the JIT gate with the wrong explanation.
+        // The AOT, JIT, and forced-interp lanes run BEFORE the shared (.auto)
+        // lane, not after. None reads a shared-lane result — only `bytes` and
+        // the wasmtime reference — and every exit from the shared block below
+        // (its error `catch`, SKIP-V2-TRAP, SKIP-EMPTY) is a `continue` that
+        // would otherwise deny these lanes a fixture the oracle DID run. That
+        // mattered once the JIT lane started gating on its denominator: a
+        // shared-lane skip, which that lane itself tolerates, failed the JIT
+        // gate with the wrong explanation.
         // The wasmer lane genuinely needs `v2_stdout`, so it stays below.
         //
-        // BISECT NOTE: this puts up to two in-process native executions ahead of
-        // the shared lane's run of the same fixture. D-489 investigated exactly
-        // that class — tinygo_json diverged under the diff runner but not
-        // standalone, an in-process ripple (`zig build d489-repro`). Measured
-        // green on x86_64-linux across all three lanes after the move, but if a
-        // shared-lane MISMATCH ever appears on another host, suspect this
-        // ordering before the engines.
+        // BISECT NOTE: this puts up to three in-process executions (two native,
+        // one interpreted) ahead of the shared lane's run of the same fixture.
+        // D-489 investigated exactly that class — tinygo_json diverged under
+        // the diff runner but not standalone, an in-process ripple (`zig build
+        // d489-repro`). Measured green on x86_64-linux across all lanes after
+        // the move, but if a shared-lane MISMATCH ever appears on another
+        // host, suspect this ordering before the engines.
         //
         // Flush per fixture so incremental output shows progress.
         if (aot_lane) {
@@ -329,6 +439,18 @@ pub fn main(init: std.process.Init) !void {
                 .mismatch => jit_mismatched += 1,
                 .skip => jit_skipped += 1,
                 .skip_empty => jit_skipped_empty += 1,
+            }
+            try stdout.flush();
+        }
+
+        if (interp_owed) {
+            if (needs_preopen) try resetPreopenScratch(io, cwd);
+            const deadline_ms: u64 = if (interp_all) interp_all_deadline_ms else interp_deadline_ms;
+            switch (try interpCompare(gpa, io, bytes, entry.name, &v2_argv, needs_preopen, wt_stdout, wt_exit, deadline_ms, stdout)) {
+                .match => interp_matched += 1,
+                .mismatch => interp_mismatched += 1,
+                .skip => interp_skipped += 1,
+                .skip_empty => interp_skipped_empty += 1,
             }
             try stdout.flush();
         }
@@ -428,6 +550,21 @@ pub fn main(init: std.process.Init) !void {
             .{ total, jit_eligible, jit_oracle_failed, skipped_wasmtime_fail, jit_pre_oracle, if (jit_denominator == total) "CLOSED" else "OPEN" },
         );
     }
+    if (interp_lane) {
+        try stdout.print(
+            "diff_runner [interp]: {d}/{d} matched vs wasmtime, {d} mismatched, {d} skipped (interp-unsupported / trap), " ++
+                "{d} skipped-empty, {d} unaccounted — GATING (fatal on mismatch, skip, or shortfall)\n",
+            .{ interp_matched, interp_eligible, interp_mismatched, interp_skipped, interp_skipped_empty, interp_eligible -| (interp_matched + interp_mismatched + interp_skipped + interp_skipped_empty) },
+        );
+        // Same rule-4 print as the JIT lane, one bucket wider: the enumerated
+        // slow skips are part of the corpus-level denominator, so a fixture
+        // enumerated out is visibly NOT part of the `{d}/{d}` coverage ratio.
+        const interp_denominator = interp_eligible + interp_enum_skipped + interp_oracle_failed + interp_unspawnable + interp_pre_oracle;
+        try stdout.print(
+            "diff_runner [interp] RECONCILE: total {d} = eligible {d} + enumerated-slow {d} + oracle-failed {d} + oracle-unspawnable {d} + dropped-before-oracle {d} → {s}\n",
+            .{ total, interp_eligible, interp_enum_skipped, interp_oracle_failed, interp_unspawnable, interp_pre_oracle, if (interp_denominator == total) "CLOSED" else "OPEN" },
+        );
+    }
     // Flush the summary unconditionally: the green path (no mismatch, matched
     // >= 30) returns at the bottom WITHOUT hitting any of the branch-local
     // flushes below, so the summary line would otherwise be lost in the
@@ -489,6 +626,62 @@ pub fn main(init: std.process.Init) !void {
                 // runs at most once per eligible fixture), but a gate that panics
                 // on an impossible state is worse than one that still reports.
                 .{ accounted, jit_eligible, jit_eligible -| accounted },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+    }
+    // Forced-interp lane gates (issue #215) — the JIT lane's arms, plus the
+    // stale-entry check on the enumerated-skip table. Vacuous on wasmtime-less
+    // and wasmtime-unusable hosts for the same reason the JIT gates are:
+    // `interp_eligible` stays 0 there, and the enumerated bucket is counted
+    // before the oracle spawn so the identity still closes.
+    if (interp_lane) {
+        const interp_accounted = interp_matched + interp_mismatched + interp_skipped + interp_skipped_empty;
+        if (interp_mismatched != 0) {
+            try stdout.print("error: interp lane byte-mismatched vs wasmtime on {d} fixture(s)\n", .{interp_mismatched});
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        if (interp_skipped != 0) {
+            try stdout.print(
+                "error: interp lane could not complete {d} of {d} fixture(s) the oracle answered for; a skip is " ++
+                    "an unverified fixture, not a pass (fix the interp gap or enumerate the exclusion deliberately)\n",
+                .{ interp_skipped, interp_eligible },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        // Only the gating config consults the table, so only it can vouch for
+        // the rows; `--interp-all` never matches entries against the corpus.
+        if (!interp_all) {
+            for (interp_slow_skips, interp_enum_seen) |row, seen| {
+                if (!seen) {
+                    try stdout.print(
+                        "error: interp lane enumerated-skip entry '{s}' matched no fixture in the corpus — " ++
+                            "stale entry; remove the row or restore the fixture\n",
+                        .{row.name},
+                    );
+                    try stdout.flush();
+                    std.process.exit(1);
+                }
+            }
+        }
+        const interp_denominator = interp_eligible + interp_enum_skipped + interp_oracle_failed + interp_unspawnable + interp_pre_oracle;
+        if (interp_denominator != total) {
+            try stdout.print(
+                "error: interp lane accounting OPEN — {d} of {d} fixture(s) fall in no bucket; the matched " ++
+                    "ratio is against the eligible set and cannot be read as corpus coverage\n",
+                .{ total -| interp_denominator, total },
+            );
+            try stdout.flush();
+            std.process.exit(1);
+        }
+        if (interp_accounted != interp_eligible) {
+            try stdout.print(
+                "error: interp lane accounted for {d} of {d} fixture(s) the oracle answered for — {d} left the " ++
+                    "corpus without an interp verdict; a `continue` was added above the lane in the loop\n",
+                .{ interp_accounted, interp_eligible, interp_eligible -| interp_accounted },
             );
             try stdout.flush();
             std.process.exit(1);
@@ -699,6 +892,56 @@ fn jitCompare(
     }
     if (std.mem.eql(u8, wt_stdout, jit_stdout.items)) return .match;
     try out.print("  MISMATCH-JIT  {s} (wasmtime={d} bytes, jit={d} bytes)\n", .{ name, wt_stdout.len, jit_stdout.items.len });
+    return .mismatch;
+}
+
+/// Outcome of the forced-interp lane for one fixture — mirrors `JitOutcome`.
+const InterpOutcome = enum { match, mismatch, skip, skip_empty };
+
+/// Run `bytes` through the captured-run path with the engine PINNED to the
+/// interpreter (`Limits{ .engine = .interp }`, the D-496 selection surface —
+/// same forcing as CLI `--engine interp`) and byte-compare vs `wt_stdout`.
+/// This is the lane that makes "the realworld corpus runs on the interp and
+/// the result is checked" true (issue #215): both default-`Limits` realworld
+/// runners resolve `.auto`, which prefers the JIT, so before this lane an
+/// interp-only miscompile in code these fixtures exercise could pass every
+/// realworld gate. Skip semantics mirror the JIT lane, and as there a skip is
+/// fatal in the caller's gate. `deadline_ms` arms the cooperative interrupt
+/// the interp dispatch loop polls (ADR-0179 #3a-4): the guest runs in-process,
+/// so a hang becomes a fatal SKIP-INTERP-TRAP instead of wedging `test-all`.
+fn interpCompare(
+    gpa: std.mem.Allocator,
+    io: std.Io,
+    bytes: []const u8,
+    name: []const u8,
+    argv: []const []const u8,
+    needs_preopen: bool,
+    wt_stdout: []const u8,
+    wt_exit: u8,
+    deadline_ms: u64,
+    out: anytype,
+) !InterpOutcome {
+    var interp_stdout: std.ArrayList(u8) = .empty;
+    defer interp_stdout.deinit(gpa);
+    const preopens: []const cli_run.PreopenDir = if (needs_preopen)
+        &.{.{ .host_path = preopen_scratch, .guest_path = "." }}
+    else
+        &.{};
+    const limits: cli_run.Limits = .{ .engine = .interp, .timeout_ms = deadline_ms };
+    const interp_exit: u8 = cli_run.runWasmCapturedOpts(gpa, io, bytes, argv, &interp_stdout, null, preopens, &.{}, &.{}, null, limits) catch |err| {
+        try out.print("  SKIP-INTERP-RUN  {s}: {s}\n", .{ name, @errorName(err) });
+        return .skip;
+    };
+    if (interp_exit != 0 and wt_exit == 0) {
+        try out.print("  SKIP-INTERP-TRAP  {s} (interp exit={d}, wasmtime exit=0 — interp could not complete)\n", .{ name, interp_exit });
+        return .skip;
+    }
+    if (wt_stdout.len == 0 and interp_stdout.items.len == 0) {
+        try out.print("  SKIP-INTERP-EMPTY  {s}\n", .{name});
+        return .skip_empty;
+    }
+    if (std.mem.eql(u8, wt_stdout, interp_stdout.items)) return .match;
+    try out.print("  MISMATCH-INTERP  {s} (wasmtime={d} bytes, interp={d} bytes)\n", .{ name, wt_stdout.len, interp_stdout.items.len });
     return .mismatch;
 }
 
