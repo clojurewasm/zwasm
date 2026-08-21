@@ -215,6 +215,59 @@ test "runVoidExportWasi: JIT table.get out-of-bounds → precise oob_table code 
     try testing.expectEqual(trap_surface.TrapKind.oob_table, trap_surface.jitTrapCode(oob).?);
 }
 
+// `(module (table 3 3 funcref) (func (export "_start")
+//    i32.const 1 i32.const 2 i32.const 3   ;; N padding values, kept live
+//    i32.const 2 table.get 0 br 0))` — index 2 is IN BOUNDS on a 3-slot
+// table, so neither arm may trap. `br 0` targets the function block, so the
+// padding needs no consumer and the body stays `() -> ()`; the two modules
+// differ ONLY in how many values are live across the `table.get`.
+//
+// D-590: x86_64 `emitTableGet` loaded the table descriptor into R10/R11
+// BEFORE re-loading a spilled index, and R10 is `abi.spill_stage_gprs[0]` —
+// so a spilled index overwrote the length it was about to be compared
+// against, `CMP RDX, R10` became `CMP idx, idx`, and `JAE` fired whether or
+// not the index was in bounds. The count IS the experiment: `abi.allocatable_gprs` is 4 wide on
+// SysV x86_64, so at three padding values the index still gets a register
+// (this arm passed even while the bug was live) and at four it spills. Win64
+// runs a 6-wide pool, so its threshold sits two higher — the arms below would
+// not exercise the spill there even without the phase-end skip. Re-derive
+// with `debug_jit_auto` recipe 20 if regalloc moves the boundary: should BOTH
+// arms stop spilling the index, this test keeps passing while covering
+// nothing.
+const table_get_live3_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x04, 0x05, 0x01, 0x70, 0x01, 0x03,
+    0x03, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74,
+    0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x10, 0x01,
+    0x0e, 0x00, 0x41, 0x01, 0x41, 0x02, 0x41, 0x03,
+    0x41, 0x02, 0x25, 0x00, 0x0c, 0x00, 0x0b,
+};
+
+// Same module plus a fourth padding value (`i32.const 4`), which pushes the
+// index vreg past the 4-slot GPR pool and onto the spill path.
+const table_get_live4_wasm = [_]u8{
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+    0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02,
+    0x01, 0x00, 0x04, 0x05, 0x01, 0x70, 0x01, 0x03,
+    0x03, 0x07, 0x0a, 0x01, 0x06, 0x5f, 0x73, 0x74,
+    0x61, 0x72, 0x74, 0x00, 0x00, 0x0a, 0x12, 0x01,
+    0x10, 0x00, 0x41, 0x01, 0x41, 0x02, 0x41, 0x03,
+    0x41, 0x04, 0x41, 0x02, 0x25, 0x00, 0x0c, 0x00,
+    0x0b,
+};
+
+test "runVoidExportWasi: an in-bounds JIT table.get does not trap when the index spills (D-590)" {
+    if (builtin.os.tag == .windows) return skip.phaseEnd(.win64);
+    // Control arm — index in a register. Passed before the fix too; it is
+    // here so a failure localizes to the spill path rather than to
+    // `table.get` at large.
+    _ = try runner.runVoidExportWasi(testing.allocator, &table_get_live3_wasm, "_start", null, null);
+    // Regression arm — index spilled. Reported `oob_table` (code 2) for an
+    // in-bounds index before the descriptor loads moved after the reload.
+    _ = try runner.runVoidExportWasi(testing.allocator, &table_get_live4_wasm, "_start", null, null);
+}
+
 // `(module (type $t0 (func)) (type $t1 (func (param i32))) (table 1 funcref)
 //  (func $f (type $t0)) (elem (i32.const 0) $f)
 //  (func (export "_start") i32.const 0 i32.const 0 call_indirect (type $t1)))` —
