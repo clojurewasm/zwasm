@@ -1,7 +1,6 @@
 ---
 description: "Multi-cycle bug investigation discipline — enumerated hypothesis list with rejecting-SHA tracking + heisenbug 5-silent-run discharge protocol with binary-layout diversity + cause-named close. Absorbs former hypothesis_enumeration.md + heisenbug_discharge.md per ADR-0118 D3."
 paths:
-  - ".dev/handover.md"
   - ".dev/debt.yaml"
   - ".dev/lessons/**"
   - "scripts/track_heisenbug.sh"
@@ -23,9 +22,9 @@ paths:
 
 ## Key cases
 
-- Open + investigating → list in debt row body; handover references (`see D-NNN`), no dup. Closed → promote list to lesson as audit trail.
+- Open + investigating → list in debt row body (other docs cite `see D-NNN`, no dup). Closed → promote list to lesson as audit trail.
 - "Hasn't reproduced this session" = one silent run, NOT evidence (heisenbugs as low as 1/30).
-- "DISCHARGED" in handover without commit-side evidence rejected (narrative ≠ landed state).
+- "DISCHARGED" claims without commit-side evidence rejected (narrative ≠ landed state).
 - Threshold 5 configurable via `--threshold N`; deviation needs ADR.
 
 Templates, reviewer checklists, threshold rationale: [`../references/investigation_discipline.md`](../references/investigation_discipline.md).

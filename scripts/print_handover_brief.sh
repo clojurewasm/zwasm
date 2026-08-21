@@ -2,47 +2,51 @@
 # scripts/print_handover_brief.sh — emit the resume brief that
 # SessionStart and PostCompact hooks inject into Claude's context.
 #
-# Per ADR-0118 D5: this script now emits ONLY dynamic state.
-# Frozen reminders (language policy, /continue literal=60, ROADMAP §18
-# anchor) live in CLAUDE.md "Frozen loop invariants" section — read
-# once per cold-start. This avoids ~50 lines of recurring tokens at
-# every SessionStart + PostCompact.
-#
-# Dynamic state emitted:
-#   - .dev/handover.md body
+# Since #207 plank 4 (2026-08-20): current state lives in open PRs and
+# issues, not in .dev/handover.md (frozen — a campaign-era record). The
+# brief is live GitHub state plus recent commits:
+#   - open PRs (number, draft flag, title, branch)
+#   - open issues (number, title)
 #   - last 3 git commits (oneline + decorate)
-#   - ubuntu.log verdict (Step 0.7 anchor)
-#   - bundle-active status (per ADR-0118 D6)
 #
-# Stdout is the brief; stderr suppressed. Exits 0 even on failure —
-# the hook should never block the agent.
+# The GitHub sections need the `gh` CLI; when gh is absent, offline, or
+# unauthenticated, a one-line notice replaces them. Every gh call is
+# time-bounded so a stalled network cannot delay session start. Stdout
+# is the brief; exits 0 always — the hook must never block a session.
 
 set -u
 
 CTX="${CLAUDE_PROJECT_DIR:-$(dirname "$0")/..}"
 
-if [ -f "$CTX/.dev/handover.md" ]; then
-    printf '=== .dev/handover.md ===\n'
-    cat "$CTX/.dev/handover.md"
-    printf '\n'
+# Bound a command at 10 s where a timeout binary exists (GNU coreutils,
+# or gtimeout from brew coreutils on Mac); run unbounded otherwise.
+bounded() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 10 "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout 10 "$@"
+    else
+        "$@"
+    fi
+}
+
+if command -v gh >/dev/null 2>&1 &&
+   prs="$(cd "$CTX" && bounded gh pr list --state open \
+       --json number,title,headRefName,isDraft \
+       --jq '.[] | "#\(.number)\(if .isDraft then " [draft]" else "" end) \(.title) (\(.headRefName))"' \
+       2>/dev/null)" &&
+   issues="$(cd "$CTX" && bounded gh issue list --state open \
+       --json number,title \
+       --jq '.[] | "#\(.number) \(.title)"' \
+       2>/dev/null)"; then
+    printf '=== open PRs ===\n%s\n\n' "${prs:-(none)}"
+    printf '=== open issues ===\n%s\n\n' "${issues:-(none)}"
+else
+    printf '(gh unavailable or offline — open PRs/issues not shown; see https://github.com/zwasm/zwasm)\n\n'
 fi
 
 printf '=== git log -3 ===\n'
 git -C "$CTX" log -3 --decorate --oneline 2>/dev/null || true
 printf '\n'
-
-# Bundle-active state (per ADR-0118 D6).
-if [ -x "$CTX/scripts/check_bundle_active.sh" ]; then
-    printf '=== bundle status ===\n'
-    bash "$CTX/scripts/check_bundle_active.sh" 2>&1 | head -3 || true
-    printf '\n'
-fi
-
-# Prior-cycle ubuntu verdict (Step 0.7 anchor).
-if [ -f /tmp/ubuntu.log ]; then
-    printf '=== /tmp/ubuntu.log tail ===\n'
-    tail -3 /tmp/ubuntu.log 2>/dev/null || true
-    printf '\n'
-fi
 
 exit 0

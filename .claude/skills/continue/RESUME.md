@@ -1,7 +1,9 @@
 # Resume procedure — detailed steps
 
-> **Loop-era doc (2026-07-01).** Steps 0.4 and the orientation steps still
-> apply. Steps 0.5 / 0.5b / 0.6 / 0.7 are **on-demand capabilities, not a
+> **Loop-era doc (2026-07-01).** Step 0.4 still applies. Step 1's handover
+> orientation is RETIRED — `.dev/handover.md` froze 2026-08-20 (#207 plank 4);
+> orient from the session brief (open PRs / issues + last commits).
+> Steps 0.5 / 0.5b / 0.6 / 0.7 are **on-demand capabilities, not a
 > standing duty** (ADR-0212 D2): 0.5b and 0.6 need an open phase and a
 > registered hard gate, and 0.7 reads the retired SSH farm's logs.
 >

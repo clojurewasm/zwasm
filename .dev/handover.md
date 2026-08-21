@@ -1,3 +1,10 @@
+> **Doc-state**: ARCHIVED-IN-PLACE — **FROZEN 2026-08-20** per
+> [discussion #207](https://github.com/zwasm/zwasm/discussions/207) plank 4
+> (ADR-0212 D1). Current state lives in **open PRs and issues**; the
+> SessionStart brief (`scripts/print_handover_brief.sh`) prints them. No
+> session machinery reads or updates this file anymore. The body below is
+> the final campaign-era snapshot, kept as-is.
+
 # Session handover
 
 > ≤ 100 lines (soft) / 120 (hard). Canonical fresh-session entry point. Framing:

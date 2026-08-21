@@ -37,8 +37,8 @@ that script reports STALE rows and you want the barriers re-walked.
 
 Invoke this skill when:
 
-- The scaffolding feels off — handover.md disagrees with ROADMAP, an
-  ADR cites a section that has moved, etc.
+- The scaffolding feels off — an ADR cites a section that has moved,
+  a rule contradicts CLAUDE.md, etc.
 - A large refactor or architectural shift has just landed.
 - ROADMAP has been amended (per §18) several times in a row.
 - A release tag is about to be cut.
@@ -79,7 +79,7 @@ The §9.0 / 0.6 boundary measured ~3 minutes via subagent vs.
    gives the exact command for each.
 2. Run the checks in order. For each finding, classify severity:
    - **block** — must fix before next commit (false positive in
-     gate, dead link in CLAUDE.md, broken handover).
+     gate, dead link in CLAUDE.md).
    - **soon** — fix in the next iteration (bloat over soft limit,
      drifted duplication).
    - **watch** — note for later (approaching limit, weak signal).

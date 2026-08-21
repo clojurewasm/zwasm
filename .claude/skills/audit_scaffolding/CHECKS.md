@@ -12,26 +12,23 @@ For each markdown file under `.dev/`, `.claude/` (incl. `.claude/CLAUDE.md`),
 
 - Extract every `(./path)` and `path/to/file` reference.
 - For each, check `test -e <path>`.
-- Flag missing as `block` (CLAUDE.md / handover.md / ROADMAP.md) or
-  `soon` (others).
+- Flag missing as `block` (CLAUDE.md / ROADMAP.md) or `soon` (others).
+  The frozen `.dev/handover.md` (#207 plank 4) is exempt: its
+  campaign-era references may rot in place — no findings against it.
 
 ### A.2 Dead SHA references
 
-In `.dev/handover.md` and `.dev/decisions/*.md`:
+In `.dev/decisions/*.md` (the frozen handover.md is exempt — its SHAs
+are historical):
 
 - Extract `[a-f0-9]{7,40}` patterns that look like SHAs.
 - For each, run `git cat-file -t <sha>` and flag if not present.
 
-### A.3 Phase tracker drift
+### A.3 Phase tracker drift — RETIRED
 
-`.dev/handover.md` claims a phase / task. Cross-check against
-`.dev/ROADMAP.md` §9.<N>:
-
-- Is the phase number consistent?
-- Is the task `[ ]` / `[x]` state consistent?
-- Does the "last commit" SHA match `git log -1`?
-
-Discrepancy → `block`.
+`.dev/handover.md` froze 2026-08-20 (#207 plank 4); it no longer claims
+a current phase / task, so there is nothing to cross-check. Current
+state = open PRs and issues.
 
 ### A.4 ROADMAP-amendment ↔ ADR coverage
 
@@ -70,7 +67,6 @@ Pairwise diff of "principles" / "rules" / "phase plan" between:
 
 - `CLAUDE.md` vs `.dev/ROADMAP.md`
 - `.claude/rules/zone_deps.md` vs `.dev/ROADMAP.md` §A1
-- `.dev/handover.md` vs `.dev/ROADMAP.md` §9.<N>
 
 Drifted duplication → `soon`.
 

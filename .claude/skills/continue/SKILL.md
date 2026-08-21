@@ -1,6 +1,6 @@
 ---
 name: continue
-description: Resume context on zwasm and continue the per-task TDD loop (red→green→refactor). Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Reads .dev/handover.md, orients on the current task, runs tests. MAINTENANCE MODE (post-merge): work on a develop/<slug> feature branch off main and open a PR — NO autonomous multi-task loop, NO self-re-arm, NO direct push to main. Release/tag stays user-only.
+description: Resume context on zwasm and continue the per-task TDD loop (red→green→refactor). Trigger when the user says 続けて, "resume", "pick up where we left off", "/continue", "次", "go", or starts a fresh session expecting prior context. Orients from the session brief (open PRs / issues + recent commits), runs tests. MAINTENANCE MODE (post-merge): work on a develop/<slug> feature branch off main and open a PR — NO autonomous multi-task loop, NO self-re-arm, NO direct push to main. Release/tag stays user-only.
 ---
 
 # continue
@@ -13,8 +13,10 @@ description: Resume context on zwasm and continue the per-task TDD loop (red→g
 > `LOOP/GATE/RESUME/REWORK/STOP_BUCKETS` docs describe the retired campaign
 > machinery — read them as reference, not live procedure.
 
-Pick up where the previous session left off, orient from `.dev/handover.md`,
-and continue the current work item with a clean red→green→refactor cycle.
+Pick up where the previous session left off, orient from the session brief —
+the SessionStart hook prints open PRs, open issues, and the last commits
+(`scripts/print_handover_brief.sh`) — and continue the current work item with
+a clean red→green→refactor cycle.
 Delegate heavy reads/surveys to subagents and keep the working set lean.
 
 ## Stop conditions — strict 3-bucket whitelist
@@ -55,6 +57,11 @@ resume; does not change between iterations.
 
 ## Bundle mode (ADR-0118 D6)
 
+> **CAMPAIGN-ONLY.** Bundle state lived in an `## Active bundle` section of
+> handover.md, which is FROZEN (2026-08-20, #207 plank 4) — nothing reads or
+> writes it now; the deleted `scripts/check_bundle_active.sh` was its validator.
+> Multi-session continuity lives in the work's PR / issue. Kept as reference.
+
 When work crosses a session boundary (multi-cycle integration: GC
 heap impl, EH-on-JIT integration, regalloc refactor, etc.), use
 **bundle mode** to preserve continuity across `/continue` invocations.
@@ -73,7 +80,7 @@ Handover.md optionally carries an `## Active bundle` section:
 Resume procedure Step 1 (below) detects this and **routes to
 bundle-next-step** instead of ROADMAP §9 lookup (parallels Step 1a
 close-plan override). Bundle close requires the named observable
-delta verified — `bash scripts/check_bundle_active.sh --close` enforces
+delta verified — the deleted `scripts/check_bundle_active.sh --close` enforced
 this at the close commit. Delta = 0 after planned N cycles → either
 continue (extend N) or pivot (handover rewrite + commit chore).
 
@@ -137,33 +144,26 @@ superseded simplification ADR). Correctness-first ordering (II before
 IV) is a hard invariant — never optimise an area you cannot prove you
 have not broken.
 
-Detection: handover `## Active rework campaign` (Resume Step 1c).
-Bundle mode is used WITHIN a campaign phase for continuity.
+Detection (campaign-era): handover's `## Active rework campaign` section —
+frozen with the file; a maintenance-mode rework is tracked in its own
+PR / issue. Bundle mode was used WITHIN a campaign phase for continuity.
 
 ## Resume procedure (run on every session pickup)
 
 Outline (full details in [`RESUME.md`](RESUME.md)):
 
-1. **Read handover.md + framing grep** — per
-   `handover_doc_discipline.md` §1. If forbidden phrases found
-   (`user-judgment territory` etc.), the FIRST chunk this resume IS
-   the handover rewrite.
-1a. **Close-plan / amendment override** — handover points at
-    `phase*_close_plan.md` / `phase*_close_master.md` → plan's §6 Work
-    sequence supersedes ROADMAP for this session.
-1b. **Bundle override (NEW)** — handover has `## Active bundle` with
-    non-met exit-condition → bundle-next-step supersedes ROADMAP.
-    (If a `## Active rework campaign` is ALSO present, 1c is the outer
-    frame and is checked first — this bundle is its current-phase
-    continuity.)
-1c. **Campaign override (ADR-0153)** — **checked before 1b.** handover
-    has `## Active rework campaign` → it is the outer frame; its
-    current-phase next-step supersedes ROADMAP. Read [`REWORK.md`](REWORK.md);
-    honour the phase order (I+II are hard gates before any redesign
-    code). A nested `## Active bundle` is read as the current phase's
-    per-multi-cycle continuity (1b mechanics apply WITHIN the phase).
-2. **Read ROADMAP** — Phase Status widget + first `[ ]` row. Skip
-    when Step 1a / 1b / 1c fired.
+1. **Orient from the session brief** — the SessionStart hook prints open
+   PRs, open issues, and the last 3 commits
+   (`scripts/print_handover_brief.sh`). The task is what the user asked
+   for, or the open PR / issue being continued. `.dev/handover.md` is
+   FROZEN (2026-08-20, #207 plank 4; ADR-0212 D1) — a campaign-era
+   record, not current state.
+
+   > **CAMPAIGN-ONLY.** The retired steps 1a (close-plan override) /
+   > 1b (bundle override) / 1c (rework-campaign override) routed the
+   > resume from sections of the then-live handover.md; the file is
+   > frozen, so none of them can fire. Details in [`RESUME.md`](RESUME.md).
+2. **Read ROADMAP** — Phase Status widget + first `[ ]` row.
 3. **git log + status** — clean: proceed. Uncommitted in-flight:
    complete or stash. Local ahead of origin: push immediately.
 4. **Step 0.4 — Lesson scan** ([`RESUME.md`](RESUME.md#step-04)).
@@ -221,15 +221,11 @@ reference-repo deep read / `private/spikes/<slug>/` throwaway (per
 
 ### Step 1 — Plan
 
-Re-open ROADMAP §9.<N> task table; confirm first `[ ]` matches
-handover. Disagreement → trust ROADMAP, update handover.
+Re-open ROADMAP §9.<N> task table when the work maps to a phase row
+(maintenance work usually maps to a PR / issue instead).
 
-**Close-plan override** (Step 1a fired): plan doc is authoritative;
-"trust ROADMAP over handover" is inverted during step (a) amendment
-cycle.
-
-**Bundle override** (Step 1b fired): handover's `## Active bundle`
-names next step; do not look up ROADMAP §9.<N>.
+*(Campaign-only: the close-plan / bundle overrides of Resume steps
+1a / 1b routed this lookup through the then-live handover.md.)*
 
 One sentence in chat: smallest red test capturing next behaviour. No
 permission needed.
@@ -275,10 +271,12 @@ Classify: `bash scripts/classify_chunk_scope.sh` → map to gate
 command per ADR-0076 D1. Full pipeline + Step 5b bench-delta sub-step
 (Phase 8b only):  [`GATE.md`](GATE.md).
 
-### Step 6+7 — Commit pair (per chunk) + push (per turn) (ADR-0076 D2)
+### Step 6+7 — Commits (per chunk) + push (per turn) (ADR-0076 D2)
 
-A turn chains **N chunks**; sub-steps 1–5 run per chunk, 6–7 once at
-turn end. The legacy 2-push cycle is a single-push commit pair per chunk.
+A turn chains **N chunks**; sub-steps 1–3 run per chunk, 6–7 once at
+turn end. (The campaign-era "commit pair" — source commit + handover
+commit — collapsed to plain commits when handover.md froze: #207
+plank 4. Session state = the branch and its PR.)
 
 **Per chunk** (every chunk in the turn):
 
@@ -287,18 +285,12 @@ turn end. The legacy 2-push cycle is a single-push commit pair per chunk.
    commit check; do NOT additionally run `zig build test` / `lint` /
    `file_size_check` standalone (D5-c; Step 5 already ran test once).
    Never `--no-verify` (§14 forbidden).
-2. **Update handover.md** (replace, not append): Current state (5
-   lines, Phase + last SHA + next task), Active task (chunk progress
-   with **NEXT** marker). Length is **soft 100 / hard 120**
-   (`handover_doc_discipline.md` §6) — relax in the 100–120 band, do
-   NOT micro-trim to exactly 100; relocate stable content to
-   `CLAUDE.md` / skill / rule only when it exceeds 120.
-3. **Mark `[x]` for completed task in ROADMAP §9.<N>**. SHA stays
-   bare; batch-backfilled at phase close. **§18 self-check** (PreToolUse
-   hook re-prints): routine `[x]` flip + SHA backfill = no ADR.
-   Touching §1/§2/§4/§5/§9 scope/§11/§14 = deviation; file ADR first.
-4. **Append `.dev/debt.yaml` + lessons** as needed.
-5. **Handover commit**. `git commit -m "chore(p<N>): mark §9.<N> / N.M [x]; retarget handover at N.M+1"`.
+2. **Mark `[x]` for completed task in ROADMAP §9.<N>** when the work
+   maps to a phase row. SHA stays bare; batch-backfilled at phase
+   close. **§18 self-check** (PreToolUse hook re-prints): routine `[x]`
+   flip + SHA backfill = no ADR. Touching §1/§2/§4/§5/§9
+   scope/§11/§14 = deviation; file ADR first.
+3. **Append `.dev/debt.yaml` + lessons** as needed.
 
 → **Then CHAIN (D5-a; D8 reinforces — chain BIG)**: go straight to the
 next chunk's Step 0 in the **same turn**, keeping working context. Do NOT
@@ -332,18 +324,18 @@ Can't invoke `/compact` (user-only). Harness auto-fires on context
 fill, silently summarising. After compact:
 
 - System prompt + skill listing survive.
-- `PostCompact` hook re-emits `print_handover_brief.sh` (handover.md +
-  last 3 commits). That brief = recovery anchor.
+- `PostCompact` hook re-emits `print_handover_brief.sh` (open PRs /
+  issues + last 3 commits). That brief = recovery anchor.
 - Tool-result detail does NOT survive — only harness summary.
 
 Two implications:
 
-1. **Treat PostCompact brief as fresh resume.** Re-read handover.md,
-   locate active task, `git log -3` + `git status`, continue from
-   Step 0. **Do not stop** — auto-compact is non-stop.
-2. **Update handover.md before any long subagent / background Bash.**
-   Step 7 is not the only flush point. The cost is a 30s edit; value
-   is not losing bearings overnight.
+1. **Treat PostCompact brief as fresh resume.** Re-orient from the
+   brief's open PRs / issues, `git log -3` + `git status`, continue
+   from Step 0. **Do not stop** — auto-compact is non-stop.
+2. **Commit (or push the branch) before any long subagent / background
+   Bash.** Step 7 is not the only flush point; git artifacts are the
+   recovery anchor, and the PR description is the cross-session note.
 
 The loop is designed so auto-compact loses at most one task's worth
 of in-flight Steps 0-3. Steps 4-6 end with git artifacts. Anchor on those.

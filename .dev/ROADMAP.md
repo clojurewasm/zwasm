@@ -2326,8 +2326,8 @@ When amending, do all four — none of them are optional:
 2. **Open an ADR** (`.dev/decisions/NNNN_<slug>.md`) recording the
    original wording, the new wording, and *why the mismatch existed*.
    The ADR is the changelog; ROADMAP is not.
-3. **Sync `handover.md`** if its "Active task" / "Current state"
-   sections cited the amended text.
+3. **Sync any live doc that cited the amended text** (`.dev/handover.md`
+   is frozen — never sync it; open PRs and issues carry current state).
 4. **Reference the ADR in the commit message** that lands the
    ROADMAP edit so `git log -- .dev/ROADMAP.md` is browseable for
    cause.
