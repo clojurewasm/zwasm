@@ -2251,8 +2251,9 @@ entries:
       and an unreached fixture now fail it, not just a mismatch — ADR-0210's rule); the misleading run
       stage was removed in the same change.
       ---
-      **OPEN, found while closing the above (2026-08-16): the paired lane is NOT the interpreter, so
-      `test-all` has no forced-interp result-check over the realworld corpus.** `diff_runner.zig`'s
+      **Forced-interp-gap reason DISCHARGED 2026-08-21 (issue #215).** As found while closing the above
+      (2026-08-16): the paired lane is NOT the interpreter, so
+      `test-all` had no forced-interp result-check over the realworld corpus. `diff_runner.zig`'s
       non-`--jit` lane calls `cli_run.runWasmCaptured` with default `Limits`, i.e. `engine = .auto`
       (`src/cli/run.zig:52`), and `.auto` calls `instantiateJit` FIRST and reaches the interp only where
       the JIT cannot instantiate (`src/api/instance.zig:945`). `run_realworld_run` (`cli_run.runWasm`) is
@@ -2264,8 +2265,14 @@ entries:
       fixture-dependent because it is whatever `.auto` picked. DISCHARGE: either pin the lane's engine
       (`Limits{ .engine = .interp }`, which costs the interp's wall-clock on every fixture — 9.76s for
       `emcc_fannkuch` alone) or state the lane as `.auto` everywhere and stop calling it interp. Not
-      closed here: this PR only corrected the prose (README / handover / build.zig comment) so nothing
-      claims an interp result-check that does not exist.
+      closed by the 2026-08-16 change: that PR only corrected the prose (README / handover / build.zig
+      comment) so nothing claimed an interp result-check that did not exist.
+      CLOSED by the `--interp` lane (issue #215): a fourth diff_runner lane pins the engine per fixture
+      and byte-diffs vs wasmtime — 52 of 56 gated in `test-all`, the 4 slowest enumerated as accounted
+      SKIP-INTERP-SLOW (re-measured 2026-08-21 x86_64-linux Debug: 35.7s `c_large_memory` / 21.0s
+      `rust_fib_compute` / 13.3s `go_json_marshal` / 11.7s `go_sort_benchmark`; the corpus total is
+      116.0s, the gated subset 34.3s). `zig build test-realworld-diff-interp` (`--interp-all`) covers
+      all 56 in one command.
       ---
       **OPEN, scoped not closed (2026-08-16): a wasmtime-less host makes this lane contribute nothing,
       silently.** `diff_runner` returns before the per-fixture loop when `resolveWasmtime` finds nothing,
