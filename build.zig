@@ -1117,20 +1117,39 @@ pub fn build(b: *std.Build) void {
 
     // `zig build test-realworld-diff-jit` — D-283 the real JIT-correctness net,
     // and the lane `test-all` depends on (NOT `test-realworld-diff`, which is the
-    // same runner minus `--jit`; depending on both would run the interp lane
-    // twice). Same wasmtime differential PLUS a `--jit` lane that runs each
+    // same runner minus the engine lanes; depending on both would run the shared
+    // lane twice). Same wasmtime differential PLUS a `--jit` lane that runs each
     // fixture via the WASI-aware `--engine jit` path (runWasmJitCaptured) +
     // byte-diffs stdout vs wasmtime. Superseded the run_runner_jit run-stage,
     // which ran with a null WASI host and so reported false traps.
     // Measured cost over the shared-lane-only step: +29s (19.3 → 48.3) on
     // x86_64-linux — a rounding error against the ~10 min core gate, which is
     // why this sits in the core gate rather than behind ZWASM_CI_EXTENDED.
+    // `--interp` (issue #215) adds the forced-interp lane to the same
+    // invocation: 52 of 56 fixtures byte-diffed vs wasmtime under
+    // `Limits{ .engine = .interp }`, the 4 slowest enumerated as accounted
+    // SKIP-INTERP-SLOW (81.7s of the corpus's 116.0s forced-interp total,
+    // x86_64-linux Debug 2026-08-21 — the lane's own +34s stays in the JIT
+    // lane's cost class). Full-corpus coverage: `test-realworld-diff-interp`.
     const run_realworld_diff_jit = b.addRunArtifact(realworld_diff_runner_exe);
     run_realworld_diff_jit.addArg(b.pathFromRoot("test/realworld/wasm"));
     run_realworld_diff_jit.addArg("--jit");
+    run_realworld_diff_jit.addArg("--interp");
     run_realworld_diff_jit.has_side_effects = true;
-    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the gating WASI-aware JIT lane (D-283)");
+    const test_realworld_diff_jit_step = b.step("test-realworld-diff-jit", "Realworld differential incl. the gating WASI-aware JIT and forced-interp lanes (D-283, #215)");
     test_realworld_diff_jit_step.dependOn(&run_realworld_diff_jit.step);
+
+    // `zig build test-realworld-diff-interp` — the forced-interp differential
+    // over the FULL corpus (`--interp-all`: the enumerated-slow fixtures run
+    // too, under a 240s per-fixture deadline). Manual entry point, NOT in
+    // `test-all` — the 4 enumerated fixtures alone are ~82s on x86_64-linux
+    // Debug. One command re-derives interp-vs-wasmtime for all 56.
+    const run_realworld_diff_interp = b.addRunArtifact(realworld_diff_runner_exe);
+    run_realworld_diff_interp.addArg(b.pathFromRoot("test/realworld/wasm"));
+    run_realworld_diff_interp.addArg("--interp-all");
+    run_realworld_diff_interp.has_side_effects = true;
+    const test_realworld_diff_interp_step = b.step("test-realworld-diff-interp", "Full-corpus forced-interp differential incl. the enumerated-slow fixtures (manual; not in test-all)");
+    test_realworld_diff_interp_step.dependOn(&run_realworld_diff_interp.step);
 
     // `zig build test-api-zig-facade` — Phase 10 / §10.J / J.6.
     // Walks the realworld corpus driving each fixture through the
@@ -1461,13 +1480,13 @@ pub fn build(b: *std.Build) void {
     // fixtures") — they are SKIP, not FAIL, so the runner
     // exits zero. Hosts without `wasmtime` on PATH degrade to
     // SKIP-WASMTIME-FAIL gracefully and do not break the gate.
-    // The `--jit` variant, NOT `run_realworld_diff`: same runner, same default-
-    // engine lane, plus the gating JIT lane — so one dependency, no double run
-    // of the shared lane. Note what that shared lane is NOT: it calls
+    // The `--jit --interp` variant, NOT `run_realworld_diff`: same runner, same
+    // default-engine lane, plus the gating JIT and forced-interp lanes — so one
+    // dependency, no double run of the shared lane. The shared lane itself calls
     // `runWasmCaptured` with default `Limits`, i.e. `.auto`, which tries the JIT
-    // first and reaches the interp only where the JIT cannot instantiate. It is
-    // not an interp result-check, and `test-all` currently has none over the
-    // realworld corpus.
+    // first and reaches the interp only where the JIT cannot instantiate; the
+    // `--interp` lane (issue #215) is what pins the engine and result-checks the
+    // corpus on the interpreter (52 of 56 — 4 enumerated accounted skips).
     test_all_step.dependOn(&run_realworld_diff_jit.step);
     test_all_step.dependOn(&run_wast_2_0.step);
     // §10 / 10.T-2b: wasm-3.0 assertion runner skeleton — enumerates
