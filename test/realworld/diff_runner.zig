@@ -299,20 +299,15 @@ pub fn main(init: std.process.Init) !void {
         const fixture_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ corpus_dir, entry.name });
         defer gpa.free(fixture_path);
 
-        const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch {
-            try stdout.print("SKIP-V2-READ  {s}\n", .{entry.name});
-            skipped_v2 += 1;
-            jit_pre_oracle += 1;
-            interp_pre_oracle += 1;
-            continue;
-        };
-        defer gpa.free(bytes);
-
         // Enumerated slow-skip check for the gating `--interp` lane — BEFORE
-        // the oracle spawn on purpose: the exclusion is a corpus-level property
-        // of the fixture, so it must not also land in an oracle-side bucket (a
-        // fixture in two buckets breaks the identity on exactly the host where
-        // it matters, e.g. wasmtime-unusable, where every spawn fails).
+        // the read and the oracle spawn on purpose. The exclusion is a
+        // corpus-level property of the fixture NAME, so it must land in
+        // exactly one interp bucket whatever else fails for the fixture:
+        // matched after the read, the stale-entry gate would misreport an
+        // unreadable-but-present enumerated fixture as "no such fixture";
+        // counted after an oracle-side skip, the same fixture would land in
+        // two buckets and break the identity on exactly the host where it
+        // matters (e.g. wasmtime-unusable, where every spawn fails).
         const interp_enum_measured: ?[]const u8 = blk: {
             if (!interp_lane or interp_all) break :blk null;
             for (interp_slow_skips, 0..) |row, i| {
@@ -330,6 +325,16 @@ pub fn main(init: std.process.Init) !void {
             );
             interp_enum_skipped += 1;
         }
+
+        const bytes = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch {
+            try stdout.print("SKIP-V2-READ  {s}\n", .{entry.name});
+            skipped_v2 += 1;
+            jit_pre_oracle += 1;
+            // Exactly-one-bucket: an enumerated fixture is already accounted.
+            if (interp_lane and interp_enum_measured == null) interp_pre_oracle += 1;
+            continue;
+        };
+        defer gpa.free(bytes);
 
         const needs_preopen = fixtureNeedsPreopen(entry.name);
         // `try`, not a categorised skip: being unable to create a directory
