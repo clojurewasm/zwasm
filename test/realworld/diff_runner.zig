@@ -120,12 +120,15 @@ const interp_slow_skips = [_]InterpSlowSkip{
 /// interrupt the interp dispatch loop polls (ADR-0179 #3a-4) — the interp
 /// runs in-process, so like the JIT lane a hang would otherwise wedge
 /// `test-all` to CI's cap instead of failing loudly. Slowest gated fixture
-/// measured 9.5s (`emcc_fannkuch`, x86_64-linux Debug, 2026-08-21), so 60s is
-/// ~6x headroom for a slower host while still turning a hang into a fatal
-/// SKIP-INTERP-TRAP. `--interp-all` raises it to 240s: the enumerated
-/// fixtures it re-admits measure up to 35.7s.
-const interp_deadline_ms: u64 = 60_000;
-const interp_all_deadline_ms: u64 = 240_000;
+/// measured 9.5s (`emcc_fannkuch`, x86_64-linux Debug, 2026-08-21); 120s is
+/// ~12x headroom, sized to the JIT lane's precedent (60s ≈ 18x its 3.4s
+/// slowest) rather than to the one host measured — the deadline costs
+/// nothing on the green path, and what it must not do is turn a slow CI
+/// leg into a fatal SKIP-INTERP-TRAP that reads as an interp bug. A real
+/// hang still fails loudly, 120s per hung fixture. `--interp-all` uses
+/// 480s (~13x): the enumerated fixtures it re-admits measure up to 35.7s.
+const interp_deadline_ms: u64 = 120_000;
+const interp_all_deadline_ms: u64 = 480_000;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
