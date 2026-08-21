@@ -143,6 +143,12 @@
             genPkgs.lld              # wasm-ld linker for the bare clang → wasm path
             genPkgs.wasm-tools       # parse / print / validate the emitted modules
             genPkgs.python3
+            # node/npm host the AssemblyScript (Binaryen-backend) generator.
+            # asc + wasi-shim versions are pinned by the committed
+            # test/realworld/src/assemblyscript/package-lock.json (`npm ci`);
+            # asc is pure JS, so the node version does not affect the emitted
+            # bytes — nixpkgs' default node is the right pin granularity.
+            genPkgs.nodejs
           ];
 
           # NOTE: keep the shellHook CHEAP — do NOT run `emcc` here. The
@@ -158,7 +164,7 @@
             # nix-wrapped clang injects -fzero-call-used-regs (unsupported for
             # wasm); the realworld build scripts must run with this cleared.
             export NIX_HARDENING_ENABLE=""
-            echo "  toolchains: zig rustc(wasm32) emcc tinygo go clang+lld on PATH"
+            echo "  toolchains: zig rustc(wasm32) emcc tinygo go clang+lld node(asc) on PATH"
             echo "  EM_CACHE=$EM_CACHE  (emcc builds its cache lazily on first use)"
             echo "Generated .wasm is COMMITTED; test hosts run it via the edge-runner (no toolchain there)."
           '';
