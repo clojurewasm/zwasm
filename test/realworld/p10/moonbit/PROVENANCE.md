@@ -56,23 +56,37 @@ interpreter was verified by hand (`zwasm run --engine interp --invoke test`
 
 ## Scope: what this fixture does NOT cover
 
-Measured 2026-08-22 at `5328f7005`, x86_64-linux, Debug. Three engine defects
-bound the guest; each is a `src/` product defect, filed separately, not worked
-around here:
+Measured 2026-08-22, x86_64-linux, Debug. Two engine defects bound the guest;
+both are `src/` product defects, filed separately, not worked around here:
 
-- **No loops.** A `loop` whose block type takes a parameter traps
-  `unreachable` in the interpreter (wasmtime and the JIT both compute it).
-  moonc emits that shape for every `for`, so any looping guest is
-  interp-red. GC is not involved — it reproduces in plain wat.
-- **No arrays.** `array.get` on an array with a *reference* element type
-  returns wrong values under the JIT, silently, with no trap.
-- **No `ref.null none` reaching a concrete ref slot** — the bottom edge that
-  #224 reported and #231 fixed. A guest carrying it (a `Node?` linked list)
-  now validates where it previously did not, but the JIT then computes 0
-  against wasmtime's and the interpreter's 140. So this fixture **does not
-  guard the #231 regression**: it is verified to pass both pre-#231
-  (`28964b42a`) and post-#231, because the shapes that separate them are the
-  shapes the JIT gets wrong.
+- **No loops** (#244, with #246 behind how it surfaces). A `loop` whose block
+  type takes a parameter traps `unreachable` in the interpreter, where
+  wasmtime and the JIT both compute it; `block (param …)` is fine. moonc
+  emits that shape for every `for`, so any looping guest is interp-red. GC is
+  not involved — it reproduces in plain wat.
+- **No `ref.as_non_null` whose result outlives one more allocation** (#245).
+  Liveness models the op `1 → 1` while both emitters implement it as an
+  identity passthrough, so the allocator reuses the operand's register while
+  it is still live and the JIT returns wrong values silently. That single
+  root cause covers reference-element `array.get`, structs held in ref-typed
+  globals, and the bottom edge below. Substituting `ref.cast` — modelled
+  consistently — makes the same shapes correct, which is how the op was
+  isolated.
 
-What it does do is put a real wasm-gc-emitting toolchain into a lane that
+**This fixture does not guard the #231 regression**, which was the original
+intent. The bottom edge #224 reported and #231 fixed (`ref.null none` into a
+concrete ref slot) needs a guest like a `Node?` linked list; that guest now
+validates where it previously did not, and the JIT then answers 0 against
+wasmtime's and the interpreter's 140 — #245 again. So the fixture is verified
+to pass identically at `28964b42a` (pre-#231) and after, because every shape
+separating the two is a shape #245 breaks.
+
+**Upgrade path**: #245 alone unblocks it. With that issue's candidate
+one-line liveness change applied to `19df5e6e2` in a throwaway worktree, the
+bottom-edge guest returns 140 on both engines and this fixture still returns
+658. The linked-list shape uses recursion, not loops, so #244 does not also
+have to land first. When #245 ships, extend `gc_shapes.mbt` with the
+nullable-reference walk and this fixture starts guarding #231.
+
+What it does today is put a real wasm-gc-emitting toolchain into a lane that
 walks it and checks a value — the gap #226 records for the GC leg.
