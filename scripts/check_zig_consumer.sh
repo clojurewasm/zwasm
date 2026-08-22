@@ -8,9 +8,11 @@
 # (in-repo private module) cannot prove.
 #
 # NOT wired into the per-chunk gate: building it pulls the whole repo as a
-# dependency and transitively fetches the zlinter dev-dep (D-274), so it is
-# a manual / periodic check, like the 3-host gates. Exits non-zero on any
-# build/run failure (the consumer exits 2 unless add(2,40)==42).
+# dependency and rebuilds zwasm from a cold cache, so it is a manual /
+# periodic check, like the 3-host gates. (It no longer fetches anything:
+# since ADR-0214 the zlinter dev-dep belongs to tools/lint, not to the
+# package a consumer pulls.) Exits non-zero on any build/run failure (the
+# consumer exits 2 unless add(2,40)==42).
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root/docs/examples/zig_dep"

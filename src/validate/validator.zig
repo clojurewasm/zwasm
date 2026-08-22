@@ -859,7 +859,17 @@ pub const Validator = struct {
     /// a func returning structref / anyref must accept it). Needs
     /// `module_types_kinds` (threaded by frontendValidate, 10.G cycle 135).
     pub fn subtypeCtx(self: *const Validator, actual: ValType, expected: ValType) bool {
-        if (gc_subtype.valTypeIsSubtypeFree(actual, expected)) return true;
+        // The context-free helper approximates EVERY concrete head as `func`
+        // (ADR-0123: pre-GC the type section held only func types). Once
+        // `module_types_kinds` is threaded that approximation is WRONG for a
+        // struct/array typedef, so it must not short-circuit ahead of the
+        // kind-aware arm below — else `(ref null $struct)` satisfies a
+        // `funcref` slot and the reference is later read as a func entity.
+        // With no kinds threaded the arm's own `.func` fallback reproduces
+        // the ADR-0123 answer, so pre-GC callers are unaffected.
+        const concrete_to_abstract = actual == .ref and expected == .ref and
+            actual.ref.heap_type == .concrete and expected.ref.heap_type == .abstract;
+        if (!concrete_to_abstract and gc_subtype.valTypeIsSubtypeFree(actual, expected)) return true;
         if (actual != .ref or expected != .ref) return false;
         if (actual.ref.nullable and !expected.ref.nullable) return false;
         return switch (actual.ref.heap_type) {
@@ -2566,14 +2576,14 @@ pub const Validator = struct {
         switch (lt) {
             .empty => return Error.StackTypeMismatch,
             .single => |t| {
-                if (!is_bot and !gc_subtype.valTypeIsSubtypeFree(narrowed_ref, t)) {
+                if (!is_bot and !self.subtypeCtx(narrowed_ref, t)) {
                     return Error.StackTypeMismatch;
                 }
                 // Prefix is empty; no further pop/push.
             },
             .multi => |ts| {
                 if (ts.len == 0) return Error.StackTypeMismatch;
-                if (!is_bot and !gc_subtype.valTypeIsSubtypeFree(narrowed_ref, ts[ts.len - 1])) return Error.StackTypeMismatch;
+                if (!is_bot and !self.subtypeCtx(narrowed_ref, ts[ts.len - 1])) return Error.StackTypeMismatch;
                 const prefix = ts[0 .. ts.len - 1];
                 var i: usize = prefix.len;
                 while (i > 0) {

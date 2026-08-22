@@ -111,6 +111,28 @@ bash scripts/ci_gate.sh                    # core (fmt + test-all)
 ZWASM_CI_EXTENDED=1 bash scripts/ci_gate.sh  # + lint/DCE/AOT/zone checks (Unix)
 ```
 
+## Cutting a release
+
+Releases are cut by hand, by a maintainer, and never by automation acting on
+its own (ADR-0156). Three manual steps; the rest is the `release` workflow.
+
+1. **Bump `.version` in `build.zig.zon`.** SemVer against the previous tag —
+   `git log v<previous>..main --no-merges` is the input to that call.
+2. **Add the CHANGELOG section** for the new version, dated.
+3. **Push the tag.** `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds
+and packages all four targets in ReleaseSafe (macOS aarch64, Linux
+x86_64/aarch64, Windows x86_64), then creates the GitHub Release with the
+archives and `SHA256SUMS`. Nothing else in this repository needs touching.
+
+**One step is outside this repository and is not automated: the Homebrew
+formula.** `zwasm/homebrew-tap`'s `Formula/zwasm.rb` pins the release URL
+and its sha256, so until it is updated `brew install zwasm/tap/zwasm` still
+installs the previous version — while the README points readers at exactly
+that command. Update the formula as part of the release, not after someone
+reports it.
+
 ## Git hooks (recommended)
 
 The repo ships its hooks in `.githooks/` (fast static checks at commit,

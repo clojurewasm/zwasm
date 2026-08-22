@@ -21,11 +21,17 @@ cd "$(dirname "$0")/.."
 
 echo "[ci_gate] host: $(uname -s) — zig $(zig version)"
 
-echo "[ci_gate] (1/3) zig fmt --check src/ bench/latency/"
+echo "[ci_gate] (1/3) zig fmt --check src/ bench/latency/ tools/"
 zig fmt --check src/
 # bench/latency/ is compiled by step 3 but lives outside src/, so without this
 # it would be the one Zig file in the tree whose formatting can drift silently.
 zig fmt --check bench/latency/
+# tools/lint/build.zig is only built by the extended leg's `zig build lint`,
+# so without this its formatting would drift unchecked on every PR. The
+# exclude is load-bearing: zig unpacks packages into <build root>/zig-pkg,
+# and `zig fmt` recurses into it (it skips .zig-cache on its own, not this),
+# so without it a zlinter/zls bump could red this gate on a vendored file.
+zig fmt --check --exclude tools/lint/zig-pkg tools/
 
 echo "[ci_gate] (2/3) zig build test-all"
 zig build test-all

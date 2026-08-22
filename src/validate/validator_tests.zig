@@ -411,6 +411,29 @@ test "subtypeCtx / gcValTypeSubtype: bottom heap types reach concrete typedefs, 
         .{ .a = abs(.none, true), .e = conc(S_IDX, false), .want = false, .why = "nullref does NOT satisfy a non-null (ref $struct)" },
         // An out-of-range type index is malformed; refuse rather than guess.
         .{ .a = abs(.none, true), .e = conc(99, true), .want = false, .why = "out-of-range typeidx is refused" },
+
+        // The MIRROR arm — concrete actual, abstract expected. Asserted here
+        // for the same reason: it is the other half of the same rule and the
+        // two implementations hold separate copies of it. `Heaptype_sub/
+        // {struct,array,func}` plus the abstract lattice, so a struct typedef
+        // reaches struct/eq/any and a func typedef reaches only func.
+        .{ .a = conc(S_IDX, true), .e = abs(.struct_, true), .want = true, .why = "(ref null $struct) -> structref" },
+        .{ .a = conc(S_IDX, true), .e = abs(.eq, true), .want = true, .why = "(ref null $struct) -> eqref" },
+        .{ .a = conc(S_IDX, true), .e = abs(.any, true), .want = true, .why = "(ref null $struct) -> anyref" },
+        .{ .a = conc(A_IDX, true), .e = abs(.array, true), .want = true, .why = "(ref null $array) -> arrayref" },
+        .{ .a = conc(A_IDX, true), .e = abs(.any, true), .want = true, .why = "(ref null $array) -> anyref" },
+        .{ .a = conc(F_IDX, true), .e = abs(.func, true), .want = true, .why = "(ref null $func) -> funcref" },
+        .{ .a = conc(S_IDX, true), .e = abs(.func, true), .want = false, .why = "struct typedef does NOT reach funcref" },
+        .{ .a = conc(F_IDX, true), .e = abs(.any, true), .want = false, .why = "func typedef does NOT reach anyref" },
+        .{ .a = conc(S_IDX, true), .e = abs(.i31, true), .want = false, .why = "struct typedef does NOT reach i31ref" },
+        .{ .a = conc(S_IDX, true), .e = abs(.none, true), .want = false, .why = "a typedef never reaches a bottom head" },
+        // NOTE: `conc(<out of range>, _)` vs an abstract head is deliberately
+        // NOT asserted. The two implementations pick DIFFERENT fallback heads
+        // there — `subtypeCtx` assumes `.func`, `gcValTypeSubtype` assumes
+        // `.any` — so they disagree. It is unreachable from a module (the
+        // type-index range check rejects the binary first; verified against
+        // `wasm-tools` on a hand-patched out-of-range typeidx), so this
+        // asserts only what a module can actually produce.
     };
 
     for (rows) |r| {

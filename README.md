@@ -264,6 +264,7 @@ docs/        Tutorial + API reference + benchmarks
 scripts/     pre-commit gate + integrity checks + bench tooling
 test/        per-layer suites; unified `zig build test-all`
 bench/       benchmark history (append-only)
+tools/lint/  the `zig build lint` sub-build (the only thing with a dep)
 ```
 
 ## Documentation
