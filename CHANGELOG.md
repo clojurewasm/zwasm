@@ -8,6 +8,21 @@ zwasm v2 is a ground-up redesign of v1. **v1 ABI compatibility is out of
 scope** — see [`docs/migration_v1_to_v2.md`](docs/migration_v1_to_v2.md).
 SemVer compatibility guarantees start at the first stable `v2.0.0` tag.
 
+## [Unreleased]
+
+### Changed
+
+- **Building zwasm no longer fetches anything** (#235). `build.zig` imported
+  the zlinter dev-dep at the top level, so every step — including
+  `static-lib`, the one C and Rust consumers build — had to resolve the lint
+  tool first, pulling zlinter, zls, diffz, known_folders and lsp_kit from
+  GitHub. Packaged consumers (the `zwasm-sys` crate), `cargo vendor
+  --offline`, sandboxed builders and offline CI all failed on it. The lint
+  wiring moved to `tools/lint/build.zig` with its own manifest (ADR-0214);
+  the root package now declares no dependencies at all. `zig build lint` is
+  unchanged in rules, coverage and exit code — it is the only step that still
+  needs the network on a cold package store.
+
 ## [2.5.0] - 2026-08-11
 
 ### Added

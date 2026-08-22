@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-commit gate. Runs (in order):
 #   1. Diff classification (docs-only / src-touching / ADR-touching) — drives short-circuits.
-#   2. zig fmt --check src/ docs/examples/ bench/latency/         — always.
+#   2. zig fmt --check src/ docs/examples/ bench/latency/ tools/   — always.
 #   3. scripts/zone_check.sh --gate                          — skipped on docs-only.
 #   4. scripts/file_size_check.sh --gate                    — skipped on docs-only.
 #   5. scripts/check_skip_adrs.sh --gate                     — skipped on docs-only.
@@ -115,7 +115,7 @@ fi
 
 # --- gate: zig fmt (always) ---------------------------------------------
 
-echo "[gate_commit] zig fmt --check src/ docs/examples/ bench/latency/ ..."
+echo "[gate_commit] zig fmt --check src/ docs/examples/ bench/latency/ tools/ ..."
 if [ -d src ] && [ -n "$(find src -name '*.zig' 2>/dev/null | head -1)" ]; then
     zig fmt --check src/
     # docs/examples/ carries committable .zig consumers (zig_dep / zig_host); keep
@@ -130,6 +130,12 @@ if [ -d src ] && [ -n "$(find src -name '*.zig' 2>/dev/null | head -1)" ]; then
     # for the same reason docs/examples/ did.
     if [ -d bench/latency ] && [ -n "$(find bench/latency -name '*.zig' 2>/dev/null | head -1)" ]; then
         zig fmt --check bench/latency/
+    fi
+    # tools/ carries the lint sub-build (ADR-0214), which only `zig build lint`
+    # compiles — same reason again. --exclude because zig unpacks packages
+    # into tools/lint/zig-pkg and `zig fmt` recurses into it.
+    if [ -d tools ] && [ -n "$(find tools -name '*.zig' 2>/dev/null | head -1)" ]; then
+        zig fmt --check --exclude tools/lint/zig-pkg tools/
     fi
 else
     echo "(no src/*.zig yet — skipping fmt)"
