@@ -887,12 +887,13 @@ pub const Validator = struct {
             // (i31/struct/array <: eq <: any; bottoms <: all in their
             // hierarchy; cross-hierarchy rejected). e.g. a `(ref i31)`
             // value flowing into an anyref table.grow/fill/init
-            // (i31.wast $anyref_table_of_i31ref). An abstract head is
-            // never a subtype of a concrete type (the `none <: (ref $t)`
-            // bottom edge isn't exercised by the current corpus).
+            // (i31.wast $anyref_table_of_i31ref). The bottom heads also
+            // reach CONCRETE types (`Heaptype_sub/none` / `/nofunc`) —
+            // see `gcBottomReachesConcrete` for why that is neither
+            // "bottom implies true" nor the plain abstract lattice.
             .abstract => |a_abs| switch (expected.ref.heap_type) {
                 .abstract => |e_abs| gc_subtype.gcHeapAbstractSubtype(a_abs, e_abs),
-                .concrete => false,
+                .concrete => |e_idx| gc_subtype.gcBottomReachesConcrete(a_abs, e_idx, self.module_types_kinds),
             },
         };
     }
