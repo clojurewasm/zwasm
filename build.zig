@@ -1,19 +1,4 @@
 const std = @import("std");
-// TODO(adr-0009): drop zlinter dep when Zig ships @deprecated()
-// builtin + -fdeprecated flag (ziglang/zig#22822, accepted on
-// urgent milestone, expected 0.17+). Tracked in
-// .dev/proposal_watch.md.
-//
-// D-274 (accepted): this top-level comptime `@import` makes zlinter an
-// EAGER dependency — a library consumer pulling zwasm transitively fetches
-// the lint tool. `.lazy = true` cannot fix it (the unconditional comptime
-// `@import` resolves zlinter regardless of the lazy flag, and zlinter's
-// `builder()` build-helper API is only reachable via this `@import`, not via
-// `b.lazyDependency`). The eager fetch is a one-time cached cost that
-// dissolves entirely when this dep is dropped at Zig 0.17+ (the TODO above),
-// so the lazy restructuring is not worth it.
-const zlinter = @import("zlinter");
-
 // Single source of truth for the version string: read it from build.zig.zon
 // and thread it through `build_options` so `zwasm.version` / `--version`
 // can never drift from the published package version (and the tag).
@@ -1583,22 +1568,40 @@ pub fn build(b: *std.Build) void {
     test_all_step.dependOn(&run_wasmtime_misc_runtime.step);
     test_all_step.dependOn(&run_zig_facade.step);
 
-    // `zig build lint` — zlinter rule chain (ADR-0009 + Phase B
-    // expansion). See `private/zlinter-builtins-survey-2026-05-03.md`
-    // for per-rule rationale and the spike-time finding counts.
-    // Mac-host gate; not part of test-all (avoids fetching zlinter
-    // on the Linux/Windows runners). Run with `--max-warnings 0`
-    // for strict CI semantics.
+    // `zig build lint` — the zlinter rule chain, which lives in
+    // `tools/lint/build.zig` with its own manifest so that this package
+    // depends on nothing (ADR-0214). A top-level `@import("zlinter")` here
+    // would make the lint tool a hard prerequisite of every step, including
+    // `static-lib`, which C and Rust consumers build (#235). Mac-host gate;
+    // not part of test-all. Run with `--max-warnings 0` for strict CI
+    // semantics — extra args reach the linter through `b.args`.
+    //
+    // Re-measured on zig 0.16.0 + the pinned zlinter 2026-08-22, reversing
+    // D-274: `.lazy = true` alone still cannot fix it (an unfetched lazy dep
+    // makes the comptime `@import` fail with "no module named 'zlinter'"),
+    // and `builder()` is still unreachable via `b.lazyDependency` —
+    // `std.Build.Dependency` exposes only artifact/module/path. What D-274
+    // missed is that the import does not have to be in THIS build file.
     const lint_step = b.step("lint", "Lint source code (zlinter).");
-    lint_step.dependOn(blk: {
-        var builder = zlinter.builder(b, .{});
-        builder.addRule(.{ .builtin = .no_deprecated }, .{});
-        builder.addRule(.{ .builtin = .no_orelse_unreachable }, .{});
-        builder.addRule(.{ .builtin = .no_empty_block }, .{});
-        builder.addRule(.{ .builtin = .require_exhaustive_enum_switch }, .{});
-        builder.addRule(.{ .builtin = .no_unused }, .{});
-        break :blk builder.build();
+    const lint_run = b.addSystemCommand(&.{
+        b.graph.zig_exe,
+        "build",
+        "--build-file",
+        b.pathFromRoot("tools/lint/build.zig"),
+        "lint",
     });
+    // zlinter spawns the linter with the sub-build's root as its cwd but
+    // names the binary by a path relative to the invoking cwd, so the two
+    // have to agree.
+    lint_run.setCwd(b.path("tools/lint"));
+    // `--` so the sub-build hands them to zlinter instead of parsing them
+    // itself, keeping `zig build lint -- --max-warnings 0` working.
+    if (b.args) |args| {
+        lint_run.addArg("--");
+        lint_run.addArgs(args);
+    }
+    lint_run.stdio = .inherit;
+    lint_step.dependOn(&lint_run.step);
 }
 
 pub const WasmLevel = enum { v1_0, v2_0, v3_0 };

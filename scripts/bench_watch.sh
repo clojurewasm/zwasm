@@ -65,8 +65,11 @@ cp ./zig-out/bin/zwasm "$WORK/zwasm-head"
 
 echo "[bench_watch] building $BASE_REF (ReleaseFast)..."
 git worktree add --detach "$WORK/base" "$BASE_REF" >/dev/null
-# Best-effort dep-store reuse so the base build does not re-fetch packages.
-if [ -d zig-pkg ]; then cp -R zig-pkg "$WORK/base/zig-pkg"; fi
+# The base ref is the latest v* tag, which predates ADR-0214 and still
+# resolves zlinter from its own build.zig.zon. Seed its package store from
+# the lint sub-build's, which pins the same zlinter, so the base build does
+# not re-fetch. Drop this once the base tag is post-0214 and needs nothing.
+if [ -d tools/lint/zig-pkg ]; then cp -R tools/lint/zig-pkg "$WORK/base/zig-pkg"; fi
 (cd "$WORK/base" && zig build -Doptimize=ReleaseFast)
 cp "$WORK/base/zig-out/bin/zwasm" "$WORK/zwasm-base"
 
