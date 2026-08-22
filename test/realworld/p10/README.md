@@ -21,6 +21,13 @@ each toolchain.
 stubs. Artifact landing happens later (post-Accept of the 7 ADRs
 in 10.D).
 
+`moonbit/` is **not** one of those six and claims none of their exit
+criteria. It is a MoonBit `--target wasm-gc` fixture added because the GC
+row above is still unfilled and the lane had no wasm-gc-emitting toolchain
+walking it at all (#226). The four empty exit-criteria directories stay
+empty and stay #226's to account for. `moonbit/PROVENANCE.md` records what
+the fixture covers and the three engine defects that bound it.
+
 ## Skip-list
 
 Per-file header convention (wasmtime model, adopted per §4.4):
