@@ -15,8 +15,8 @@ A spec-compliant WebAssembly runtime written in Zig.
 - **Three execution backends** — interpreter, JIT (arm64 + x86_64) and AOT
   (`.cwasm`), differentially tested against each other.
 - **Embeddable, sandboxed by default** — C (standard `wasm-c-api`), Zig and
-  CLI surfaces; instances get finite fuel and memory budgets unless you opt
-  out.
+  CLI surfaces; the Zig API gives instances finite fuel, memory and table
+  budgets by default, and every surface can set them explicitly.
 
 > **Status**: feature-complete and green on the 3-OS CI matrix.
 > **`v2.0.0` is the first stable release** (SemVer starts there); the current
