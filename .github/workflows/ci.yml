@@ -138,9 +138,12 @@ jobs:
           ref: ${{ github.sha }}
 
       # zlinter and its transitive zls tree are dependencies of the lint
-      # sub-build only (ADR-0214), so they unpack under ./tools/lint/zig-pkg
-      # and only the extended leg's `zig build lint` resolves them — the core
-      # gate now runs with no package fetch at all. Cached because a transient
+      # sub-build only (ADR-0214). Zig unpacks packages into
+      # <build root>/zig-pkg, so theirs is ./tools/lint/zig-pkg, and only the
+      # extended leg's `zig build lint` resolves them — the core gate now runs
+      # with no package fetch at all. Restoring that directory is what removes
+      # the fetch (measured: with it present, lint completes offline against
+      # an empty global cache). Cached because a transient
       # TLS failure on that fetch would otherwise fail the gate no matter what
       # the change was — observed as "unable to discover remote git server
       # capabilities: TlsInitializationFailed".

@@ -77,13 +77,24 @@ Two mechanical constraints, both measured rather than assumed:
   repository root as an absolute path. Lint diagnostics therefore print
   absolute file paths; that is the only user-visible difference.
 
-**D3 — The CI dep cache follows the dependency.** `ci.yml` caches
-`tools/lint/zig-pkg`, keyed on `tools/lint/build.zig.zon`. The cache steps in
-`release.yml` and `bench_watch.yml` are deleted: those workflows resolve no
-packages at all now, so the steps cached an empty directory. `ci_gate.sh`
-gains `zig fmt --check tools/`, for the same reason `bench/latency/` is
-already there — the new build file is otherwise compiled only by the
-extended leg and its formatting would drift unchecked.
+**D3 — The CI dep cache follows the dependency.** Zig 0.16 unpacks fetched
+packages into `<build root>/zig-pkg`, and that directory is what makes a
+build network-free: with it present, an empty global cache and no network,
+`zig build lint` completes. So the cache moves with the dependency —
+`ci.yml` caches `tools/lint/zig-pkg`, keyed on `tools/lint/build.zig.zon`.
+The cache steps in `release.yml` and `bench_watch.yml` are deleted: those
+workflows resolve no packages at all now, so the steps cached an empty
+directory.
+
+`ci_gate.sh` and `gate_commit.sh` gain `zig fmt --check --exclude
+tools/lint/zig-pkg tools/`, for the same reason `bench/latency/` is already
+named there — the new build file is otherwise compiled only by the extended
+leg and its formatting would drift unchecked. The exclude is load-bearing
+and was measured, not assumed: `zig fmt` recurses into `zig-pkg` (it skips
+`.zig-cache` on its own, which is what makes this easy to miss), so without
+it a zlinter or zls bump could fail the core gate on a vendored file. No
+existing fmt target had this exposure — `docs/examples/zig_dep` reaches
+zwasm by a path dep, which is not unpacked.
 
 ## Consequences
 
@@ -103,6 +114,12 @@ extended leg and its formatting would drift unchecked.
 - The zlinter sunset (ADR-0009, ziglang/zig#22822) is unaffected: the TODO
   moves to `tools/lint/build.zig`. When it fires, the directory is deleted
   and the root `lint` step goes with it.
+- One transient, until the next tag: `bench_watch.sh` builds the latest `v*`
+  tag as its baseline, and every tag up to v2.5.0 still resolves zlinter
+  from its own root build file. Its package-store seed now copies from
+  `tools/lint/zig-pkg`, which pins the same zlinter — verified to build
+  v2.5.0 offline against an empty global cache. The seed line is deletable
+  once the baseline tag is post-0214.
 
 ## Revision history
 

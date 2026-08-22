@@ -132,9 +132,10 @@ if [ -d src ] && [ -n "$(find src -name '*.zig' 2>/dev/null | head -1)" ]; then
         zig fmt --check bench/latency/
     fi
     # tools/ carries the lint sub-build (ADR-0214), which only `zig build lint`
-    # compiles — same reason again.
+    # compiles — same reason again. --exclude because zig unpacks packages
+    # into tools/lint/zig-pkg and `zig fmt` recurses into it.
     if [ -d tools ] && [ -n "$(find tools -name '*.zig' 2>/dev/null | head -1)" ]; then
-        zig fmt --check tools/
+        zig fmt --check --exclude tools/lint/zig-pkg tools/
     fi
 else
     echo "(no src/*.zig yet — skipping fmt)"
