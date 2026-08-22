@@ -1,25 +1,64 @@
-# zwasm v2
+# zwasm
 
-A from-scratch WebAssembly runtime in Zig 0.16.0.
+A spec-compliant WebAssembly runtime written in Zig.
 
 [![CI](https://github.com/zwasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/zwasm/zwasm/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zwasm/zwasm)](https://github.com/zwasm/zwasm/releases)
 [![Zig](https://img.shields.io/badge/Zig-0.16.0-f7a41d?logo=zig&logoColor=white)](https://ziglang.org/)
 [![WebAssembly 3.0](https://img.shields.io/badge/WebAssembly-3.0-654ff0?logo=webassembly&logoColor=white)](https://webassembly.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-> **Status: feature-complete and green on the 3-OS CI matrix**
-> (macOS aarch64 + Linux x86_64 + Windows x86_64). Full WebAssembly 3.0 + WASI
-> 0.1, 0.2 (Component Model) and 0.3 (native async), interpreter + JIT
-> (arm64 / x86_64) + AOT (`.cwasm`), and the C / Zig / CLI surfaces are
-> settled. **`v2.0.0` is the first stable release** (SemVer starts here;
-> v1 is frozen at `v1.11.1`); the current line is on
-> [Releases](https://github.com/zwasm/zwasm/releases).
+- **Full spec coverage** — WebAssembly 3.0 (all 9 proposals), spec testsuite
+  green on macOS aarch64, Linux x86_64 and Windows x86_64. CI runs one engine;
+  wiring the JIT spec lane in is tracked in #205. WASI 0.1, 0.2 (Component
+  Model, on by default) and 0.3 (native async, opt-in).
+- **Three execution backends** — interpreter, JIT (arm64 + x86_64) and AOT
+  (`.cwasm`), differentially tested against each other on every change.
+  wasmtime is the external oracle for the interpreter and JIT; the AOT lane
+  against it runs on demand.
+- **Embeddable, sandboxed by default** — C (standard `wasm-c-api`), Zig and
+  CLI surfaces; the Zig API gives instances finite fuel, memory and table
+  budgets by default, and every surface can set them explicitly.
 
-v2 is a ground-up redesign of [zwasm v1](https://github.com/zwasm/zwasm)
-with day-one design for WebAssembly 3.0, wasm-c-api conformance, and
-dual-backend (interpreter + JIT-arm64 + JIT-x86) differential testing.
-v1 ABI compatibility is out of scope (v1 is frozen at `v1.11.1`; the v2
-line also relicensed from v1's MIT to Apache-2.0).
+> **Status**: feature-complete and green on the 3-OS CI matrix.
+> **`v2.0.0` is the first stable release** (SemVer starts there); the current
+> line is on [Releases](https://github.com/zwasm/zwasm/releases). v2 is a
+> ground-up redesign — v1 is frozen at
+> [`v1.11.1`](https://github.com/zwasm/zwasm/releases/tag/v1.11.1) (MIT), and
+> the v2 line is Apache-2.0 with no v1 ABI compatibility.
+
+## Install
+
+**Homebrew** (macOS arm64 / Linux):
+
+```sh
+brew install zwasm/tap/zwasm
+```
+
+The `zwasm` binary is not code-signed. Homebrew installs it without a
+Gatekeeper prompt on most setups; if macOS still blocks it as coming from an
+unidentified developer, clear the quarantine flag once:
+
+```sh
+xattr -d com.apple.quarantine "$(which zwasm)"
+```
+
+Or grab a prebuilt binary straight from the
+[Releases](https://github.com/zwasm/zwasm/releases) page (macOS arm64,
+Linux x86_64/aarch64, Windows x86_64). Building from source is
+[below](#building-from-source).
+
+Then run a module:
+
+```sh
+zwasm run hello.wasm                     # WASI _start / main
+zwasm run --invoke 'add=2,40' lib.wasm   # call a named export (prints 42)
+zwasm compile app.wasm -o app.cwasm      # AOT-compile, then run the artifact
+zwasm run app.cwasm
+```
+
+Full walkthrough (run, preopen dirs, embed from Zig and C):
+[`docs/tutorial.md`](docs/tutorial.md).
 
 ## Supported platforms
 
@@ -163,28 +202,18 @@ FFI-capable language, not just C.
 -Dstrip=true|false          # default false
 ```
 
-## Install
+## Ecosystem
 
-**Homebrew** (macOS arm64 / Linux):
+| Repository | What it is |
+| --- | --- |
+| [zwasm-rust-sdk](https://github.com/zwasm/zwasm-rust-sdk) | Safe Rust bindings (`zwasm-sdk` / `zwasm-sys` on crates.io) |
+| [containerd-shim-zwasm](https://github.com/zwasm/containerd-shim-zwasm) | containerd shim — run Wasm workloads on containerd |
+| [homebrew-tap](https://github.com/zwasm/homebrew-tap) | Homebrew formulae |
 
-```sh
-brew install zwasm/tap/zwasm
-```
+The org profile at [github.com/zwasm](https://github.com/zwasm) tracks the
+same list.
 
-The `zwasm` binary is not code-signed. Homebrew installs it without a
-Gatekeeper prompt on most setups; if macOS still blocks it as coming from an
-unidentified developer, clear the quarantine flag once:
-
-```sh
-xattr -d com.apple.quarantine "$(which zwasm)"
-```
-
-Or grab a prebuilt binary straight from the
-[Releases](https://github.com/zwasm/zwasm/releases) page (macOS arm64,
-Linux x86_64/aarch64, Windows x86_64). Building from source is in
-[Quick start](#quick-start) below.
-
-## Quick start
+## Building from source
 
 ```sh
 zig build              # compile the zwasm binary
@@ -206,6 +235,20 @@ automatically by CI on every pull request. The full development story
 Nix is optional: `nix develop` (or direnv) loads the pinned Zig 0.16.0
 and tool surface (`flake.nix`: hyperfine, wasm-tools, wasmtime, yq-go,
 lldb, nasm).
+
+## Community & contributing
+
+- **Questions, ideas, show & tell** →
+  [GitHub Discussions](https://github.com/zwasm/zwasm/discussions)
+- **Bugs / feature requests** →
+  [issue templates](https://github.com/zwasm/zwasm/issues/new/choose)
+- **First contribution?** Read
+  [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) and pick a
+  [`good first issue`](https://github.com/zwasm/zwasm/labels/good%20first%20issue)
+  — CI verifies the 3-OS matrix on every PR.
+- **Security** — report privately via
+  [security advisories](https://github.com/zwasm/zwasm/security/advisories/new),
+  never public issues ([`SECURITY.md`](.github/SECURITY.md)).
 
 ## Layout
 
