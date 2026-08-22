@@ -19,6 +19,16 @@ pub fn build(b: *std.Build) void {
     // linter runs with `tools/lint` as its cwd, hence an absolute path.
     const repo_root = b.pathFromRoot("../..");
 
+    // Fail closed on a mis-resolved root. Measured: an include root that does
+    // not exist panics in zlinter's walk, but one that exists and holds no
+    // Zig files reports "No issues!" and exits 0 — a lint gate that passes
+    // having linted nothing. This turns that into a build error.
+    b.build_root.handle.access(b.graph.io, "../../src", .{ .read = true }) catch |err|
+        std.debug.panic(
+            "lint root {s} does not contain src/ ({s}) — tools/lint moved?",
+            .{ repo_root, @errorName(err) },
+        );
+
     // Rule chain per ADR-0009 + the Phase B expansion. See
     // `private/zlinter-builtins-survey-2026-05-03.md` for per-rule rationale
     // and the spike-time finding counts.

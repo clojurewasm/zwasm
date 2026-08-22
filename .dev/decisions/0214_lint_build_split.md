@@ -66,7 +66,7 @@ Run step that spawns `zig build --build-file tools/lint/build.zig lint` with
 extended leg still fails on a lint error. `b.args` is forwarded, keeping the
 documented `zig build lint -- --max-warnings 0` form working.
 
-Two mechanical constraints, both measured rather than assumed:
+Three mechanical constraints, all measured rather than assumed:
 
 - The sub-build's cwd must be its own build root. zlinter spawns the linter
   binary by a path relative to the invoking cwd but sets the child's cwd to
@@ -76,6 +76,12 @@ Two mechanical constraints, both measured rather than assumed:
   to the build root, which is now `tools/lint`, so the step passes the
   repository root as an absolute path. Lint diagnostics therefore print
   absolute file paths; that is the only user-visible difference.
+- That explicit path has to fail closed. An include root that does not exist
+  panics in zlinter's directory walk, but one that exists and holds no Zig
+  files reports `No issues!` and exits 0 — a lint gate green on nothing.
+  Naming the tree traded a self-evidently correct default for a computed
+  path, so `tools/lint/build.zig` asserts the resolved root contains `src/`
+  and panics otherwise. Both branches verified.
 
 **D3 — The CI dep cache follows the dependency.** Zig 0.16 unpacks fetched
 packages into `<build root>/zig-pkg`, and that directory is what makes a
