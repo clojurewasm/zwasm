@@ -15,6 +15,7 @@ const validator = @import("validator.zig");
 const zir = @import("../ir/zir.zig");
 
 const sections = @import("../parse/sections.zig");
+const gc_subtype = @import("gc_subtype.zig");
 
 const validateFunction = validator.validateFunction;
 const validateFunctionWithTags = validator.validateFunctionWithTags;
@@ -318,6 +319,110 @@ test "subtypeCtx: concrete (ref $sub) <: (ref $super) via declared supertype cha
     const ref_super: ValType = .{ .ref = .{ .nullable = false, .heap_type = .{ .concrete = 0 } } };
     try testing.expect(v.subtypeCtx(ref_sub, ref_super));
     try testing.expect(!v.subtypeCtx(ref_super, ref_sub));
+}
+
+test "subtypeCtx / gcValTypeSubtype: bottom heap types reach concrete typedefs, non-bottom heads never do (#224)" {
+    // Wasm 3.0 GC `Heaptype_sub/none` and `/nofunc`: `NONE <: ht` holds for
+    // every `ht <: ANY`, `NOFUNC <: ht` for every `ht <: FUNC`, and a
+    // concrete `$t`'s head is the kind of its typedef. So `none` reaches a
+    // struct or array typedef but NOT a func one, `nofunc` reaches only the
+    // func one, and `noextern` / `noexn` reach nothing concrete — no
+    // comptype expands to an extern or exn type. Hard-coding this arm to
+    // `false` rejected MoonBit's wasm-gc output (#224); hard-coding it to
+    // `true` for every bottom would accept the cross-hierarchy rows below.
+    //
+    // The non-bottom rows are why the check cannot just reuse the abstract
+    // lattice: the spec derives `deftype <: STRUCT`, never `STRUCT <:
+    // deftype`, and the lattice's reflexive arm would answer yes.
+    //
+    // Every row is asserted against BOTH implementations — the per-function
+    // `subtypeCtx` and the module-level `gcValTypeSubtype`. They are separate
+    // copies of this rule; the pairing is what keeps them from drifting.
+    const S_IDX: u32 = 0; // structdef
+    const A_IDX: u32 = 1; // arraydef
+    const F_IDX: u32 = 2; // func
+
+    var kinds = [_]sections.TypeKind{ .structdef, .arraydef, .func };
+    var sup = [_][]const u32{ &.{}, &.{}, &.{} };
+    const empty_fields = [_]sections.StructFieldType{};
+    var sdefs = [_]?sections.StructDef{ .{ .fields = &empty_fields }, null, null };
+    var adefs = [_]?sections.ArrayDef{ null, .{ .element = gcField(.i32, false) }, null };
+    var items = [_]FuncType{
+        .{ .params = &.{}, .results = &.{} },
+        .{ .params = &.{}, .results = &.{} },
+        .{ .params = &.{}, .results = &.{} },
+    };
+    var fin = [_]bool{ true, true, true };
+    const t: sections.Types = .{ .arena = undefined, .items = &items, .kinds = &kinds, .struct_defs = &sdefs, .array_defs = &adefs, .supertypes = &sup, .finals = &fin };
+
+    const v: validator.Validator = .{
+        .sig = empty_sig,
+        .locals = &.{},
+        .body = &.{},
+        .pos = 0,
+        .func_types = &.{},
+        .globals = &.{},
+        .module_types = &.{},
+        .data_count = 0,
+        .tables = &.{},
+        .elem_count = 0,
+        .module_types_kinds = &kinds,
+        .supertypes = &sup,
+    };
+
+    const Row = struct { a: ValType, e: ValType, want: bool, why: []const u8 };
+    const abs = struct {
+        fn f(h: zir.AbstractHeapType, nullable: bool) ValType {
+            return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .abstract = h } } };
+        }
+    }.f;
+    const conc = struct {
+        fn f(i: u32, nullable: bool) ValType {
+            return .{ .ref = .{ .nullable = nullable, .heap_type = .{ .concrete = i } } };
+        }
+    }.f;
+
+    const rows = [_]Row{
+        // `NONE <: ht` for `ht <: ANY` — struct and array typedefs qualify.
+        .{ .a = abs(.none, true), .e = conc(S_IDX, true), .want = true, .why = "none -> struct typedef" },
+        .{ .a = abs(.none, true), .e = conc(A_IDX, true), .want = true, .why = "none -> array typedef" },
+        .{ .a = abs(.none, false), .e = conc(S_IDX, false), .want = true, .why = "(ref none) -> (ref $struct)" },
+        // `NOFUNC <: ht` for `ht <: FUNC` — only a func typedef qualifies.
+        .{ .a = abs(.nofunc, true), .e = conc(F_IDX, true), .want = true, .why = "nofunc -> func typedef" },
+        // Cross-hierarchy: a func typedef is not `<: ANY`, a struct/array
+        // typedef is not `<: FUNC`.
+        .{ .a = abs(.none, true), .e = conc(F_IDX, true), .want = false, .why = "none does NOT reach a func typedef" },
+        .{ .a = abs(.nofunc, true), .e = conc(S_IDX, true), .want = false, .why = "nofunc does NOT reach a struct typedef" },
+        .{ .a = abs(.nofunc, true), .e = conc(A_IDX, true), .want = false, .why = "nofunc does NOT reach an array typedef" },
+        // The extern / exn hierarchies have no concrete members at all.
+        .{ .a = abs(.noextern, true), .e = conc(S_IDX, true), .want = false, .why = "noextern reaches no typedef" },
+        .{ .a = abs(.noextern, true), .e = conc(F_IDX, true), .want = false, .why = "noextern reaches no typedef" },
+        .{ .a = abs(.noexn, true), .e = conc(S_IDX, true), .want = false, .why = "noexn reaches no typedef" },
+        .{ .a = abs(.noexn, true), .e = conc(F_IDX, true), .want = false, .why = "noexn reaches no typedef" },
+        // Non-bottom abstract heads never narrow to a concrete typedef —
+        // including the reflexive-looking same-kind pairs.
+        .{ .a = abs(.struct_, true), .e = conc(S_IDX, true), .want = false, .why = "structref is not a subtype of (ref $struct)" },
+        .{ .a = abs(.array, true), .e = conc(A_IDX, true), .want = false, .why = "arrayref is not a subtype of (ref $array)" },
+        .{ .a = abs(.func, true), .e = conc(F_IDX, true), .want = false, .why = "funcref is not a subtype of (ref $func)" },
+        .{ .a = abs(.any, true), .e = conc(S_IDX, true), .want = false, .why = "anyref is not a subtype of (ref $struct)" },
+        .{ .a = abs(.eq, true), .e = conc(S_IDX, true), .want = false, .why = "eqref is not a subtype of (ref $struct)" },
+        .{ .a = abs(.i31, true), .e = conc(S_IDX, true), .want = false, .why = "i31ref is not a subtype of (ref $struct)" },
+        // Nullability stays an independent gate in front of the bottom edge.
+        .{ .a = abs(.none, true), .e = conc(S_IDX, false), .want = false, .why = "nullref does NOT satisfy a non-null (ref $struct)" },
+        // An out-of-range type index is malformed; refuse rather than guess.
+        .{ .a = abs(.none, true), .e = conc(99, true), .want = false, .why = "out-of-range typeidx is refused" },
+    };
+
+    for (rows) |r| {
+        testing.expect(v.subtypeCtx(r.a, r.e) == r.want) catch |err| {
+            std.debug.print("subtypeCtx row failed: {s}\n", .{r.why});
+            return err;
+        };
+        testing.expect(gc_subtype.gcValTypeSubtype(r.a, r.e, &t) == r.want) catch |err| {
+            std.debug.print("gcValTypeSubtype row failed: {s}\n", .{r.why});
+            return err;
+        };
+    }
 }
 
 test "validate: packed i8 field — struct.get_s → i32, plain struct.get rejects (10.G cycle 147, ADR-0125)" {

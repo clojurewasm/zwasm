@@ -35,12 +35,20 @@ pub fn valTypeIsSubtypeFree(actual: ValType, expected: ValType) bool {
             // struct/array defs (non-func heads) enter module_types.
             .abstract => |e_abs| e_abs == .func,
         },
-        // An abstract head never narrows to a concrete type. Abstract→
-        // abstract follows the Wasm 3.0 GC §4.2.8 heap-type lattice
-        // (i31/eq/struct/array <: any, etc.), so (ref i31) satisfies an
-        // anyref slot — global.set/table-init/return into anyref of i31
-        // (gc/i31.5, i31.6). Pre-GC heads (func/extern) are disjoint, so
-        // this is identity for them (no regression).
+        // Abstract→abstract follows the Wasm 3.0 GC §4.2.8 heap-type
+        // lattice (i31/eq/struct/array <: any, etc.), so (ref i31)
+        // satisfies an anyref slot — global.set/table-init/return into
+        // anyref of i31 (gc/i31.5, i31.6). Pre-GC heads (func/extern)
+        // are disjoint, so this is identity for them (no regression).
+        //
+        // Abstract→concrete is UNDER-approximated as false here: the
+        // bottom heads DO reach concrete types (`Heaptype_sub/none`,
+        // `/nofunc`), but deciding which needs `$t`'s typedef kind,
+        // which this context-free helper cannot see. Callers that must
+        // honour the bottom edge use the context-aware `gcValTypeSubtype`
+        // or `Validator.subtypeCtx`, both of which start by calling this
+        // and only ever ADD acceptances — so the under-approximation is
+        // safe there, never load-bearing.
         .abstract => |a_abs| switch (eh) {
             .abstract => |e_abs| gcHeapAbstractSubtype(a_abs, e_abs),
             .concrete => false,
@@ -149,9 +157,37 @@ pub fn gcValTypeSubtype(actual: ValType, expected: ValType, types: *const sectio
         },
         .abstract => |a_abs| switch (eh) {
             .abstract => |e_abs| gcHeapAbstractSubtype(a_abs, e_abs),
-            .concrete => false,
+            .concrete => |e_idx| gcBottomReachesConcrete(a_abs, e_idx, types.kinds),
         },
     };
+}
+
+/// Wasm 3.0 GC `Heaptype_sub/{none,nofunc,noextern,noexn}` — the BOTTOM
+/// edge: `NONE <: ht` holds for every `ht <: ANY`, and `NOFUNC <: ht`
+/// for every `ht <: FUNC`. A concrete `$t`'s head is the kind of its
+/// typedef (`Heaptype_sub/{struct,array,func}`), so `none` reaches a
+/// struct/array typedef but NOT a func one, and `noextern`/`noexn`
+/// reach nothing concrete — no comptype expands to an extern or exn
+/// type. That asymmetry is why this is not "bottom implies true".
+///
+/// NON-bottom abstract heads never reach a concrete type: the spec
+/// derives `deftype <: STRUCT`, never `STRUCT <: deftype`. They must be
+/// gated out BEFORE `gcHeapAbstractSubtype`, whose reflexive arm would
+/// otherwise accept `structref <: (ref $struct)`.
+///
+/// An out-of-range `e_idx` is a malformed module (the index checks own
+/// that); refuse rather than guess a head.
+pub fn gcBottomReachesConcrete(a_abs: zir.AbstractHeapType, e_idx: u32, kinds: []const sections.TypeKind) bool {
+    switch (a_abs) {
+        .none, .nofunc, .noextern, .noexn => {},
+        .any, .eq, .i31, .struct_, .array, .func, .extern_, .exn => return false,
+    }
+    if (e_idx >= kinds.len) return false;
+    return gcHeapAbstractSubtype(a_abs, switch (kinds[e_idx]) {
+        .func => .func,
+        .structdef => .struct_,
+        .arraydef => .array,
+    });
 }
 
 /// Field/element subtyping: mutability must match; a `var` (mutable)
