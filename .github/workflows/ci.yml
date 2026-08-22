@@ -137,18 +137,18 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      # Fetched Zig package deps (zlinter + its transitive zls tree) land in
-      # ./zig-pkg. Without this cache every job re-fetches them from GitHub, so
-      # a transient TLS failure on that fetch fails the whole gate no matter
-      # what the change was — observed as
-      # "unable to discover remote git server capabilities: TlsInitializationFailed".
-      # zlinter is necessarily an EAGER dep (D-274), so `zig build test-all`
-      # cannot avoid resolving it; caching is what removes the per-run network.
+      # zlinter and its transitive zls tree are dependencies of the lint
+      # sub-build only (ADR-0214), so they unpack under ./tools/lint/zig-pkg
+      # and only the extended leg's `zig build lint` resolves them — the core
+      # gate now runs with no package fetch at all. Cached because a transient
+      # TLS failure on that fetch would otherwise fail the gate no matter what
+      # the change was — observed as "unable to discover remote git server
+      # capabilities: TlsInitializationFailed".
       - name: Cache Zig package deps
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: zig-pkg
-          key: zig-pkg-${{ matrix.name }}-${{ hashFiles('build.zig.zon') }}
+          path: tools/lint/zig-pkg
+          key: zig-pkg-${{ matrix.name }}-${{ hashFiles('tools/lint/build.zig.zon') }}
           restore-keys: |
             zig-pkg-${{ matrix.name }}-
 

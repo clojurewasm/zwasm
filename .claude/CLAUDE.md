@@ -177,6 +177,8 @@ docs (+ the frozen handover.md).
 `scripts/` gate, zone_check, file_size_check, bench, run_remote_*, ...
 `test/` unified `zig build test-all` aggregator + per-layer suites.
 `bench/` append-only benchmark history. `private/` gitignored scratch.
+`tools/lint/` the `zig build lint` sub-build — the only package here with
+a dependency (ADR-0214); the root `build.zig.zon` has none.
 
 ## Build & test (pointer)
 

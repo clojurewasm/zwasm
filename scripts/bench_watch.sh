@@ -65,8 +65,6 @@ cp ./zig-out/bin/zwasm "$WORK/zwasm-head"
 
 echo "[bench_watch] building $BASE_REF (ReleaseFast)..."
 git worktree add --detach "$WORK/base" "$BASE_REF" >/dev/null
-# Best-effort dep-store reuse so the base build does not re-fetch packages.
-if [ -d zig-pkg ]; then cp -R zig-pkg "$WORK/base/zig-pkg"; fi
 (cd "$WORK/base" && zig build -Doptimize=ReleaseFast)
 cp "$WORK/base/zig-out/bin/zwasm" "$WORK/zwasm-base"
 

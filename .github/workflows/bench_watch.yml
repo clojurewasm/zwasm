@@ -57,16 +57,6 @@ jobs:
           source .github/versions.lock
           echo "ZIG_VERSION=${ZIG_VERSION}" >> "$GITHUB_ENV"
 
-      # Same dep-store cache as ci.yml — zlinter is an eager dep, so both
-      # builds resolve it; the cache removes the per-run network fetch.
-      - name: Cache Zig package deps
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: zig-pkg
-          key: zig-pkg-${{ matrix.name }}-${{ hashFiles('build.zig.zon') }}
-          restore-keys: |
-            zig-pkg-${{ matrix.name }}-
-
       - name: Cache Zig
         id: cache-zig
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
