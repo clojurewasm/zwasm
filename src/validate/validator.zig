@@ -2576,14 +2576,14 @@ pub const Validator = struct {
         switch (lt) {
             .empty => return Error.StackTypeMismatch,
             .single => |t| {
-                if (!is_bot and !gc_subtype.valTypeIsSubtypeFree(narrowed_ref, t)) {
+                if (!is_bot and !self.subtypeCtx(narrowed_ref, t)) {
                     return Error.StackTypeMismatch;
                 }
                 // Prefix is empty; no further pop/push.
             },
             .multi => |ts| {
                 if (ts.len == 0) return Error.StackTypeMismatch;
-                if (!is_bot and !gc_subtype.valTypeIsSubtypeFree(narrowed_ref, ts[ts.len - 1])) return Error.StackTypeMismatch;
+                if (!is_bot and !self.subtypeCtx(narrowed_ref, ts[ts.len - 1])) return Error.StackTypeMismatch;
                 const prefix = ts[0 .. ts.len - 1];
                 var i: usize = prefix.len;
                 while (i > 0) {
