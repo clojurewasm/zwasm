@@ -57,7 +57,21 @@ interpreter was verified by hand (`zwasm run --engine interp --invoke test`
 ## Scope: what this fixture does NOT cover
 
 Measured 2026-08-22, x86_64-linux, Debug. Two engine defects bound the guest;
-both are `src/` product defects, filed separately, not worked around here:
+both are `src/` product defects, filed separately, not worked around here.
+
+The guest is written to steer around them, but what matters is the **emitted**
+module, not the source — moonc is free to introduce either shape on its own.
+Audit the committed bytes:
+
+```sh
+wasm-tools print gc_shapes.wasm | grep -cE 'ref\.as_non_null|\bloop\b'   # must be 0
+```
+
+Measured 0. The same command returns 1 on a guest that carries the bottom
+edge and 1 on the #244 repro, so it fires rather than being vacuous. The
+widest functype in the module has 1 result, well under #246's cap of 16.
+**Re-run this after any regeneration**: a moonc version that starts emitting
+either shape would change what a green lane means here, silently.
 
 - **No loops** (#244, with #246 behind how it surfaces). A `loop` whose block
   type takes a parameter traps `unreachable` in the interpreter, where
