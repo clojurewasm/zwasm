@@ -13,7 +13,9 @@ A spec-compliant WebAssembly runtime written in Zig.
   wiring the JIT spec lane in is tracked in #205. WASI 0.1, 0.2 (Component
   Model, on by default) and 0.3 (native async, opt-in).
 - **Three execution backends** — interpreter, JIT (arm64 + x86_64) and AOT
-  (`.cwasm`), differentially tested against each other.
+  (`.cwasm`), differentially tested against each other on every change.
+  wasmtime is the external oracle for the interpreter and JIT; the AOT lane
+  against it runs on demand.
 - **Embeddable, sandboxed by default** — C (standard `wasm-c-api`), Zig and
   CLI surfaces; the Zig API gives instances finite fuel, memory and table
   budgets by default, and every surface can set them explicitly.
