@@ -2,6 +2,32 @@
 # Query/edit discipline: .claude/rules/yaml_ssot_yq.md. yq = mikefarah Go v4.
 
 entries:
+  - id: "D-595"
+    layer: "ci"
+    status: "note"
+    description: |-
+      **The lint dep cache's `restore-keys` prefix still matches pre-0214
+      caches saved from the old path.** ADR-0214 moved `ci.yml`'s dep cache
+      to `tools/lint/zig-pkg`, keyed on `tools/lint/build.zig.zon`, but left
+      the `zig-pkg-${{ matrix.name }}-` restore-keys prefix, which also
+      matches entries saved when the store was root-level `zig-pkg`.
+      actions/cache extracts an entry to the paths it was saved from, not to
+      the `path` input, so a restore-keys hit recreates `./zig-pkg` and
+      leaves `tools/lint/zig-pkg` empty — the extended leg's `zig build lint`
+      then re-fetches zlinter once. Costs one fetch per matrix leg and heals
+      as soon as the first post-merge push to `main` saves a new-layout
+      entry under the primary key. Harmless beyond that: zlinter excludes any
+      path component named `zig-pkg`, so a stray root store is not linted,
+      and the root build resolves no packages. Fix if it ever matters: give
+      the key a new prefix (e.g. `lint-pkg-`) so it cannot collide.
+      Raised by external review on #239 R2; deferred per the stop criterion
+      (no fail-open, no false public number, no correctness regression).
+    first_raised: "2026-08-22"
+    last_reviewed: "2026-08-22"
+    refs: |-
+      ADR-0214 D3; .github/workflows/ci.yml (Cache Zig package deps);
+      PR #239.
+
   - id: "D-593"
     layer: "test"
     status: "note"
@@ -17,8 +43,10 @@ entries:
       `test-aot-diff`, alongside `zig build fuzz-campaign`;
       (2) converge on ci.yml's setup — `source .github/versions.lock` for
       every tool version (nightly hardcoded wasm-tools and drifted once,
-      `4bdf0dd2b`) and the `zig-pkg` dep cache (zlinter is an eager dep;
-      one fetch flake killed the whole job);
+      `4bdf0dd2b`) and a dep cache IF the revived job lints — since ADR-0214
+      zlinter belongs to the lint sub-build, so the store to cache is
+      `tools/lint/zig-pkg`, and a job that does not run `zig build lint`
+      resolves no packages and needs no cache at all;
       (3) decide spec-bump semantics BEFORE wiring it — `check_spec_bump.sh
       --gate` compares `.dev/spec_pin.yaml` against upstream HEAD, a moving
       target that re-reds after every bump (it is red today: pin 2026-06-14,
