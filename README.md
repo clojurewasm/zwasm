@@ -1,6 +1,6 @@
 # zwasm
 
-A fast, spec-compliant WebAssembly runtime written in Zig.
+A spec-compliant WebAssembly runtime written in Zig.
 
 [![CI](https://github.com/zwasm/zwasm/actions/workflows/ci.yml/badge.svg)](https://github.com/zwasm/zwasm/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/zwasm/zwasm)](https://github.com/zwasm/zwasm/releases)
@@ -8,9 +8,10 @@ A fast, spec-compliant WebAssembly runtime written in Zig.
 [![WebAssembly 3.0](https://img.shields.io/badge/WebAssembly-3.0-654ff0?logo=webassembly&logoColor=white)](https://webassembly.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-- **Full spec coverage** — WebAssembly 3.0 (all 9 proposals) with the spec
-  testsuite green on macOS aarch64, Linux x86_64 and Windows x86_64; WASI
-  0.1, 0.2 (Component Model, on by default) and 0.3 (native async, opt-in).
+- **Full spec coverage** — WebAssembly 3.0 (all 9 proposals), spec testsuite
+  green on macOS aarch64, Linux x86_64 and Windows x86_64. CI runs one engine;
+  wiring the JIT spec lane in is tracked in #205. WASI 0.1, 0.2 (Component
+  Model, on by default) and 0.3 (native async, opt-in).
 - **Three execution backends** — interpreter, JIT (arm64 + x86_64) and AOT
   (`.cwasm`), differentially tested against each other.
 - **Embeddable, sandboxed by default** — C (standard `wasm-c-api`), Zig and
