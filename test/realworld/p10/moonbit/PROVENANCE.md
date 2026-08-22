@@ -70,8 +70,14 @@ wasm-tools print gc_shapes.wasm | grep -cE 'ref\.as_non_null|\bloop\b'   # must 
 Measured 0. The same command returns 1 on a guest that carries the bottom
 edge and 1 on the #244 repro, so it fires rather than being vacuous. The
 widest functype in the module has 1 result, well under #246's cap of 16.
-**Re-run this after any regeneration**: a moonc version that starts emitting
-either shape would change what a green lane means here, silently.
+**Re-run this after any regeneration.**
+
+The audit is a diagnostic, not the safety net — the static `.expect` is.
+Measured by simulation: dropping a module that *does* emit `ref.as_non_null`
+into this lane with its wasmtime-correct expectation fails it
+(`expected i32:140, got i32:0`, lane exit 1). A regeneration that introduces
+a miscompiled shape therefore cannot pass quietly; it turns the lane red and
+the audit says why.
 
 - **No loops** (#244, with #246 behind how it surfaces). A `loop` whose block
   type takes a parameter traps `unreachable` in the interpreter, where
